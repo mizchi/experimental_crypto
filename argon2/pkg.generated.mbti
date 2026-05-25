@@ -19,7 +19,7 @@ pub suberror Argon2Error {
 } derive(Show)
 
 // Types and methods
-pub struct Params {
+pub(all) struct Params {
   variant : Variant
   m_cost : Int
   t_cost : Int
@@ -30,7 +30,7 @@ pub fn Params::default_id() -> Self
 pub fn Params::recommended_interactive() -> Self
 pub fn Params::recommended_sensitive() -> Self
 
-pub enum Variant {
+pub(all) enum Variant {
   Argon2d
   Argon2i
   Argon2id

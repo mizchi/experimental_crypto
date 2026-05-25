@@ -30,6 +30,7 @@ pub fn PublicKey::to_bytes(Self) -> Bytes
 pub struct SharedSecret {
   bytes : FixedArray[Byte]
 } derive(Eq)
+pub fn SharedSecret::to_bytes(Self) -> Bytes
 pub impl Show for SharedSecret
 
 // Type aliases

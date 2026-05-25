@@ -17,10 +17,11 @@ pub suberror AeadError {
   CiphertextTooShort
   AuthenticationFailed
   PlaintextTooLong
+  UnsupportedAlgorithm(Algorithm)
 } derive(Show)
 
 // Types and methods
-pub enum Algorithm {
+pub(all) enum Algorithm {
   Aes128Gcm
   Aes256Gcm
   ChaCha20Poly1305

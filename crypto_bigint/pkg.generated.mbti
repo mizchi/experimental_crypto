@@ -11,7 +11,7 @@ pub suberror CryptoBigintError {
 } derive(Show)
 
 // Types and methods
-pub struct Montgomery {
+pub(all) struct Montgomery {
   modulus : Uint
   r2 : Uint
   inv : UInt64
@@ -22,7 +22,7 @@ pub fn Montgomery::new(Uint) -> Self
 pub fn Montgomery::pow(Self, Uint, Uint) -> Uint
 pub fn Montgomery::to_mont(Self, Uint) -> Uint
 
-pub struct Uint {
+pub(all) struct Uint {
   limbs : FixedArray[UInt64]
 } derive(Eq)
 pub fn Uint::add_mod(Self, Self, Self) -> Self

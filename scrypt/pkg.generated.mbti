@@ -12,10 +12,11 @@ pub fn verify_encoded(String, Bytes) -> Unit raise ScryptError
 pub suberror ScryptError {
   InvalidParams(String)
   OutputTooLong
+  Pbkdf2Failure
 } derive(Show)
 
 // Types and methods
-pub struct Params {
+pub(all) struct Params {
   log_n : Int
   r : Int
   p : Int
