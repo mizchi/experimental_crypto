@@ -565,12 +565,120 @@ pub fn Encoder::new() -> Encoder {
 
 ///|
 pub fn Encoder::write_element(self : Encoder, element : Element) -> Unit {
-  let inner = Encoder::new()
-  encode_value(inner, element.value)
-  let payload = inner.finish()
+  // Single-pass encoding: compute payload size first (alloc-free traversal),
+  // then write tag + length + payload directly into the outer buffer. This
+  // avoids the inner Encoder + Bytes copy that the old two-pass version did.
+  let payload_size = value_encoded_size(element.value)
   write_tag(self, element.tag)
-  write_length(self, payload.length())
-  self.buf.write_bytes(payload)
+  write_length(self, payload_size)
+  encode_value(self, element.value)
+}
+
+///|
+fn value_encoded_size(value : Value) -> Int {
+  match value {
+    Null => 0
+    Boolean(_) => 1
+    Integer(b) => b.length()
+    OctetString(b) => b.length()
+    Utf8String(s) => utf8_byte_count(s)
+    PrintableString(s) => utf8_byte_count(s)
+    Ia5String(s) => utf8_byte_count(s)
+    UtcTime(s) => utf8_byte_count(s)
+    GeneralizedTime(s) => utf8_byte_count(s)
+    BitString(bs) => 1 + bs.bytes.length()
+    Oid(oid) => oid_encoded_size(oid)
+    Sequence(items) | Set(items) => {
+      let mut total = 0
+      for item in items {
+        total = total + element_encoded_size(item)
+      }
+      total
+    }
+    Unknown(b) => b.length()
+  }
+}
+
+///|
+fn element_encoded_size(elem : Element) -> Int {
+  let payload = value_encoded_size(elem.value)
+  tag_encoded_size(elem.tag) + length_encoded_size(payload) + payload
+}
+
+///|
+fn tag_encoded_size(tag : Tag) -> Int {
+  if tag.number < 31U {
+    1
+  } else {
+    let mut count = 1
+    let mut tmp = tag.number
+    while tmp > 0U {
+      count = count + 1
+      tmp = tmp >> 7
+    }
+    count
+  }
+}
+
+///|
+fn length_encoded_size(length : Int) -> Int {
+  if length < 128 {
+    1
+  } else {
+    let mut count = 1
+    let mut tmp = length
+    while tmp > 0 {
+      count = count + 1
+      tmp = tmp >> 8
+    }
+    count
+  }
+}
+
+///|
+fn oid_encoded_size(oid : ObjectIdentifier) -> Int {
+  if oid.arcs.length() < 2 {
+    abort("oid_encoded_size: OID has fewer than 2 arcs")
+  }
+  let first = oid.arcs[0] * 40U + oid.arcs[1]
+  let mut size = base128_size(first)
+  for i in 2..<oid.arcs.length() {
+    size = size + base128_size(oid.arcs[i])
+  }
+  size
+}
+
+///|
+fn base128_size(value : UInt) -> Int {
+  if value == 0U {
+    return 1
+  }
+  let mut count = 0
+  let mut tmp = value
+  while tmp > 0U {
+    count = count + 1
+    tmp = tmp >> 7
+  }
+  count
+}
+
+///|
+fn utf8_byte_count(s : String) -> Int {
+  let mut count = 0
+  for c in s {
+    let cp = c.to_int()
+    count = count +
+      (if cp < 0x80 {
+          1
+        } else if cp < 0x800 {
+          2
+        } else if cp < 0x10000 {
+          3
+        } else {
+          4
+        })
+  }
+  count
 }
 
 ///|
