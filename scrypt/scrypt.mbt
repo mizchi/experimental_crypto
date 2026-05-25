@@ -44,29 +44,43 @@ pub fn derive_key(
   let p = params.p
   let dk_len = params.dk_len
   let block_size = 128 * r // bytes per ROMix block
+  let words_per_block = 32 * r // 32r UInt32 words per ROMix block
 
   // Step 1: B = PBKDF2-HMAC-SHA256(password, salt, 1, p * 128 * r)
   let b_total = pbkdf2_call(password, salt, 1, p * block_size)
 
   // Step 2: for each of the p blocks, run ROMix in place.
-  let blocks = FixedArray::make(p * block_size, b'\x00')
-  for i in 0..<(p * block_size) {
-    blocks[i] = b_total[i]
-  }
+  // Unpack bytes → words once; pack back once at the end.
+  let block_words = FixedArray::make(p * words_per_block, 0U)
+  bytes_to_words(b_total, 0, block_words, 0, p * words_per_block)
   for i in 0..<p {
-    let off = i * block_size
-    let block = FixedArray::make(block_size, b'\x00')
-    for j in 0..<block_size {
-      block[j] = blocks[off + j]
-    }
-    let mixed = romix(block, n, r)
-    for j in 0..<block_size {
-      blocks[off + j] = mixed[j]
-    }
+    romix_words(block_words, i * words_per_block, n, r)
   }
   // Step 3: DK = PBKDF2-HMAC-SHA256(password, B, 1, dk_len)
-  let new_salt = Bytes::makei(p * block_size, fn(i) { blocks[i] })
+  let new_salt = Bytes::makei(p * block_size, fn(i) {
+    let w = block_words[i >> 2]
+    ((w >> ((i & 3) * 8)) & 0xFFU).to_byte()
+  })
   pbkdf2_call(password, new_salt, 1, dk_len)
+}
+
+///|
+/// Little-endian byte→UInt32 unpack. Reads `n_words * 4` bytes starting at
+/// `src_off` and writes `n_words` UInt32 starting at `dst_off`.
+fn bytes_to_words(
+  src : Bytes,
+  src_off : Int,
+  dst : FixedArray[UInt],
+  dst_off : Int,
+  n_words : Int,
+) -> Unit {
+  for i in 0..<n_words {
+    let off = src_off + i * 4
+    dst[dst_off + i] = src[off].to_uint() |
+      (src[off + 1].to_uint() << 8) |
+      (src[off + 2].to_uint() << 16) |
+      (src[off + 3].to_uint() << 24)
+  }
 }
 
 ///|
@@ -99,155 +113,188 @@ fn pbkdf2_call(
   }
 }
 
-// ─── ROMix ───────────────────────────────────────────────────────────────
+// ─── ROMix (word-based) ──────────────────────────────────────────────────
 
 ///|
-fn romix(b : FixedArray[Byte], n : Int, r : Int) -> FixedArray[Byte] {
-  let block_size = 128 * r
-  let v = FixedArray::make(n * block_size, b'\x00')
-  let x = FixedArray::make(block_size, b'\x00')
-  for i in 0..<block_size {
-    x[i] = b[i]
+/// ROMix over word-based block. Operates in-place on the slice of
+/// `block_words` starting at `block_off` of length `32 * r` UInt32.
+fn romix_words(
+  block_words : FixedArray[UInt],
+  block_off : Int,
+  n : Int,
+  r : Int,
+) -> Unit {
+  let words = 32 * r // 32r UInt32 = 128r bytes
+  // Allocate V as a single flat n × 32r UInt32 buffer (4 bytes per word).
+  let v = FixedArray::make(n * words, 0U)
+  let x = FixedArray::make(words, 0U)
+  let y = FixedArray::make(words, 0U)
+  for i in 0..<words {
+    x[i] = block_words[block_off + i]
   }
   // V[i] = X; X = BlockMix(X)
   for i in 0..<n {
-    let off = i * block_size
-    for j in 0..<block_size {
+    let off = i * words
+    for j in 0..<words {
       v[off + j] = x[j]
     }
-    let next = block_mix(x, r)
-    for j in 0..<block_size {
-      x[j] = next[j]
+    block_mix_words(x, y, r)
+    // x and y swap roles: after BlockMix, output is in y → copy to x for next iter
+    for j in 0..<words {
+      x[j] = y[j]
     }
   }
   // for N iterations: j = Integerify(X) mod N; X = BlockMix(X XOR V[j])
   for _ in 0..<n {
-    let j = integerify(x, r) % n.to_uint64()
-    let j_idx = j.to_int()
-    let off = j_idx * block_size
-    let xored = FixedArray::make(block_size, b'\x00')
-    for k in 0..<block_size {
-      xored[k] = (x[k].to_int() ^ v[off + k].to_int()).to_byte()
+    // Integerify: low 64 bits of the last 64-byte block. We only need mod N
+    // (n is a power of 2 in our range), but use the same general formula.
+    // Last 64-byte block sits at words[(2r - 1) * 16 ..= (2r - 1) * 16 + 15].
+    let last_off = (2 * r - 1) * 16
+    let lo = x[last_off].to_uint64()
+    let hi = x[last_off + 1].to_uint64()
+    let j_full = (hi << 32) | lo
+    let j_idx = (j_full % n.to_uint64()).to_int()
+    let v_off = j_idx * words
+    for k in 0..<words {
+      x[k] = x[k] ^ v[v_off + k]
     }
-    let next = block_mix(xored, r)
-    for k in 0..<block_size {
-      x[k] = next[k]
+    block_mix_words(x, y, r)
+    for k in 0..<words {
+      x[k] = y[k]
     }
   }
-  x
-}
-
-///|
-fn integerify(b : FixedArray[Byte], r : Int) -> UInt64 {
-  // Last 64-byte block of B, treated as a little-endian unsigned integer.
-  // For mod N we only need the low 64 bits.
-  let off = (2 * r - 1) * 64
-  let mut value : UInt64 = 0UL
-  for i = 7; i >= 0; i = i - 1 {
-    value = (value << 8) | b[off + i].to_uint64()
+  // Write back.
+  for i in 0..<words {
+    block_words[block_off + i] = x[i]
   }
-  value
 }
 
-// ─── BlockMix ────────────────────────────────────────────────────────────
+// ─── BlockMix (word-based) ───────────────────────────────────────────────
 
 ///|
-fn block_mix(b : FixedArray[Byte], r : Int) -> FixedArray[Byte] {
-  // B is 2r blocks of 64 bytes each.
+/// BlockMix specified by RFC 7914 over UInt32 words. Reads `in_words` of
+/// length `32r`, writes the result into `out_words` (same length).
+fn block_mix_words(
+  in_words : FixedArray[UInt],
+  out_words : FixedArray[UInt],
+  r : Int,
+) -> Unit {
+  // B is 2r blocks of 16 words (64 bytes) each.
   let block_count = 2 * r
-  let x = FixedArray::make(64, b'\x00')
-  for i in 0..<64 {
-    x[i] = b[(block_count - 1) * 64 + i]
+  // X = B[2r-1] (last 16-word block).
+  let x = FixedArray::make(16, 0U)
+  let last_off = (block_count - 1) * 16
+  for k in 0..<16 {
+    x[k] = in_words[last_off + k]
   }
-  let y = FixedArray::make(block_count * 64, b'\x00')
-  let tmp = FixedArray::make(64, b'\x00')
+  // For i in 0..2r: X = Salsa(X XOR B[i]); Y[i] = X
+  // Reorder mapping at write time: Y[0],Y[2],...,Y[2r-2],Y[1],Y[3],...,Y[2r-1]
+  // Index mapping: for input block i, output position is
+  //   if i even -> (i/2)
+  //   if i odd  -> r + (i-1)/2
   for i in 0..<block_count {
-    for k in 0..<64 {
-      tmp[k] = (x[k].to_int() ^ b[i * 64 + k].to_int()).to_byte()
+    let in_off = i * 16
+    for k in 0..<16 {
+      x[k] = x[k] ^ in_words[in_off + k]
     }
-    let mixed = salsa20_8(tmp)
-    for k in 0..<64 {
-      x[k] = mixed[k]
-      y[i * 64 + k] = mixed[k]
-    }
-  }
-  // Reorder: Y[0], Y[2], ..., Y[2r-2], Y[1], Y[3], ..., Y[2r-1]
-  let out = FixedArray::make(block_count * 64, b'\x00')
-  for i in 0..<r {
-    for k in 0..<64 {
-      out[i * 64 + k] = y[2 * i * 64 + k]
-    }
-    for k in 0..<64 {
-      out[(r + i) * 64 + k] = y[(2 * i + 1) * 64 + k]
+    salsa20_8_words(x)
+    let out_idx = if (i & 1) == 0 { i >> 1 } else { r + (i >> 1) }
+    let out_off = out_idx * 16
+    for k in 0..<16 {
+      out_words[out_off + k] = x[k]
     }
   }
-  out
 }
 
-// ─── Salsa20/8 core ──────────────────────────────────────────────────────
+// ─── Salsa20/8 core (in-place, word-based) ───────────────────────────────
 
 ///|
-fn salsa20_8(input : FixedArray[Byte]) -> FixedArray[Byte] {
-  // 64-byte input → 64-byte output. 8 rounds = 4 double rounds.
-  let x = FixedArray::make(16, 0U)
-  for i in 0..<16 {
-    let off = i * 4
-    x[i] = input[off].to_uint() |
-      (input[off + 1].to_uint() << 8) |
-      (input[off + 2].to_uint() << 16) |
-      (input[off + 3].to_uint() << 24)
-  }
-  let orig = FixedArray::make(16, 0U)
-  for i in 0..<16 {
-    orig[i] = x[i]
-  }
+/// Salsa20/8 over 16 UInt32 words, in place. Mutates `x`.
+fn salsa20_8_words(x : FixedArray[UInt]) -> Unit {
+  let x0 = x[0]
+  let x1 = x[1]
+  let x2 = x[2]
+  let x3 = x[3]
+  let x4 = x[4]
+  let x5 = x[5]
+  let x6 = x[6]
+  let x7 = x[7]
+  let x8 = x[8]
+  let x9 = x[9]
+  let x10 = x[10]
+  let x11 = x[11]
+  let x12 = x[12]
+  let x13 = x[13]
+  let x14 = x[14]
+  let x15 = x[15]
+  let mut v0 = x0
+  let mut v1 = x1
+  let mut v2 = x2
+  let mut v3 = x3
+  let mut v4 = x4
+  let mut v5 = x5
+  let mut v6 = x6
+  let mut v7 = x7
+  let mut v8 = x8
+  let mut v9 = x9
+  let mut v10 = x10
+  let mut v11 = x11
+  let mut v12 = x12
+  let mut v13 = x13
+  let mut v14 = x14
+  let mut v15 = x15
   for _ in 0..<4 {
     // Column round
-    x[4] = x[4] ^ rotl(x[0] + x[12], 7)
-    x[8] = x[8] ^ rotl(x[4] + x[0], 9)
-    x[12] = x[12] ^ rotl(x[8] + x[4], 13)
-    x[0] = x[0] ^ rotl(x[12] + x[8], 18)
-    x[9] = x[9] ^ rotl(x[5] + x[1], 7)
-    x[13] = x[13] ^ rotl(x[9] + x[5], 9)
-    x[1] = x[1] ^ rotl(x[13] + x[9], 13)
-    x[5] = x[5] ^ rotl(x[1] + x[13], 18)
-    x[14] = x[14] ^ rotl(x[10] + x[6], 7)
-    x[2] = x[2] ^ rotl(x[14] + x[10], 9)
-    x[6] = x[6] ^ rotl(x[2] + x[14], 13)
-    x[10] = x[10] ^ rotl(x[6] + x[2], 18)
-    x[3] = x[3] ^ rotl(x[15] + x[11], 7)
-    x[7] = x[7] ^ rotl(x[3] + x[15], 9)
-    x[11] = x[11] ^ rotl(x[7] + x[3], 13)
-    x[15] = x[15] ^ rotl(x[11] + x[7], 18)
+    v4 = v4 ^ rotl(v0 + v12, 7)
+    v8 = v8 ^ rotl(v4 + v0, 9)
+    v12 = v12 ^ rotl(v8 + v4, 13)
+    v0 = v0 ^ rotl(v12 + v8, 18)
+    v9 = v9 ^ rotl(v5 + v1, 7)
+    v13 = v13 ^ rotl(v9 + v5, 9)
+    v1 = v1 ^ rotl(v13 + v9, 13)
+    v5 = v5 ^ rotl(v1 + v13, 18)
+    v14 = v14 ^ rotl(v10 + v6, 7)
+    v2 = v2 ^ rotl(v14 + v10, 9)
+    v6 = v6 ^ rotl(v2 + v14, 13)
+    v10 = v10 ^ rotl(v6 + v2, 18)
+    v3 = v3 ^ rotl(v15 + v11, 7)
+    v7 = v7 ^ rotl(v3 + v15, 9)
+    v11 = v11 ^ rotl(v7 + v3, 13)
+    v15 = v15 ^ rotl(v11 + v7, 18)
     // Row round
-    x[1] = x[1] ^ rotl(x[0] + x[3], 7)
-    x[2] = x[2] ^ rotl(x[1] + x[0], 9)
-    x[3] = x[3] ^ rotl(x[2] + x[1], 13)
-    x[0] = x[0] ^ rotl(x[3] + x[2], 18)
-    x[6] = x[6] ^ rotl(x[5] + x[4], 7)
-    x[7] = x[7] ^ rotl(x[6] + x[5], 9)
-    x[4] = x[4] ^ rotl(x[7] + x[6], 13)
-    x[5] = x[5] ^ rotl(x[4] + x[7], 18)
-    x[11] = x[11] ^ rotl(x[10] + x[9], 7)
-    x[8] = x[8] ^ rotl(x[11] + x[10], 9)
-    x[9] = x[9] ^ rotl(x[8] + x[11], 13)
-    x[10] = x[10] ^ rotl(x[9] + x[8], 18)
-    x[12] = x[12] ^ rotl(x[15] + x[14], 7)
-    x[13] = x[13] ^ rotl(x[12] + x[15], 9)
-    x[14] = x[14] ^ rotl(x[13] + x[12], 13)
-    x[15] = x[15] ^ rotl(x[14] + x[13], 18)
+    v1 = v1 ^ rotl(v0 + v3, 7)
+    v2 = v2 ^ rotl(v1 + v0, 9)
+    v3 = v3 ^ rotl(v2 + v1, 13)
+    v0 = v0 ^ rotl(v3 + v2, 18)
+    v6 = v6 ^ rotl(v5 + v4, 7)
+    v7 = v7 ^ rotl(v6 + v5, 9)
+    v4 = v4 ^ rotl(v7 + v6, 13)
+    v5 = v5 ^ rotl(v4 + v7, 18)
+    v11 = v11 ^ rotl(v10 + v9, 7)
+    v8 = v8 ^ rotl(v11 + v10, 9)
+    v9 = v9 ^ rotl(v8 + v11, 13)
+    v10 = v10 ^ rotl(v9 + v8, 18)
+    v12 = v12 ^ rotl(v15 + v14, 7)
+    v13 = v13 ^ rotl(v12 + v15, 9)
+    v14 = v14 ^ rotl(v13 + v12, 13)
+    v15 = v15 ^ rotl(v14 + v13, 18)
   }
-  for i in 0..<16 {
-    x[i] = x[i] + orig[i]
-  }
-  let out = FixedArray::make(64, b'\x00')
-  for i in 0..<16 {
-    out[i * 4] = (x[i] & 0xFFU).to_byte()
-    out[i * 4 + 1] = ((x[i] >> 8) & 0xFFU).to_byte()
-    out[i * 4 + 2] = ((x[i] >> 16) & 0xFFU).to_byte()
-    out[i * 4 + 3] = ((x[i] >> 24) & 0xFFU).to_byte()
-  }
-  out
+  x[0] = v0 + x0
+  x[1] = v1 + x1
+  x[2] = v2 + x2
+  x[3] = v3 + x3
+  x[4] = v4 + x4
+  x[5] = v5 + x5
+  x[6] = v6 + x6
+  x[7] = v7 + x7
+  x[8] = v8 + x8
+  x[9] = v9 + x9
+  x[10] = v10 + x10
+  x[11] = v11 + x11
+  x[12] = v12 + x12
+  x[13] = v13 + x13
+  x[14] = v14 + x14
+  x[15] = v15 + x15
 }
 
 ///|
