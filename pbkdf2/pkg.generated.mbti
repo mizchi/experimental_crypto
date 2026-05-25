@@ -1,0 +1,25 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pbkdf2"
+
+// Values
+pub fn pbkdf2(HashAlg, Bytes, Bytes, Int, Int) -> Bytes raise Pbkdf2Error
+
+// Errors
+pub suberror Pbkdf2Error {
+  InvalidIterations
+  OutputTooLong
+  InvalidLength
+} derive(Show)
+
+// Types and methods
+pub enum HashAlg {
+  Sha1
+  Sha256
+  Sha384
+  Sha512
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+

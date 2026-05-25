@@ -1,0 +1,30 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/scrypt"
+
+// Values
+pub fn derive_key(Params, Bytes, Bytes) -> Bytes raise ScryptError
+
+pub fn hash_encoded(Params, Bytes, Bytes) -> String raise ScryptError
+
+pub fn verify_encoded(String, Bytes) -> Unit raise ScryptError
+
+// Errors
+pub suberror ScryptError {
+  InvalidParams(String)
+  OutputTooLong
+} derive(Show)
+
+// Types and methods
+pub struct Params {
+  log_n : Int
+  r : Int
+  p : Int
+  dk_len : Int
+} derive(Eq, Show)
+pub fn Params::recommended_interactive() -> Self
+pub fn Params::recommended_sensitive() -> Self
+
+// Type aliases
+
+// Traits
+

@@ -1,0 +1,51 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pkcs8"
+
+import {
+  "mizchi/asn1",
+  "mizchi/pem",
+  "mizchi/pkix",
+}
+
+// Values
+pub fn parse_der(Bytes) -> PrivateKeyInfo raise Pkcs8Error
+
+pub fn parse_encrypted_der(Bytes) -> EncryptedPrivateKeyInfo raise Pkcs8Error
+
+pub fn parse_encrypted_pem(String) -> EncryptedPrivateKeyInfo raise Pkcs8Error
+
+pub fn parse_pem(String) -> PrivateKeyInfo raise Pkcs8Error
+
+pub fn serialize_der(PrivateKeyInfo) -> Bytes
+
+pub fn serialize_encrypted_der(EncryptedPrivateKeyInfo) -> Bytes
+
+pub fn serialize_pem(PrivateKeyInfo) -> String
+
+// Errors
+pub suberror Pkcs8Error {
+  Asn1(@asn1.Asn1Error)
+  Pkix(@pkix.PkixError)
+  Pem(@pem.PemError)
+  InvalidVersion(Int)
+  UnexpectedStructure(String)
+} derive(Show)
+
+// Types and methods
+pub struct EncryptedPrivateKeyInfo {
+  algorithm : @pkix.AlgorithmIdentifier
+  encrypted_data : Bytes
+} derive(Eq, Show)
+
+pub struct PrivateKeyInfo {
+  version : Int
+  algorithm : @pkix.AlgorithmIdentifier
+  private_key : Bytes
+  attributes : Array[@asn1.Element]
+  public_key : @asn1.BitString?
+} derive(Show)
+
+// Type aliases
+
+// Traits
+

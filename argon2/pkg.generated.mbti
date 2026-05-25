@@ -1,0 +1,42 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/argon2"
+
+// Values
+pub fn hash_encoded(Params, Bytes, Bytes) -> String raise Argon2Error
+
+pub fn hash_raw(Params, Bytes, Bytes) -> Bytes raise Argon2Error
+
+pub fn hash_raw_with_ad(Params, Bytes, Bytes, Bytes, Bytes) -> Bytes raise Argon2Error
+
+pub fn verify_encoded(String, Bytes) -> Unit raise Argon2Error
+
+// Errors
+pub suberror Argon2Error {
+  InvalidParams(String)
+  InvalidOutputLength
+  InvalidEncoded(String)
+  VerifyFailed
+} derive(Show)
+
+// Types and methods
+pub struct Params {
+  variant : Variant
+  m_cost : Int
+  t_cost : Int
+  parallelism : Int
+  output_len : Int
+} derive(Eq, Show)
+pub fn Params::default_id() -> Self
+pub fn Params::recommended_interactive() -> Self
+pub fn Params::recommended_sensitive() -> Self
+
+pub enum Variant {
+  Argon2d
+  Argon2i
+  Argon2id
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+

@@ -1,0 +1,83 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pkix"
+
+import {
+  "mizchi/asn1",
+}
+
+// Values
+pub fn parse_certificate(Bytes) -> Certificate raise PkixError
+
+pub fn parse_name(Bytes) -> Name raise PkixError
+
+pub fn parse_subject_public_key_info(Bytes) -> SubjectPublicKeyInfo raise PkixError
+
+pub fn serialize_certificate(Certificate) -> Bytes
+
+pub fn serialize_name(Name) -> Bytes
+
+pub fn serialize_subject_public_key_info(SubjectPublicKeyInfo) -> Bytes
+
+// Errors
+pub suberror PkixError {
+  Asn1(@asn1.Asn1Error)
+  UnexpectedStructure(String)
+  UnsupportedVersion(Int)
+  UnsupportedAlgorithm(@asn1.ObjectIdentifier)
+  InvalidTime(String)
+} derive(Show)
+
+// Types and methods
+pub struct AlgorithmIdentifier {
+  algorithm : @asn1.ObjectIdentifier
+  parameters : Bytes?
+} derive(Eq, Show)
+
+pub struct AttributeTypeAndValue {
+  oid : @asn1.ObjectIdentifier
+  value : @asn1.Element
+} derive(Show)
+
+pub struct Certificate {
+  tbs : TbsCertificate
+  signature_algorithm : AlgorithmIdentifier
+  signature : @asn1.BitString
+} derive(Show)
+
+pub struct Extension {
+  oid : @asn1.ObjectIdentifier
+  critical : Bool
+  value : Bytes
+} derive(Show)
+
+pub struct Name {
+  rdns : Array[Array[AttributeTypeAndValue]]
+} derive(Show)
+
+pub struct SubjectPublicKeyInfo {
+  algorithm : AlgorithmIdentifier
+  subject_public_key : @asn1.BitString
+} derive(Show)
+
+pub struct TbsCertificate {
+  version : Int
+  serial_number : Bytes
+  signature : AlgorithmIdentifier
+  issuer : Name
+  validity : Validity
+  subject : Name
+  subject_public_key_info : SubjectPublicKeyInfo
+  issuer_unique_id : @asn1.BitString?
+  subject_unique_id : @asn1.BitString?
+  extensions : Array[Extension]
+} derive(Show)
+
+pub struct Validity {
+  not_before : String
+  not_after : String
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+

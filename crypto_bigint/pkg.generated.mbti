@@ -1,0 +1,47 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/crypto_bigint"
+
+// Values
+
+// Errors
+pub suberror CryptoBigintError {
+  InvalidLength
+  Overflow
+  NotInvertible
+} derive(Show)
+
+// Types and methods
+pub struct Montgomery {
+  modulus : Uint
+  r2 : Uint
+  inv : UInt64
+}
+pub fn Montgomery::from_mont(Self, Uint) -> Uint
+pub fn Montgomery::mul(Self, Uint, Uint) -> Uint
+pub fn Montgomery::new(Uint) -> Self
+pub fn Montgomery::pow(Self, Uint, Uint) -> Uint
+pub fn Montgomery::to_mont(Self, Uint) -> Uint
+
+pub struct Uint {
+  limbs : FixedArray[UInt64]
+} derive(Eq)
+pub fn Uint::add_mod(Self, Self, Self) -> Self
+pub fn Uint::bit_len(Self) -> Int
+pub fn Uint::ct_eq(Self, Self) -> Bool
+pub fn Uint::ct_lt(Self, Self) -> Bool
+pub fn Uint::from_be_bytes(Bytes, Int) -> Self raise CryptoBigintError
+pub fn Uint::from_le_bytes(Bytes, Int) -> Self raise CryptoBigintError
+pub fn Uint::inv_mod(Self, Self) -> Self raise CryptoBigintError
+pub fn Uint::mul_mod(Self, Self, Self) -> Self
+pub fn Uint::one(Int) -> Self
+pub fn Uint::pow_mod(Self, Self, Self) -> Self
+pub fn Uint::sub_mod(Self, Self, Self) -> Self
+pub fn Uint::to_be_bytes(Self) -> Bytes
+pub fn Uint::to_le_bytes(Self) -> Bytes
+pub fn Uint::zero(Int) -> Self
+pub impl Show for Uint
+
+// Type aliases
+
+// Traits
+

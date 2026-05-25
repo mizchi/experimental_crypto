@@ -1,0 +1,130 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/asn1"
+
+import {
+  "moonbitlang/core/buffer",
+}
+
+// Values
+pub fn decode_der(Bytes) -> Element raise Asn1Error
+
+pub fn decode_der_all(Bytes) -> Array[Element] raise Asn1Error
+
+pub fn encode_der(Element) -> Bytes
+
+pub fn read_length(Decoder) -> Int raise Asn1Error
+
+pub fn read_tag(Decoder) -> Tag raise Asn1Error
+
+pub let tag_bit_string : Tag
+
+pub let tag_boolean : Tag
+
+pub let tag_generalized_time : Tag
+
+pub let tag_ia5_string : Tag
+
+pub let tag_integer : Tag
+
+pub let tag_null : Tag
+
+pub let tag_octet_string : Tag
+
+pub let tag_oid : Tag
+
+pub let tag_printable_string : Tag
+
+pub let tag_sequence : Tag
+
+pub let tag_set : Tag
+
+pub let tag_utc_time : Tag
+
+pub let tag_utf8_string : Tag
+
+pub fn write_length(Encoder, Int) -> Unit
+
+pub fn write_tag(Encoder, Tag) -> Unit
+
+// Errors
+pub suberror Asn1Error {
+  TruncatedInput
+  UnexpectedTag(expected~ : Tag, got~ : Tag)
+  InvalidLength
+  InvalidEncoding(String)
+  Unsupported(String)
+  TrailingBytes(Int)
+} derive(Show)
+
+// Types and methods
+pub(all) struct BitString {
+  bytes : Bytes
+  unused_bits : Int
+} derive(Eq, Show)
+
+pub struct Decoder {
+  input : Bytes
+  mut pos : Int
+}
+pub fn Decoder::expect_tag(Self, Tag) -> Element raise Asn1Error
+pub fn Decoder::is_empty(Self) -> Bool
+pub fn Decoder::new(Bytes) -> Self
+pub fn Decoder::read_element(Self) -> Element raise Asn1Error
+pub fn Decoder::remaining(Self) -> Int
+
+pub struct Element {
+  tag : Tag
+  value : Value
+} derive(Show)
+pub fn Element::new(Tag, Value) -> Self
+
+pub struct Encoder {
+  buf : @buffer.Buffer
+}
+pub fn Encoder::finish(Self) -> Bytes
+pub fn Encoder::new() -> Self
+pub fn Encoder::write_element(Self, Element) -> Unit
+
+pub struct ObjectIdentifier {
+  arcs : Array[UInt]
+} derive(Eq, Hash, Show)
+pub fn ObjectIdentifier::from_arcs(Array[UInt]) -> Self
+pub fn ObjectIdentifier::from_string(String) -> Self raise Asn1Error
+pub fn ObjectIdentifier::to_string(Self) -> String
+
+pub struct Tag {
+  class_ : TagClass
+  number : UInt
+  constructed : Bool
+} derive(Eq, Hash, Show)
+pub fn Tag::context(UInt, constructed? : Bool) -> Self
+pub fn Tag::universal(UInt, constructed? : Bool) -> Self
+
+pub(all) enum TagClass {
+  Universal
+  Application
+  ContextSpecific
+  Private
+} derive(Eq, Hash, Show)
+
+pub(all) enum Value {
+  Boolean(Bool)
+  Integer(Bytes)
+  BitString(BitString)
+  OctetString(Bytes)
+  Null
+  Oid(ObjectIdentifier)
+  Utf8String(String)
+  PrintableString(String)
+  Ia5String(String)
+  UtcTime(String)
+  GeneralizedTime(String)
+  Sequence(Array[Element])
+  Set(Array[Element])
+  Unknown(Bytes)
+} derive(Show)
+
+// Type aliases
+
+// Traits
+

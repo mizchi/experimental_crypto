@@ -1,0 +1,36 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/aead"
+
+// Values
+pub fn open(Algorithm, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError
+
+pub fn open_detached(Algorithm, Bytes, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError
+
+pub fn seal(Algorithm, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError
+
+pub fn seal_detached(Algorithm, Bytes, Bytes, Bytes, Bytes) -> (Bytes, Bytes) raise AeadError
+
+// Errors
+pub suberror AeadError {
+  InvalidKeySize(expected~ : Int, got~ : Int)
+  InvalidNonceSize(expected~ : Int, got~ : Int)
+  CiphertextTooShort
+  AuthenticationFailed
+  PlaintextTooLong
+} derive(Show)
+
+// Types and methods
+pub enum Algorithm {
+  Aes128Gcm
+  Aes256Gcm
+  ChaCha20Poly1305
+  XChaCha20Poly1305
+} derive(Eq, Show)
+pub fn Algorithm::key_size(Self) -> Int
+pub fn Algorithm::nonce_size(Self) -> Int
+pub fn Algorithm::tag_size(Self) -> Int
+
+// Type aliases
+
+// Traits
+

@@ -1,0 +1,33 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pem"
+
+// Values
+pub fn decode(String) -> PemBlock raise PemError
+
+pub fn decode_all(String) -> Array[PemBlock] raise PemError
+
+pub fn encode(PemBlock) -> String
+
+pub fn encode_simple(String, Bytes) -> String
+
+// Errors
+pub suberror PemError {
+  InvalidFormat(String)
+  UnexpectedEof
+  InvalidBase64
+  MissingBeginMarker
+  MissingEndMarker
+  LabelMismatch(begin~ : String, end~ : String)
+} derive(Show)
+
+// Types and methods
+pub struct PemBlock {
+  label : String
+  data : Bytes
+  headers : Array[(String, String)]
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+

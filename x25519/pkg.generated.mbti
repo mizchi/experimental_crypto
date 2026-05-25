@@ -1,0 +1,38 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/x25519"
+
+// Values
+pub fn diffie_hellman(PrivateKey, PublicKey) -> SharedSecret raise X25519Error
+
+// Errors
+pub suberror X25519Error {
+  InvalidScalarLength(Int)
+  InvalidPointLength(Int)
+  AllZeroSharedSecret
+} derive(Show)
+
+// Types and methods
+pub struct PrivateKey {
+  bytes : FixedArray[Byte]
+} derive(Eq)
+pub fn PrivateKey::from_bytes(Bytes) -> Self raise X25519Error
+pub fn PrivateKey::from_random(Bytes) -> Self raise X25519Error
+pub fn PrivateKey::public_key(Self) -> PublicKey
+pub fn PrivateKey::to_bytes(Self) -> Bytes
+pub impl Show for PrivateKey
+
+pub struct PublicKey {
+  bytes : FixedArray[Byte]
+} derive(Eq, Show)
+pub fn PublicKey::from_bytes(Bytes) -> Self raise X25519Error
+pub fn PublicKey::to_bytes(Self) -> Bytes
+
+pub struct SharedSecret {
+  bytes : FixedArray[Byte]
+} derive(Eq)
+pub impl Show for SharedSecret
+
+// Type aliases
+
+// Traits
+

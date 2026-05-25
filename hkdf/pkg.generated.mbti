@@ -1,0 +1,29 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/hkdf"
+
+// Values
+pub fn expand(HashAlg, Bytes, Bytes, Int) -> Bytes raise HkdfError
+
+pub fn extract(HashAlg, Bytes, Bytes) -> Bytes
+
+pub fn hkdf(HashAlg, Bytes, Bytes, Bytes, Int) -> Bytes raise HkdfError
+
+pub fn output_size(HashAlg) -> Int
+
+// Errors
+pub suberror HkdfError {
+  OutputTooLong
+  InvalidLength
+} derive(Show)
+
+// Types and methods
+pub enum HashAlg {
+  Sha256
+  Sha384
+  Sha512
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+
