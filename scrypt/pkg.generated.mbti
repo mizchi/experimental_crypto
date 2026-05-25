@@ -13,6 +13,8 @@ pub suberror ScryptError {
   InvalidParams(String)
   OutputTooLong
   Pbkdf2Failure
+  InvalidEncoded(String)
+  VerifyFailed
 } derive(Show)
 
 // Types and methods

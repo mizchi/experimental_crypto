@@ -61,3 +61,114 @@ test "scrypt: small dkLen truncates" {
   let expected : Bytes = b"\x77\xd6\x57\x62\x38\x65\x7b\x20\x3b\x19\xca\x42\xc1\x8a\x04\x97"
   assert_eq(dk, expected)
 }
+
+// ─── PHC string format round-trips ───────────────────────────────────────────
+
+///|
+fn phc_params() -> @scrypt.Params {
+  // Cheap params for round-trip tests.
+  { log_n: 4, r: 1, p: 1, dk_len: 16 }
+}
+
+///|
+test "scrypt: hash_encoded produces the documented PHC layout" {
+  let params = phc_params()
+  let encoded = @scrypt.hash_encoded(params, b"password", b"saltysalt")
+  // $scrypt$ln=4,r=1,p=1$<salt_b64>$<hash_b64>
+  assert_true(encoded.has_prefix("$scrypt$ln=4,r=1,p=1$"))
+  // base64 of "saltysalt" (no padding) is "c2FsdHlzYWx0".
+  assert_true(encoded.has_prefix("$scrypt$ln=4,r=1,p=1$c2FsdHlzYWx0$"))
+  let segments = encoded.split("$").to_array()
+  assert_eq(segments.length(), 5)
+  assert_true(segments[3].length() > 0)
+  assert_true(segments[4].length() > 0)
+  // No padding '=' inside the base64 segments.
+  assert_false(segments[3].contains("="))
+  assert_false(segments[4].contains("="))
+}
+
+///|
+test "scrypt: hash_encoded -> verify_encoded round-trip succeeds" {
+  let params = phc_params()
+  let encoded = @scrypt.hash_encoded(
+    params, b"correct horse battery staple", b"NaClNaCl",
+  )
+  @scrypt.verify_encoded(encoded, b"correct horse battery staple")
+}
+
+///|
+test "scrypt: verify_encoded rejects wrong password" {
+  let params = phc_params()
+  let encoded = @scrypt.hash_encoded(params, b"hunter2", b"salty_salt")
+  match (try? @scrypt.verify_encoded(encoded, b"hunter3")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  }
+}
+
+///|
+test "scrypt: verify_encoded rejects tampered hash" {
+  let params = phc_params()
+  let encoded = @scrypt.hash_encoded(params, b"hunter2", b"salty_salt")
+  let n = encoded.length()
+  let last = encoded[n - 1]
+  let replacement = if last == 'A' { "B" } else { "A" }
+  let tampered = encoded.substring(start=0, end=n - 1) + replacement
+  match (try? @scrypt.verify_encoded(tampered, b"hunter2")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  }
+}
+
+///|
+test "scrypt: verify_encoded rejects tampered salt" {
+  let params = phc_params()
+  let encoded = @scrypt.hash_encoded(params, b"hunter2", b"salty_salt")
+  let segments = encoded.split("$").to_array()
+  let mut rebuilt = ""
+  for i in 0..<segments.length() {
+    if i > 0 {
+      rebuilt = rebuilt + "$"
+    }
+    rebuilt = if i == 3 {
+      rebuilt + "ZGlmZmVyZW50c2FsdA"
+    } else {
+      rebuilt + segments[i].to_string()
+    }
+  }
+  match (try? @scrypt.verify_encoded(rebuilt, b"hunter2")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  }
+}
+
+///|
+test "scrypt: verify_encoded rejects malformed PHC strings" {
+  // Wrong number of '$'-separated segments.
+  match (try? @scrypt.verify_encoded("$scrypt$bogus", b"x")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Unknown algorithm.
+  match
+    (try? @scrypt.verify_encoded("$argon2id$ln=4,r=1,p=1$c2FsdA$AAAA", b"x")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Bad base64 in hash segment.
+  match (try? @scrypt.verify_encoded("$scrypt$ln=4,r=1,p=1$c2FsdA$!!!", b"x")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Missing 'p' parameter.
+  match (try? @scrypt.verify_encoded("$scrypt$ln=4,r=1$c2FsdA$AAAA", b"x")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Non-integer parameter.
+  match
+    (try? @scrypt.verify_encoded("$scrypt$ln=4,r=abc,p=1$c2FsdA$AAAA", b"x")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+}

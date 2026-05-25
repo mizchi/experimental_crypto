@@ -149,3 +149,154 @@ test "argon2: rejects output_len < 4" {
     Ok(_) => assert_eq(true, false, msg="expected InvalidParams")
   }
 }
+
+// ─── PHC string format round-trips ───────────────────────────────────────────
+
+///|
+fn phc_params() -> @argon2.Params {
+  // Cheap params for round-trip tests.
+  { variant: Argon2id, m_cost: 32, t_cost: 1, parallelism: 1, output_len: 16 }
+}
+
+///|
+test "argon2: hash_encoded produces the documented PHC layout" {
+  let params = phc_params()
+  let encoded = @argon2.hash_encoded(params, b"password", b"somesalt")
+  // $argon2id$v=19$m=32,t=1,p=1$<salt_b64>$<hash_b64>
+  assert_true(encoded.has_prefix("$argon2id$v=19$m=32,t=1,p=1$"))
+  // base64 of "somesalt" (no padding) is "c29tZXNhbHQ".
+  assert_true(encoded.has_prefix("$argon2id$v=19$m=32,t=1,p=1$c29tZXNhbHQ$"))
+  // The hash segment is non-empty and base64 carries no padding '='.
+  let segments = encoded.split("$").to_array()
+  assert_eq(segments.length(), 6)
+  assert_true(segments[4].length() > 0)
+  assert_true(segments[5].length() > 0)
+  assert_false(segments[4].contains("="))
+  assert_false(segments[5].contains("="))
+}
+
+///|
+test "argon2: hash_encoded -> verify_encoded round-trip succeeds" {
+  let params = phc_params()
+  let encoded = @argon2.hash_encoded(
+    params, b"correct horse battery staple", b"NaClNaCl",
+  )
+  @argon2.verify_encoded(encoded, b"correct horse battery staple")
+}
+
+///|
+test "argon2: verify_encoded rejects wrong password" {
+  let params = phc_params()
+  let encoded = @argon2.hash_encoded(params, b"hunter2", b"salty_salt")
+  match (try? @argon2.verify_encoded(encoded, b"hunter3")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  }
+}
+
+///|
+test "argon2: verify_encoded rejects tampered hash" {
+  let params = phc_params()
+  let encoded = @argon2.hash_encoded(params, b"hunter2", b"salty_salt")
+  // Flip the last character of the hash segment.
+  let n = encoded.length()
+  let last = encoded[n - 1]
+  let replacement = if last == 'A' { "B" } else { "A" }
+  let tampered = encoded.substring(start=0, end=n - 1) + replacement
+  match (try? @argon2.verify_encoded(tampered, b"hunter2")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  }
+}
+
+///|
+test "argon2: verify_encoded rejects tampered salt" {
+  let params = phc_params()
+  let encoded = @argon2.hash_encoded(params, b"hunter2", b"salty_salt")
+  // Replace salt segment with a different (but valid) base64 string.
+  let segments = encoded.split("$").to_array()
+  let mut rebuilt = ""
+  for i in 0..<segments.length() {
+    if i > 0 {
+      rebuilt = rebuilt + "$"
+    }
+    rebuilt = if i == 4 {
+      rebuilt + "ZGlmZmVyZW50c2FsdA"
+    } else {
+      rebuilt + segments[i].to_string()
+    }
+  }
+  match (try? @argon2.verify_encoded(rebuilt, b"hunter2")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  }
+}
+
+///|
+test "argon2: verify_encoded rejects malformed PHC strings" {
+  // Wrong number of '$'-separated segments.
+  match (try? @argon2.verify_encoded("$argon2id$bogus", b"x")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Unknown algorithm.
+  match
+    (try? @argon2.verify_encoded(
+      "$argon2x$v=19$m=32,t=1,p=1$c29tZXNhbHQ$AAAAAA", b"x",
+    )) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Bad base64 in hash segment.
+  match
+    (try? @argon2.verify_encoded(
+      "$argon2id$v=19$m=32,t=1,p=1$c29tZXNhbHQ$!!!", b"x",
+    )) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+  // Missing version segment.
+  match
+    (try? @argon2.verify_encoded(
+      "$argon2id$m=32,t=1,p=1$c29tZXNhbHQ$AAAAAA$x", b"x",
+    )) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  }
+}
+
+///|
+test "argon2: hash_encoded honors variant selection" {
+  let salt = b"abcdefgh"
+  let id_params : @argon2.Params = {
+    variant: Argon2id,
+    m_cost: 32,
+    t_cost: 1,
+    parallelism: 1,
+    output_len: 16,
+  }
+  let i_params : @argon2.Params = {
+    variant: Argon2i,
+    m_cost: 32,
+    t_cost: 1,
+    parallelism: 1,
+    output_len: 16,
+  }
+  let d_params : @argon2.Params = {
+    variant: Argon2d,
+    m_cost: 32,
+    t_cost: 1,
+    parallelism: 1,
+    output_len: 16,
+  }
+  let e_id = @argon2.hash_encoded(id_params, b"pw", salt)
+  let e_i = @argon2.hash_encoded(i_params, b"pw", salt)
+  let e_d = @argon2.hash_encoded(d_params, b"pw", salt)
+  assert_true(e_id.has_prefix("$argon2id$"))
+  assert_true(e_i.has_prefix("$argon2i$"))
+  assert_true(e_d.has_prefix("$argon2d$"))
+  // Cross-variant verify must fail.
+  @argon2.verify_encoded(e_id, b"pw")
+  @argon2.verify_encoded(e_i, b"pw")
+  @argon2.verify_encoded(e_d, b"pw")
+}

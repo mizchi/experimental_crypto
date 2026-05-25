@@ -99,15 +99,36 @@ pub fn hash_raw_with_ad(
 ///|
 /// Computes a PHC-encoded Argon2 hash string of the form
 /// `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`.
+///
+/// Salt and hash are base64-encoded without padding, per the PHC string
+/// format spec.
 pub fn hash_encoded(
   params : Params,
   password : Bytes,
   salt : Bytes,
 ) -> String raise Argon2Error {
-  ignore(params)
-  ignore(password)
-  ignore(salt)
-  abort("todo: Argon2 hash_encoded")
+  let hash = hash_raw(params, password, salt)
+  let alg = match params.variant {
+    Argon2d => "argon2d"
+    Argon2i => "argon2i"
+    Argon2id => "argon2id"
+  }
+  let salt_b64 = @base64.encode(salt[:], padding=false)
+  let hash_b64 = @base64.encode(hash[:], padding=false)
+  let buf = StringBuilder::StringBuilder()
+  buf.write_char('$')
+  buf.write_string(alg)
+  buf.write_string("$v=19$m=")
+  buf.write_string(params.m_cost.to_string())
+  buf.write_string(",t=")
+  buf.write_string(params.t_cost.to_string())
+  buf.write_string(",p=")
+  buf.write_string(params.parallelism.to_string())
+  buf.write_char('$')
+  buf.write_string(salt_b64)
+  buf.write_char('$')
+  buf.write_string(hash_b64)
+  buf.to_string()
 }
 
 ///|
@@ -117,9 +138,103 @@ pub fn verify_encoded(
   encoded : String,
   password : Bytes,
 ) -> Unit raise Argon2Error {
-  ignore(encoded)
-  ignore(password)
-  abort("todo: Argon2 verify_encoded")
+  let parsed = parse_phc(encoded)
+  let expected = hash_raw(parsed.params, password, parsed.salt)
+  if not(ct_eq_bytes(expected, parsed.hash)) {
+    raise VerifyFailed
+  }
+}
+
+///|
+priv struct ParsedPhc {
+  params : Params
+  salt : Bytes
+  hash : Bytes
+}
+
+///|
+/// Parses a PHC-formatted Argon2 string. Returns the params plus the decoded
+/// salt and hash bytes. Raises `InvalidEncoded` on malformed input.
+fn parse_phc(encoded : String) -> ParsedPhc raise Argon2Error {
+  // Split on '$'. A valid Argon2 PHC string has the form
+  //   $<alg>$v=<v>$m=<m>,t=<t>,p=<p>$<salt>$<hash>
+  // which yields 6 segments after splitting (leading empty + 5 fields).
+  let parts = encoded.split("$").to_array()
+  if parts.length() != 6 {
+    raise InvalidEncoded("expected 6 '$'-separated segments")
+  }
+  if parts[0].length() != 0 {
+    raise InvalidEncoded("string must start with '$'")
+  }
+  let alg = parts[1]
+  let variant = if alg == "argon2d" {
+    Argon2d
+  } else if alg == "argon2i" {
+    Argon2i
+  } else if alg == "argon2id" {
+    Argon2id
+  } else {
+    raise InvalidEncoded("unknown algorithm")
+  }
+  // Version: must be "v=19".
+  let ver = parts[2]
+  if ver != "v=19" {
+    raise InvalidEncoded("unsupported version segment")
+  }
+  // Parameters: "m=<m>,t=<t>,p=<p>" in this order.
+  let mut m_cost = -1
+  let mut t_cost = -1
+  let mut parallelism = -1
+  for kv in parts[3].split(",") {
+    match kv.split_once("=") {
+      Some((k, v)) => {
+        let num = @strconv.parse_int(v) catch {
+          _ => raise InvalidEncoded("non-integer parameter value")
+        }
+        if k == "m" {
+          m_cost = num
+        } else if k == "t" {
+          t_cost = num
+        } else if k == "p" {
+          parallelism = num
+        } else {
+          raise InvalidEncoded("unknown parameter")
+        }
+      }
+      None => raise InvalidEncoded("malformed parameter pair")
+    }
+  }
+  if m_cost < 0 || t_cost < 0 || parallelism < 0 {
+    raise InvalidEncoded("missing m/t/p parameter")
+  }
+  let salt = @base64.decode(parts[4]) catch {
+    _ => raise InvalidEncoded("invalid base64 salt")
+  }
+  let hash = @base64.decode(parts[5]) catch {
+    _ => raise InvalidEncoded("invalid base64 hash")
+  }
+  let params : Params = {
+    variant,
+    m_cost,
+    t_cost,
+    parallelism,
+    output_len: hash.length(),
+  }
+  { params, salt, hash }
+}
+
+///|
+/// Constant-time equality test for two byte sequences. Returns `false` if
+/// lengths differ; otherwise compares every byte.
+fn ct_eq_bytes(a : Bytes, b : Bytes) -> Bool {
+  if a.length() != b.length() {
+    return false
+  }
+  let mut diff = 0
+  for i in 0..<a.length() {
+    diff = diff | (a[i].to_int() ^ b[i].to_int())
+  }
+  diff == 0
 }
 
 ///|

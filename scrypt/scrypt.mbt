@@ -26,6 +26,8 @@ pub suberror ScryptError {
   InvalidParams(String)
   OutputTooLong
   Pbkdf2Failure
+  InvalidEncoded(String)
+  VerifyFailed
 } derive(Show)
 
 ///|
@@ -253,21 +255,119 @@ fn rotl(v : UInt, n : Int) -> UInt {
   (v << n) | (v >> (32 - n))
 }
 
-// ─── stubs for PHC-encoded variants ──────────────────────────────────────
+// ─── PHC string format encoder / decoder ─────────────────────────────────
 
 ///|
+/// Computes a PHC-encoded scrypt hash string of the form
+/// `$scrypt$ln=<log_n>,r=<r>,p=<p>$<salt>$<hash>`.
+///
+/// Salt and hash are base64-encoded without padding. The scrypt PHC string
+/// does not carry a version segment (libsodium / passlib convention).
 pub fn hash_encoded(
-  _params : Params,
-  _password : Bytes,
-  _salt : Bytes,
+  params : Params,
+  password : Bytes,
+  salt : Bytes,
 ) -> String raise ScryptError {
-  abort("todo: scrypt PHC encoder")
+  let hash = derive_key(params, password, salt)
+  let salt_b64 = @base64.encode(salt[:], padding=false)
+  let hash_b64 = @base64.encode(hash[:], padding=false)
+  let buf = StringBuilder::StringBuilder()
+  buf.write_string("$scrypt$ln=")
+  buf.write_string(params.log_n.to_string())
+  buf.write_string(",r=")
+  buf.write_string(params.r.to_string())
+  buf.write_string(",p=")
+  buf.write_string(params.p.to_string())
+  buf.write_char('$')
+  buf.write_string(salt_b64)
+  buf.write_char('$')
+  buf.write_string(hash_b64)
+  buf.to_string()
 }
 
 ///|
+/// Verifies `password` against a PHC-encoded scrypt string. Raises
+/// `VerifyFailed` on mismatch and `InvalidEncoded` on malformed input.
 pub fn verify_encoded(
-  _encoded : String,
-  _password : Bytes,
+  encoded : String,
+  password : Bytes,
 ) -> Unit raise ScryptError {
-  abort("todo: scrypt PHC verifier")
+  let parsed = parse_phc(encoded)
+  let expected = derive_key(parsed.params, password, parsed.salt)
+  if not(ct_eq_bytes(expected, parsed.hash)) {
+    raise VerifyFailed
+  }
+}
+
+///|
+priv struct ParsedPhc {
+  params : Params
+  salt : Bytes
+  hash : Bytes
+}
+
+///|
+/// Parses a PHC-formatted scrypt string. Returns the params plus the decoded
+/// salt and hash bytes. Raises `InvalidEncoded` on malformed input.
+fn parse_phc(encoded : String) -> ParsedPhc raise ScryptError {
+  // Split on '$'. A valid scrypt PHC string has the form
+  //   $scrypt$ln=<n>,r=<r>,p=<p>$<salt>$<hash>
+  // which yields 5 segments after splitting (leading empty + 4 fields).
+  let parts = encoded.split("$").to_array()
+  if parts.length() != 5 {
+    raise InvalidEncoded("expected 5 '$'-separated segments")
+  }
+  if parts[0].length() != 0 {
+    raise InvalidEncoded("string must start with '$'")
+  }
+  if parts[1] != "scrypt" {
+    raise InvalidEncoded("unknown algorithm")
+  }
+  let mut log_n = -1
+  let mut r = -1
+  let mut p = -1
+  for kv in parts[2].split(",") {
+    match kv.split_once("=") {
+      Some((k, v)) => {
+        let num = @strconv.parse_int(v) catch {
+          _ => raise InvalidEncoded("non-integer parameter value")
+        }
+        if k == "ln" {
+          log_n = num
+        } else if k == "r" {
+          r = num
+        } else if k == "p" {
+          p = num
+        } else {
+          raise InvalidEncoded("unknown parameter")
+        }
+      }
+      None => raise InvalidEncoded("malformed parameter pair")
+    }
+  }
+  if log_n < 0 || r < 0 || p < 0 {
+    raise InvalidEncoded("missing ln/r/p parameter")
+  }
+  let salt = @base64.decode(parts[3]) catch {
+    _ => raise InvalidEncoded("invalid base64 salt")
+  }
+  let hash = @base64.decode(parts[4]) catch {
+    _ => raise InvalidEncoded("invalid base64 hash")
+  }
+  let params : Params = { log_n, r, p, dk_len: hash.length() }
+  { params, salt, hash }
+}
+
+///|
+/// Constant-time equality test for two byte sequences. Returns `false` if
+/// lengths differ; otherwise compares every byte without short-circuiting.
+fn ct_eq_bytes(a : Bytes, b : Bytes) -> Bool {
+  if a.length() != b.length() {
+    return false
+  }
+  let mut diff = 0
+  for i in 0..<a.length() {
+    diff = diff | (a[i].to_int() ^ b[i].to_int())
+  }
+  diff == 0
 }
