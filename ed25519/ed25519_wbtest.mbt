@@ -55,9 +55,18 @@ test "sha512 1000 'a'" {
 
 ///|
 test "sqrt(-1) squared equals -1" {
-  // sanity-check the field constant
+  // sanity-check the field constant: I^2 == -1 (mod p).
   let s = fe_mul(ed_sqrt_m1, ed_sqrt_m1)
-  inspect(s == ed_p - BigInt::from_int(1), content="true")
+  // -1 = p - 1; in canonical 32-byte LE form that is
+  //   ec ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  //   ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 7f
+  let neg_one = FixedArray::make(32, b'\xff')
+  neg_one[0] = b'\xec'
+  neg_one[31] = b'\x7f'
+  let bytes = fe_to_bytes(s)
+  for i in 0..<32 {
+    assert_eq(bytes[i], neg_one[i])
+  }
 }
 
 ///|
