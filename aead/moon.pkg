@@ -2,3 +2,7 @@ import {
   "moonbitlang/x/crypto",
   "moonbitlang/core/bigint",
 }
+
+import {
+  "moonbitlang/core/bench",
+} for "test"

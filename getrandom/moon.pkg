@@ -1,6 +1,5 @@
-supported_targets = [ "native", "js" ]
-
 options(
+  supported_targets: [ "native", "js" ],
   link: { "native": { "cc-link-flags": "" } },
   "native-stub": [ "getrandom_native.c" ],
   targets: {
