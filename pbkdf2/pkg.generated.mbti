@@ -9,10 +9,11 @@ pub suberror Pbkdf2Error {
   InvalidIterations
   OutputTooLong
   InvalidLength
+  UnsupportedHash(HashAlg)
 } derive(Show)
 
 // Types and methods
-pub enum HashAlg {
+pub(all) enum HashAlg {
   Sha1
   Sha256
   Sha384

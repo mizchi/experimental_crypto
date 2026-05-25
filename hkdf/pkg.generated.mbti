@@ -4,7 +4,7 @@ package "mizchi/hkdf"
 // Values
 pub fn expand(HashAlg, Bytes, Bytes, Int) -> Bytes raise HkdfError
 
-pub fn extract(HashAlg, Bytes, Bytes) -> Bytes
+pub fn extract(HashAlg, Bytes, Bytes) -> Bytes raise HkdfError
 
 pub fn hkdf(HashAlg, Bytes, Bytes, Bytes, Int) -> Bytes raise HkdfError
 
@@ -14,10 +14,12 @@ pub fn output_size(HashAlg) -> Int
 pub suberror HkdfError {
   OutputTooLong
   InvalidLength
+  UnsupportedHash(HashAlg)
 } derive(Show)
 
 // Types and methods
-pub enum HashAlg {
+pub(all) enum HashAlg {
+  Sha224
   Sha256
   Sha384
   Sha512

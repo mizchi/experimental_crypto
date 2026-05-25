@@ -1,3 +1,74 @@
-// Blackbox tests run against the package's public API. Use `@hkdf` to import.
-// Prefer high-level behaviors over implementation details.
-// Run `moon test` to execute and `moon test --update` to refresh snapshots.
+// RFC 5869 Appendix A test vectors for HKDF-SHA-256.
+
+///|
+test "hkdf: RFC 5869 A.1 (basic SHA-256, L=42)" {
+  let ikm : Bytes = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+  let salt : Bytes = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+  let info : Bytes = b"\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9"
+  let prk = @hkdf.extract(Sha256, salt, ikm)
+  let expected_prk : Bytes = b"\x07\x77\x09\x36\x2c\x2e\x32\xdf\x0d\xdc\x3f\x0d\xc4\x7b\xba\x63\x90\xb6\xc7\x3b\xb5\x0f\x9c\x31\x22\xec\x84\x4a\xd7\xc2\xb3\xe5"
+  assert_eq(prk, expected_prk)
+  let okm = @hkdf.expand(Sha256, prk, info, 42)
+  let expected_okm : Bytes = b"\x3c\xb2\x5f\x25\xfa\xac\xd5\x7a\x90\x43\x4f\x64\xd0\x36\x2f\x2a\x2d\x2d\x0a\x90\xcf\x1a\x5a\x4c\x5d\xb0\x2d\x56\xec\xc4\xc5\xbf\x34\x00\x72\x08\xd5\xb8\x87\x18\x58\x65"
+  assert_eq(okm, expected_okm)
+}
+
+///|
+test "hkdf: RFC 5869 A.2 (SHA-256 longer inputs, L=82)" {
+  let ikm = Bytes::makei(80, fn(i) { i.to_byte() })
+  let salt = Bytes::makei(80, fn(i) { (i + 0x60).to_byte() })
+  let info = Bytes::makei(80, fn(i) { (i + 0xb0).to_byte() })
+  let prk = @hkdf.extract(Sha256, salt, ikm)
+  let expected_prk : Bytes = b"\x06\xa6\xb8\x8c\x58\x53\x36\x1a\x06\x10\x4c\x9c\xeb\x35\xb4\x5c\xef\x76\x00\x14\x90\x46\x71\x01\x4a\x19\x3f\x40\xc1\x5f\xc2\x44"
+  assert_eq(prk, expected_prk)
+  let okm = @hkdf.expand(Sha256, prk, info, 82)
+  let expected_okm : Bytes = b"\xb1\x1e\x39\x8d\xc8\x03\x27\xa1\xc8\xe7\xf7\x8c\x59\x6a\x49\x34\x4f\x01\x2e\xda\x2d\x4e\xfa\xd8\xa0\x50\xcc\x4c\x19\xaf\xa9\x7c\x59\x04\x5a\x99\xca\xc7\x82\x72\x71\xcb\x41\xc6\x5e\x59\x0e\x09\xda\x32\x75\x60\x0c\x2f\x09\xb8\x36\x77\x93\xa9\xac\xa3\xdb\x71\xcc\x30\xc5\x81\x79\xec\x3e\x87\xc1\x4c\x01\xd5\xc1\xf3\x43\x4f\x1d\x87"
+  assert_eq(okm, expected_okm)
+}
+
+///|
+test "hkdf: RFC 5869 A.3 (SHA-256 zero-length salt/info, L=42)" {
+  let ikm : Bytes = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+  let prk = @hkdf.extract(Sha256, b"", ikm)
+  let expected_prk : Bytes = b"\x19\xef\x24\xa3\x2c\x71\x7b\x16\x7f\x33\xa9\x1d\x6f\x64\x8b\xdf\x96\x59\x67\x76\xaf\xdb\x63\x77\xac\x43\x4c\x1c\x29\x3c\xcb\x04"
+  assert_eq(prk, expected_prk)
+  let okm = @hkdf.expand(Sha256, prk, b"", 42)
+  let expected_okm : Bytes = b"\x8d\xa4\xe7\x75\xa5\x63\xc1\x8f\x71\x5f\x80\x2a\x06\x3c\x5a\x31\xb8\xa1\x1f\x5c\x5e\xe1\x87\x9e\xc3\x45\x4e\x5f\x3c\x73\x8d\x2d\x9d\x20\x13\x95\xfa\xa4\xb6\x1a\x96\xc8"
+  assert_eq(okm, expected_okm)
+}
+
+///|
+test "hkdf: combined hkdf() one-shot matches extract+expand" {
+  let ikm : Bytes = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+  let salt : Bytes = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+  let info : Bytes = b"\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9"
+  let direct = @hkdf.hkdf(Sha256, salt, ikm, info, 42)
+  let composed = @hkdf.expand(
+    Sha256,
+    @hkdf.extract(Sha256, salt, ikm),
+    info,
+    42,
+  )
+  assert_eq(direct, composed)
+}
+
+///|
+test "hkdf: expand rejects L > 255 * hash_len" {
+  let prk = @hkdf.extract(Sha256, b"", b"\x00")
+  match (try? @hkdf.expand(Sha256, prk, b"", 255 * 32 + 1)) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected OutputTooLong")
+  }
+}
+
+///|
+test "hkdf: SHA-384 and SHA-512 are reported as unsupported" {
+  match (try? @hkdf.extract(Sha384, b"", b"\x00")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected UnsupportedHash for Sha384")
+  }
+  match (try? @hkdf.extract(Sha512, b"", b"\x00")) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="expected UnsupportedHash for Sha512")
+  }
+}
