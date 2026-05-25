@@ -57,6 +57,92 @@ test "RFC 8439 §2.5.2 Poly1305 known-answer" {
 }
 
 ///|
+test "AES-128 FIPS 197 KAT" {
+  // FIPS 197 §C.1 sample: 128-bit key, 128-bit PT.
+  let key = hex_wb("2b7e151628aed2a6abf7158809cf4f3c")
+  let pt = hex_wb("3243f6a8885a308d313198a2e0370734")
+  let ct = aes_encrypt(key, pt)
+  assert_eq(to_hex_wb(ct), "3925841d02dc09fbdc118597196a0b32")
+}
+
+///|
+test "AES-128 NIST KAT zero key zero PT" {
+  // AES-128 zero key, zero input → 66e94bd4ef8a2c3b884cfa59ca342b2e
+  let key = Bytes::makei(16, fn(_) { b'\x00' })
+  let pt = Bytes::makei(16, fn(_) { b'\x00' })
+  let ct = aes_encrypt(key, pt)
+  assert_eq(to_hex_wb(ct), "66e94bd4ef8a2c3b884cfa59ca342b2e")
+}
+
+///|
+test "AES-128 NIST SP 800-38D B.1 known H and E_K(J0)" {
+  let key = hex_wb("feffe9928665731c6d6a8f9467308308")
+  let zero = Bytes::makei(16, fn(_) { b'\x00' })
+  assert_eq(
+    to_hex_wb(aes_encrypt(key, zero)),
+    "b83b533708bf535d0aa6e52980d53b78",
+  )
+  let j0 = hex_wb("cafebabefacedbaddecaf88800000001")
+  assert_eq(to_hex_wb(aes_encrypt(key, j0)), "3247184b3c4f69a44dbcd22887bbb418")
+}
+
+///|
+test "gf128_mul identity (NIST polynomial 1)" {
+  // The NIST "1" polynomial has X_0 = 1 (the leftmost / MSB of x_hi in big-endian
+  // bit-order). X * H = H for X = (0x8000_0000_0000_0000, 0).
+  let h_hi : UInt64 = 0xb83b533708bf535dUL
+  let h_lo : UInt64 = 0x0aa6e52980d53b78UL
+  let (z_hi, z_lo) = gf128_mul(0x8000000000000000UL, 0UL, h_hi, h_lo)
+  assert_eq(z_hi, h_hi)
+  assert_eq(z_lo, h_lo)
+}
+
+///|
+test "gf128_mul X_1 NIST SP 800-38D Test Case 3 intermediate" {
+  // X_1 = CT0 * H per NIST SP 800-38D Appendix B Test Case 3.
+  let h_hi : UInt64 = 0xb83b533708bf535dUL
+  let h_lo : UInt64 = 0x0aa6e52980d53b78UL
+  let c_hi : UInt64 = 0x42831ec221777424UL
+  let c_lo : UInt64 = 0x4b7221b784d0d49cUL
+  let (z_hi, z_lo) = gf128_mul(c_hi, c_lo, h_hi, h_lo)
+  let buf = FixedArray::make(16, b'\x00')
+  be_store_u64(buf, 0, z_hi)
+  be_store_u64(buf, 8, z_lo)
+  let z = Bytes::makei(16, fn(i) { buf[i] })
+  assert_eq(to_hex_wb(z), "59ed3f2bb1a0aaa07c9f56c6a504647b")
+}
+
+///|
+test "GHASH empty empty = 0" {
+  let h_hi : UInt64 = 0x12345678abcdef00UL
+  let h_lo : UInt64 = 0xdeadbeefcafebabeUL
+  let (g_hi, g_lo) = ghash(h_hi, h_lo, b"", b"")
+  assert_eq(g_hi, 0UL)
+  assert_eq(g_lo, 0UL)
+}
+
+///|
+test "debug GHASH NIST Test Case 4 (with AAD)" {
+  let key = hex_wb("feffe9928665731c6d6a8f9467308308")
+  let zero16 = Bytes::makei(16, fn(_) { b'\x00' })
+  let h = aes_encrypt(key, zero16)
+  let h_hi = be_load_u64(h, 0)
+  let h_lo = be_load_u64(h, 8)
+  let aad = hex_wb("feedfacedeadbeeffeedfacedeadbeefabaddad2")
+  let ct = hex_wb(
+    "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e" +
+    "21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091",
+  )
+  let (ghash_hi, ghash_lo) = ghash(h_hi, h_lo, aad, ct)
+  let g_buf = FixedArray::make(16, b'\x00')
+  be_store_u64(g_buf, 0, ghash_hi)
+  be_store_u64(g_buf, 8, ghash_lo)
+  let g = Bytes::makei(16, fn(i) { g_buf[i] })
+  // Expected GHASH(Case 4) = 698e57f70e6ecc7fd9463b7260a9ae5f
+  assert_eq(to_hex_wb(g), "698e57f70e6ecc7fd9463b7260a9ae5f")
+}
+
+///|
 test "RFC 8439 §2.6.2 Poly1305 key generation" {
   let key = hex_wb(
     "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",

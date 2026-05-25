@@ -162,7 +162,6 @@ pub fn diffie_hellman(
 ///|
 type Fe = FixedArray[UInt64]
 
-
 ///|
 fn fe_zero() -> Fe {
   FixedArray::make(10, 0UL)
@@ -186,6 +185,7 @@ fn fe_copy(a : Fe) -> Fe {
 
 // Decode a 32-byte little-endian integer to a Fe, masking off the
 // high bit of byte 31 per RFC 7748 §5.
+
 ///|
 fn fe_from_bytes(b : FixedArray[Byte]) -> Fe {
   // Reassemble the 256-bit input as ten limbs.
@@ -245,7 +245,7 @@ fn fe_from_bytes(b : FixedArray[Byte]) -> Fe {
   let b28 = b[28].to_uint64()
   let b29 = b[29].to_uint64()
   let b30 = b[30].to_uint64()
-  let b31 = (b[31].to_uint64()) & 0x7FUL
+  let b31 = b[31].to_uint64() & 0x7FUL
   let win = b28 | (b29 << 8) | (b30 << 16) | (b31 << 24)
   h[9] = (win >> 6) & mask25
   h
@@ -253,6 +253,7 @@ fn fe_from_bytes(b : FixedArray[Byte]) -> Fe {
 
 // Encode a field element as 32 little-endian bytes, applying full
 // canonical reduction to [0, p).
+
 ///|
 fn fe_to_bytes(a : Fe) -> FixedArray[Byte] {
   let h = fe_carry_full(a)
@@ -365,6 +366,7 @@ fn fe_to_bytes(a : Fe) -> FixedArray[Byte] {
 
 // Carry propagation: bring each limb back to its canonical bit range.
 // Two passes from limb 0 → 9, then fold the overflow back via 2^255 ≡ 19.
+
 ///|
 fn fe_carry_full(h : Fe) -> Fe {
   let mask25 : UInt64 = (1UL << 25) - 1UL
@@ -453,17 +455,13 @@ fn fe_add(a : Fe, b : Fe) -> Fe {
 // More carefully: in our radix-2^25.5 layout, 2p's limbs are
 //   2*(2^26 - 19, 2^25 - 1, 2^26 - 1, 2^25 - 1, ..., 2^25 - 1)
 // Pre-computed constants are easier to inline.
+
 ///|
 let two_p_limb : FixedArray[UInt64] = [
   0x7FFFFDAUL, // 2 * (2^26 - 19) = 2^27 - 38
-  0x3FFFFFEUL, // 2 * (2^25 - 1)
-  0x7FFFFFEUL, // 2 * (2^26 - 1)
-  0x3FFFFFEUL,
-  0x7FFFFFEUL,
-  0x3FFFFFEUL,
-  0x7FFFFFEUL,
-  0x3FFFFFEUL,
-  0x7FFFFFEUL,
+   0x3FFFFFEUL, // 2 * (2^25 - 1)
+   0x7FFFFFEUL, // 2 * (2^26 - 1)
+   0x3FFFFFEUL, 0x7FFFFFEUL, 0x3FFFFFEUL, 0x7FFFFFEUL, 0x3FFFFFEUL, 0x7FFFFFEUL,
   0x3FFFFFEUL,
 ]
 
@@ -491,6 +489,7 @@ fn fe_sub(a : Fe, b : Fe) -> Fe {
 //
 // Hence the well-known "odd-odd × 2" doubling pattern in 10-limb
 // implementations.
+
 ///|
 fn fe_mul(f : Fe, g : Fe) -> Fe {
   // Pre-scale odd limbs by 19 / 2 as needed; here we just unroll.
@@ -650,6 +649,7 @@ fn fe_mul(f : Fe, g : Fe) -> Fe {
 // Square: same shape as mul but with f == g. Exploits symmetry by
 // merging the off-diagonal terms (×2). We keep a straightforward form
 // that matches the structure of fe_mul.
+
 ///|
 fn fe_sqr(f : Fe) -> Fe {
   let f0 = f[0]
@@ -675,19 +675,39 @@ fn fe_sqr(f : Fe) -> Fe {
   let f7_38 = 38UL * f7
   let f8_19 = 19UL * f8
   let f9_38 = 38UL * f9
-  let h0 = f0 * f0 + f1_2 * f9_38 + f2_2 * f8_19 + f3_2 * f7_38 + f4_2 * f6_19 +
+  let h0 = f0 * f0 +
+    f1_2 * f9_38 +
+    f2_2 * f8_19 +
+    f3_2 * f7_38 +
+    f4_2 * f6_19 +
     f5 * f5_38
   let h1 = f0_2 * f1 + f2 * f9_38 + f3_2 * f8_19 + f4 * f7_38 + f5_2 * f6_19
-  let h2 = f0_2 * f2 + f1_2 * f1 + f3_2 * f9_38 + f4_2 * f8_19 + f5_2 * f7_38 +
+  let h2 = f0_2 * f2 +
+    f1_2 * f1 +
+    f3_2 * f9_38 +
+    f4_2 * f8_19 +
+    f5_2 * f7_38 +
     f6 * f6_19
   let h3 = f0_2 * f3 + f1_2 * f2 + f4 * f9_38 + f5_2 * f8_19 + f6 * f7_38
-  let h4 = f0_2 * f4 + f1_2 * f3_2 + f2 * f2 + f5_2 * f9_38 + f6_2 * f8_19 +
+  let h4 = f0_2 * f4 +
+    f1_2 * f3_2 +
+    f2 * f2 +
+    f5_2 * f9_38 +
+    f6_2 * f8_19 +
     f7 * f7_38
   let h5 = f0_2 * f5 + f1_2 * f4 + f2_2 * f3 + f6 * f9_38 + f7_2 * f8_19
-  let h6 = f0_2 * f6 + f1_2 * f5_2 + f2_2 * f4 + f3_2 * f3 + f7_2 * f9_38 +
+  let h6 = f0_2 * f6 +
+    f1_2 * f5_2 +
+    f2_2 * f4 +
+    f3_2 * f3 +
+    f7_2 * f9_38 +
     f8 * f8_19
   let h7 = f0_2 * f7 + f1_2 * f6 + f2_2 * f5 + f3_2 * f4 + f8 * f9_38
-  let h8 = f0_2 * f8 + f1_2 * f7_2 + f2_2 * f6 + f3_2 * f5_2 + f4 * f4 +
+  let h8 = f0_2 * f8 +
+    f1_2 * f7_2 +
+    f2_2 * f6 +
+    f3_2 * f5_2 +
+    f4 * f4 +
     f9 * f9_38
   let h9 = f0_2 * f9 + f1_2 * f8 + f2_2 * f7 + f3_2 * f6 + f4_2 * f5
   let r = FixedArray::make(10, 0UL)
@@ -705,6 +725,7 @@ fn fe_sqr(f : Fe) -> Fe {
 }
 
 // Multiply by a small (≤ 2^24) scalar; used for a24 = 121665.
+
 ///|
 fn fe_mul_small(a : Fe, c : UInt64) -> Fe {
   let r = FixedArray::make(10, 0UL)
@@ -717,6 +738,7 @@ fn fe_mul_small(a : Fe, c : UInt64) -> Fe {
 // Inversion via Fermat: a^(p-2). The 254-step addition chain below is
 // the standard one (e.g. ref10 / curve25519-donna). It costs 11M + 252S
 // roughly, but we just write it readably.
+
 ///|
 fn fe_inv(z : Fe) -> Fe {
   let z2 = fe_sqr(z) // 2
@@ -773,6 +795,7 @@ fn fe_inv(z : Fe) -> Fe {
 // Constant-time conditional swap of two limb arrays. The `swap` bit is
 // 0 or 1; on 1 the two arrays are exchanged element-wise via the
 // usual mask trick.
+
 ///|
 fn fe_cswap(a : Fe, b : Fe, swap : Int) -> Unit {
   let mask : UInt64 = 0UL - swap.to_uint64()

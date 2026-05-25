@@ -283,23 +283,17 @@ test "round-trip empty plaintext and empty aad" {
 }
 
 ///|
-test "AES-GCM raises UnsupportedAlgorithm" {
+test "AES-128-GCM empty round-trip" {
+  // AES-GCM is now implemented; empty PT + empty AAD must round-trip.
   let key = Bytes::makei(16, fn(_) { b'\x00' })
   let nonce = Bytes::makei(12, fn(_) { b'\x00' })
   let aad = b""
   let pt = b""
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
-    @aead.Aes128Gcm,
-    key,
-    nonce,
-    aad,
-    pt,
-  )
-  match result {
-    Ok(_) => abort("expected UnsupportedAlgorithm but seal succeeded")
-    Err(@aead.UnsupportedAlgorithm(@aead.Aes128Gcm)) => ()
-    Err(e) => abort("expected UnsupportedAlgorithm but got " + e.to_string())
-  }
+  let sealed = @aead.seal(@aead.Aes128Gcm, key, nonce, aad, pt)
+  // Tag is 16 bytes, no ciphertext.
+  assert_eq(sealed.length(), 16)
+  let opened = @aead.open(@aead.Aes128Gcm, key, nonce, aad, sealed)
+  assert_eq(opened.length(), 0)
 }
 
 ///|

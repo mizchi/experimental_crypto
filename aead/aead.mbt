@@ -1,12 +1,16 @@
-// RFC 8439 ChaCha20-Poly1305 AEAD.
+// RFC 8439 ChaCha20-Poly1305 AEAD plus NIST SP 800-38D AES-128/256-GCM.
 //
 // ChaCha20 stream cipher is provided by moonbitlang/x/crypto (ChaCha::chacha20
-// + transform). Poly1305 one-time authenticator is implemented locally because
-// moonbitlang/x does not ship it yet. Field arithmetic for Poly1305 uses
-// moonbitlang/core/bigint, which is variable-time; this implementation is NOT
-// constant-time and should not be used where side-channel resistance matters.
+// + transform). Poly1305 one-time authenticator is implemented locally with
+// 5-limb radix-2^26 field arithmetic over GF(2^130 - 5); products fit in
+// UInt64. AES (FIPS 197) and GCM (NIST SP 800-38D) are implemented in
+// aes.mbt and gcm.mbt.
 //
-// AES-GCM and XChaCha20-Poly1305 are out of scope and raise UnsupportedAlgorithm.
+// This code is not constant-time and should not be used where side-channel
+// resistance matters: it uses table-based S-box lookups, branching on byte
+// values, and variable-time iteration. Use a vetted library for production.
+//
+// XChaCha20-Poly1305 remains out of scope and raises UnsupportedAlgorithm.
 
 ///|
 pub(all) enum Algorithm {
@@ -105,7 +109,9 @@ pub fn seal_detached(
 ) -> (Bytes, Bytes) raise AeadError {
   match alg {
     ChaCha20Poly1305 => chacha20_poly1305_seal(key, nonce, aad, plaintext)
-    Aes128Gcm | Aes256Gcm | XChaCha20Poly1305 => raise UnsupportedAlgorithm(alg)
+    Aes128Gcm => aes_gcm_seal(16, key, nonce, aad, plaintext)
+    Aes256Gcm => aes_gcm_seal(32, key, nonce, aad, plaintext)
+    XChaCha20Poly1305 => raise UnsupportedAlgorithm(alg)
   }
 }
 
@@ -122,7 +128,9 @@ pub fn open_detached(
 ) -> Bytes raise AeadError {
   match alg {
     ChaCha20Poly1305 => chacha20_poly1305_open(key, nonce, aad, ciphertext, tag)
-    Aes128Gcm | Aes256Gcm | XChaCha20Poly1305 => raise UnsupportedAlgorithm(alg)
+    Aes128Gcm => aes_gcm_open(16, key, nonce, aad, ciphertext, tag)
+    Aes256Gcm => aes_gcm_open(32, key, nonce, aad, ciphertext, tag)
+    XChaCha20Poly1305 => raise UnsupportedAlgorithm(alg)
   }
 }
 
@@ -216,75 +224,216 @@ fn chacha20_xor_unchecked(
   Bytes::makei(n, fn(i) { out[i] })
 }
 
-// ─── Poly1305 ─────────────────────────────────────────────────────────────
+// ─── Poly1305 (5-limb radix-2^26, UInt64) ─────────────────────────────────
 //
-// RFC 8439 §2.5. 32-byte one-time key split into r (clamped) and s. Accumulator
-// is updated as a = ((a + block) * r) mod (2^130 - 5). At the end, tag =
-// (a + s) mod 2^128 as 16 little-endian bytes.
+// RFC 8439 §2.5. The accumulator a and the clamped multiplier r each live as
+// five 26-bit limbs at positions 0, 26, 52, 78, 104 (total 130 bits). The
+// reduction trick uses 2^130 ≡ 5 (mod 2^130 - 5), so the s[i] = 5*r[i]
+// scalars absorb the wrap from cross products i+j ≥ 5.
+//
+// Per-block work:
+//   c0..c4 ← load 16-byte block + high "RFC bit" via overlapped reads
+//   a += c
+//   a *= r mod p   (carry chain + one fold of overflow*5)
+//
+// Each limb product (26 + 26 bits ≤ 2^52) and the *5 variant (≤ 2^55) fit in
+// UInt64, so any sum of five such products stays well below 2^60. No 128-bit
+// arithmetic is required.
 
 ///|
-let poly1305_prime : BigInt = (BigInt::from_int(1) << 130) - BigInt::from_int(5)
+fn le32(b : Bytes, off : Int) -> UInt64 {
+  b[off].to_uint64() |
+  (b[off + 1].to_uint64() << 8) |
+  (b[off + 2].to_uint64() << 16) |
+  (b[off + 3].to_uint64() << 24)
+}
 
 ///|
-let poly1305_clamp_mask : BigInt = {
-  // 0x0ffffffc0ffffffc0ffffffc0fffffff
-  let mut v : BigInt = BigInt::from_int(0)
-  let bytes : Array[Int] = [
-    0x0f, 0xff, 0xff, 0xfc, 0x0f, 0xff, 0xff, 0xfc, 0x0f, 0xff, 0xff, 0xfc, 0x0f,
-    0xff, 0xff, 0xff,
-  ]
-  // The constant is conventionally written big-endian for documentation.
-  for b in bytes {
-    v = (v << 8) + BigInt::from_int(b)
+/// Load a 16-byte (or shorter) Poly1305 block plus the implicit high "RFC
+/// bit" into five 26-bit limbs. `take` is the number of message bytes in this
+/// block (1..=16). For partial blocks the buffer is zero-padded internally.
+fn poly1305_load_block(
+  msg : Bytes,
+  off : Int,
+  take : Int,
+) -> (UInt64, UInt64, UInt64, UInt64, UInt64) {
+  // Materialize 17 bytes: msg[off..off+take], then 0x01, then zeros.
+  let buf = FixedArray::make(17, b'\x00')
+  for i in 0..<take {
+    buf[i] = msg[off + i]
   }
-  v
-}
+  buf[take] = b'\x01'
 
-///|
-let two_pow_128 : BigInt = BigInt::from_int(1) << 128
-
-///|
-fn bytes_le_to_bigint(b : Bytes, offset : Int, len : Int) -> BigInt {
-  let mut v : BigInt = BigInt::from_int(0)
-  for i = len - 1; i >= 0; i = i - 1 {
-    v = (v << 8) + BigInt::from_int(b[offset + i].to_int())
+  // Overlap-load five 32-bit words and slice into 26-bit limbs.
+  fn le32_buf(o : Int) -> UInt64 {
+    buf[o].to_uint64() |
+    (buf[o + 1].to_uint64() << 8) |
+    (buf[o + 2].to_uint64() << 16) |
+    (buf[o + 3].to_uint64() << 24)
   }
-  v
+
+  let mask26 : UInt64 = 0x3ffffffUL
+  let c0 = le32_buf(0) & mask26
+  let c1 = (le32_buf(3) >> 2) & mask26
+  let c2 = (le32_buf(6) >> 4) & mask26
+  let c3 = (le32_buf(9) >> 6) & mask26
+  // c4 covers msg bytes 12..15 (24 bits) + buf[16] in the high byte.
+  let c4 = (le32_buf(12) >> 8) | (buf[16].to_uint64() << 24)
+  (c0, c1, c2, c3, c4)
 }
 
 ///|
-fn bigint_to_le_bytes_16(v : BigInt) -> Bytes {
-  let mask = BigInt::from_int(0xFF)
-  let mut x = v
-  Bytes::makei(16, fn(_) {
-    let byte = (x & mask).to_int() & 0xFF
-    x = x >> 8
-    byte.to_byte()
-  })
-}
-
-///|
+/// Fast Poly1305 MAC. `otk` is 32 bytes; r is the first 16 bytes (clamped)
+/// and s is the next 16 bytes.
 fn poly1305(otk : Bytes, msg : Bytes) -> Bytes {
-  // r = LE(otk[0..16]) & clamp_mask
-  let r = bytes_le_to_bigint(otk, 0, 16) & poly1305_clamp_mask
-  let s = bytes_le_to_bigint(otk, 16, 16)
-  let mut a : BigInt = BigInt::from_int(0)
-  let mut i = 0
+  // Split otk into r (clamped) and s, decomposed into 26-bit limbs.
+  let mask26 : UInt64 = 0x3ffffffUL
+  // Build r as a 128-bit little-endian integer in 4 32-bit pieces, then clamp.
+  let r_lo0 = le32(otk, 0) & 0x0fffffffUL
+  let r_lo1 = le32(otk, 4) & 0x0ffffffcUL
+  let r_lo2 = le32(otk, 8) & 0x0ffffffcUL
+  let r_lo3 = le32(otk, 12) & 0x0ffffffcUL
+  // Re-pack into 5 26-bit limbs.
+  // bits  0..25  → r0 = r_lo0 & 0x3ffffff
+  // bits 26..51  → r1 = (r_lo0 >> 26) | (r_lo1 << 6)  & mask26
+  // bits 52..77  → r2 = (r_lo1 >> 20) | (r_lo2 << 12) & mask26
+  // bits 78..103 → r3 = (r_lo2 >> 14) | (r_lo3 << 18) & mask26
+  // bits 104..   → r4 = r_lo3 >> 8
+  let r0 = r_lo0 & mask26
+  let r1 = ((r_lo0 >> 26) | (r_lo1 << 6)) & mask26
+  let r2 = ((r_lo1 >> 20) | (r_lo2 << 12)) & mask26
+  let r3 = ((r_lo2 >> 14) | (r_lo3 << 18)) & mask26
+  let r4 = r_lo3 >> 8
+
+  // 5*r[1..4] for fast reduction of high-position cross products.
+  let s1 = r1 * 5UL
+  let s2 = r2 * 5UL
+  let s3 = r3 * 5UL
+  let s4 = r4 * 5UL
+
+  // Accumulator a (five 26-bit limbs).
+  let mut a0 : UInt64 = 0UL
+  let mut a1 : UInt64 = 0UL
+  let mut a2 : UInt64 = 0UL
+  let mut a3 : UInt64 = 0UL
+  let mut a4 : UInt64 = 0UL
+
   let n = msg.length()
+  let mut i = 0
   while i < n {
     let take = if n - i >= 16 { 16 } else { n - i }
-    // n = LE(block) + 2^(8*take)  (high bit set per RFC 8439 §2.5)
-    let mut block_int : BigInt = BigInt::from_int(0)
-    for j = take - 1; j >= 0; j = j - 1 {
-      block_int = (block_int << 8) + BigInt::from_int(msg[i + j].to_int())
-    }
-    let high_bit = BigInt::from_int(1) << (8 * take)
-    block_int = block_int + high_bit
-    a = (a + block_int) * r % poly1305_prime
+    let (c0, c1, c2, c3, c4) = poly1305_load_block(msg, i, take)
+    // a += c
+    a0 = a0 + c0
+    a1 = a1 + c1
+    a2 = a2 + c2
+    a3 = a3 + c3
+    a4 = a4 + c4
+
+    // a *= r mod p
+    // d_k = Σ_{i+j ≡ k mod 5} a_i * r_j' where r_j' = r_j or 5*r_j for wrap.
+    let d0 = a0 * r0 + a1 * s4 + a2 * s3 + a3 * s2 + a4 * s1
+    let d1 = a0 * r1 + a1 * r0 + a2 * s4 + a3 * s3 + a4 * s2
+    let d2 = a0 * r2 + a1 * r1 + a2 * r0 + a3 * s4 + a4 * s3
+    let d3 = a0 * r3 + a1 * r2 + a2 * r1 + a3 * r0 + a4 * s4
+    let d4 = a0 * r4 + a1 * r3 + a2 * r2 + a3 * r1 + a4 * r0
+
+    // Carry chain.
+    let mut c : UInt64 = d0 >> 26
+    a0 = d0 & mask26
+    let t1 = d1 + c
+    c = t1 >> 26
+    a1 = t1 & mask26
+    let t2 = d2 + c
+    c = t2 >> 26
+    a2 = t2 & mask26
+    let t3 = d3 + c
+    c = t3 >> 26
+    a3 = t3 & mask26
+    let t4 = d4 + c
+    c = t4 >> 26
+    a4 = t4 & mask26
+    // Fold overflow back via *5 once; resulting a0 may exceed 26 bits by ≤ 1.
+    a0 = a0 + c * 5UL
+    let c2 = a0 >> 26
+    a0 = a0 & mask26
+    a1 = a1 + c2
     i = i + take
   }
-  let tag_int = (a + s) % two_pow_128
-  bigint_to_le_bytes_16(tag_int)
+
+  // Final carry propagation so each limb is < 2^26 except possibly a4 < 2^27.
+  let mut c : UInt64 = a1 >> 26
+  a1 = a1 & mask26
+  a2 = a2 + c
+  c = a2 >> 26
+  a2 = a2 & mask26
+  a3 = a3 + c
+  c = a3 >> 26
+  a3 = a3 & mask26
+  a4 = a4 + c
+  c = a4 >> 26
+  a4 = a4 & mask26
+  a0 = a0 + c * 5UL
+  c = a0 >> 26
+  a0 = a0 & mask26
+  a1 = a1 + c
+
+  // Conditional subtraction of p = 2^130 - 5.
+  // Compute g = a + 5 mod 2^130. If the addition overflows bit 130 (i.e.,
+  // a ≥ p), the carry into g4's "phantom bit 26" makes g4 ≥ 2^26 and the
+  // subtraction below stays non-negative as a UInt64.
+  let mut g0 = a0 + 5UL
+  let mut g1 = a1 + (g0 >> 26)
+  g0 = g0 & mask26
+  let mut g2 = a2 + (g1 >> 26)
+  g1 = g1 & mask26
+  let mut g3 = a3 + (g2 >> 26)
+  g2 = g2 & mask26
+  let g4 = a4 + (g3 >> 26) - (1UL << 26)
+  g3 = g3 & mask26
+  // If g4's top UInt64 bit is 0, a ≥ p (no underflow), use g.
+  // If top bit is 1, the subtraction underflowed, so a < p; keep a.
+  let mask = (g4 >> 63) - 1UL // 0xFFFF... when we should use g
+  let inv_mask = mask ^ 0xFFFFFFFFFFFFFFFFUL
+  a0 = (g0 & mask) | (a0 & inv_mask)
+  a1 = (g1 & mask) | (a1 & inv_mask)
+  a2 = (g2 & mask) | (a2 & inv_mask)
+  a3 = (g3 & mask) | (a3 & inv_mask)
+  a4 = (g4 & mask) | (a4 & inv_mask)
+
+  // Reassemble as 128 bits (drop bits ≥ 128 since tag is mod 2^128).
+  let f0 = (a0 | (a1 << 26)) & 0xFFFFFFFFUL // low 32 bits
+  let f1 = ((a1 >> 6) | (a2 << 20)) & 0xFFFFFFFFUL
+  let f2 = ((a2 >> 12) | (a3 << 14)) & 0xFFFFFFFFUL
+  let f3 = ((a3 >> 18) | (a4 << 8)) & 0xFFFFFFFFUL
+
+  // Add s (otk[16..32]) and write little-endian 16 bytes.
+  let s0 = le32(otk, 16)
+  let s_1 = le32(otk, 20)
+  let s_2 = le32(otk, 24)
+  let s_3 = le32(otk, 28)
+  let mut sum0 = f0 + s0
+  let mut sum1 = f1 + s_1 + (sum0 >> 32)
+  let mut sum2 = f2 + s_2 + (sum1 >> 32)
+  let mut sum3 = f3 + s_3 + (sum2 >> 32)
+  sum0 = sum0 & 0xFFFFFFFFUL
+  sum1 = sum1 & 0xFFFFFFFFUL
+  sum2 = sum2 & 0xFFFFFFFFUL
+  sum3 = sum3 & 0xFFFFFFFFUL
+
+  Bytes::makei(16, fn(i) {
+    let word = if i < 4 {
+      sum0
+    } else if i < 8 {
+      sum1
+    } else if i < 12 {
+      sum2
+    } else {
+      sum3
+    }
+    let shift = i % 4 * 8
+    ((word >> shift) & 0xFFUL).to_int().to_byte()
+  })
 }
 
 ///|
