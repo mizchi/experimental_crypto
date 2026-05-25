@@ -57,8 +57,8 @@ fn be_store_u64(out : FixedArray[Byte], off : Int, v : UInt64) -> Unit {
 
 ///|
 /// GHASH multiplication X · H in GF(2^128). NIST SP 800-38D §6.3 Algorithm 1
-/// (bit-by-bit). Inputs and outputs are 128-bit values as (hi, lo) where hi
-/// holds the "leftmost" / most-significant bits.
+/// (bit-by-bit). Kept for reference / fallback; the main code path now uses
+/// the 4-bit table-driven Shoup variant below.
 ///
 /// Reduction polynomial: f(x) = 1 + x + x^2 + x^7 + x^128, encoded as
 /// R = 0xe1 << 120 in the (hi, lo) representation.
@@ -95,14 +95,122 @@ fn gf128_mul(
 }
 
 ///|
-/// GHASH(H, A, C). Accepts arbitrary-length AAD and ciphertext.
-/// Returns 16-byte tag value, packed as big-endian (hi, lo).
+/// 16-entry GHASH reduction-lookup table for the 4-bit Shoup method. Each
+/// entry rem_4bit[i] (i in 0..15) is the 16-bit value of `i * x^{124}` mod
+/// the GCM reduction polynomial, positioned so that `(rem_4bit[i] as u64)
+/// << 48` is the XOR mask applied to z_hi when a bottom nibble `i` is
+/// shifted out of z_lo.
+let rem_4bit : FixedArray[UInt64] = [
+  0x0000UL, 0x1c20UL, 0x3840UL, 0x2460UL,
+  0x7080UL, 0x6ca0UL, 0x48c0UL, 0x54e0UL,
+  0xe100UL, 0xfd20UL, 0xd940UL, 0xc560UL,
+  0x9180UL, 0x8da0UL, 0xa9c0UL, 0xb5e0UL,
+]
+
+///|
+/// Bit-reverse a 4-bit value (0..15). Used to lay out the 16-entry product
+/// table so that the inner loop can index it by the raw nibble.
+fn reverse_bits4(i : Int) -> Int {
+  let i = ((i << 2) & 0xc) | ((i >> 2) & 0x3)
+  ((i << 1) & 0xa) | ((i >> 1) & 0x5)
+}
+
+///|
+/// Multiply a 128-bit (hi, lo) value by x in GF(2^128) using the NIST
+/// bit-reversed convention: shift right by 1 with a conditional XOR of
+/// R = 0xe1 << 56 into hi when the low bit of `lo` is set.
+fn gf128_double(hi : UInt64, lo : UInt64) -> (UInt64, UInt64) {
+  let msb_set = (lo & 1UL) == 1UL
+  let new_lo = (lo >> 1) | (hi << 63)
+  let new_hi = hi >> 1
+  if msb_set {
+    (new_hi ^ 0xe100000000000000UL, new_lo)
+  } else {
+    (new_hi, new_lo)
+  }
+}
+
+///|
+/// Build the 16-entry product table for H. The result is laid out as a
+/// flat FixedArray[UInt64] of length 32 where entry i occupies indices
+/// (2*i) for hi and (2*i + 1) for lo. The table is filled such that
+/// `productTable[bitreverse4(i)] = i * H`, so during the multiply loop
+/// we can look up `productTable[nibble]` directly.
+fn build_ghash_table(h_hi : UInt64, h_lo : UInt64) -> FixedArray[UInt64] {
+  let t = FixedArray::make(32, 0UL)
+  // productTable[reverseBits(1)] = 1 * H
+  let idx1 = reverse_bits4(1)
+  t[idx1 * 2] = h_hi
+  t[idx1 * 2 + 1] = h_lo
+  // Fill even-index entries via doubling; odd via XOR with H.
+  let mut i = 2
+  while i < 16 {
+    // productTable[reverseBits(i)] = double(productTable[reverseBits(i/2)])
+    let prev = reverse_bits4(i / 2)
+    let (d_hi, d_lo) = gf128_double(t[prev * 2], t[prev * 2 + 1])
+    let cur = reverse_bits4(i)
+    t[cur * 2] = d_hi
+    t[cur * 2 + 1] = d_lo
+    // productTable[reverseBits(i+1)] = productTable[reverseBits(i)] XOR H
+    let nxt = reverse_bits4(i + 1)
+    t[nxt * 2] = d_hi ^ h_hi
+    t[nxt * 2 + 1] = d_lo ^ h_lo
+    i = i + 2
+  }
+  t
+}
+
+///|
+/// Multiply Y · H in GF(2^128) using the precomputed 4-bit table.
+/// Returns (z_hi, z_lo) where the encoding matches gf128_mul's contract.
+fn gf128_mul_table(
+  table : FixedArray[UInt64],
+  y_hi : UInt64,
+  y_lo : UInt64,
+) -> (UInt64, UInt64) {
+  let mut z_hi : UInt64 = 0UL
+  let mut z_lo : UInt64 = 0UL
+  // First iteration consumes y_lo (bytes 8..15 = high-degree coefficients).
+  let mut word = y_lo
+  let mut j = 0
+  while j < 16 {
+    let msw = (z_lo & 0xfUL).to_int()
+    z_lo = (z_lo >> 4) | (z_hi << 60)
+    z_hi = z_hi >> 4
+    z_hi = z_hi ^ (rem_4bit[msw] << 48)
+    let nib = (word & 0xfUL).to_int()
+    z_hi = z_hi ^ table[nib * 2]
+    z_lo = z_lo ^ table[nib * 2 + 1]
+    word = word >> 4
+    j = j + 1
+  }
+  // Second iteration consumes y_hi (bytes 0..7 = low-degree coefficients).
+  word = y_hi
+  j = 0
+  while j < 16 {
+    let msw = (z_lo & 0xfUL).to_int()
+    z_lo = (z_lo >> 4) | (z_hi << 60)
+    z_hi = z_hi >> 4
+    z_hi = z_hi ^ (rem_4bit[msw] << 48)
+    let nib = (word & 0xfUL).to_int()
+    z_hi = z_hi ^ table[nib * 2]
+    z_lo = z_lo ^ table[nib * 2 + 1]
+    word = word >> 4
+    j = j + 1
+  }
+  (z_hi, z_lo)
+}
+
+///|
+/// GHASH(H, A, C) using the 4-bit table-driven multiplication. Output
+/// matches the previous bit-by-bit `ghash` function bit-for-bit.
 fn ghash(
   h_hi : UInt64,
   h_lo : UInt64,
   aad : Bytes,
   ct : Bytes,
 ) -> (UInt64, UInt64) {
+  let table = build_ghash_table(h_hi, h_lo)
   let mut y_hi : UInt64 = 0UL
   let mut y_lo : UInt64 = 0UL
 
@@ -119,7 +227,7 @@ fn ghash(
     let blk_lo = be_load_u64_arr(buf, 8)
     y_hi = y_hi ^ blk_hi
     y_lo = y_lo ^ blk_lo
-    let (nz_hi, nz_lo) = gf128_mul(y_hi, y_lo, h_hi, h_lo)
+    let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
     y_hi = nz_hi
     y_lo = nz_lo
     i = i + take
@@ -138,7 +246,7 @@ fn ghash(
     let blk_lo = be_load_u64_arr(buf, 8)
     y_hi = y_hi ^ blk_hi
     y_lo = y_lo ^ blk_lo
-    let (nz_hi, nz_lo) = gf128_mul(y_hi, y_lo, h_hi, h_lo)
+    let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
     y_hi = nz_hi
     y_lo = nz_lo
     i = i + take
@@ -149,7 +257,7 @@ fn ghash(
   let ct_bits = ct_len.to_uint64() * 8UL
   y_hi = y_hi ^ aad_bits
   y_lo = y_lo ^ ct_bits
-  let (nz_hi, nz_lo) = gf128_mul(y_hi, y_lo, h_hi, h_lo)
+  let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
   (nz_hi, nz_lo)
 }
 

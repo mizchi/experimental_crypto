@@ -50,3 +50,102 @@ test "bench aead ChaCha20-Poly1305 open 1 KiB" (it : @bench.T) {
     )
   })
 }
+
+///|
+let bench_aes128_key : Bytes = b"\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08"
+
+///|
+let bench_aes256_key : Bytes = b"\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08"
+
+///|
+let bench_gcm_nonce : Bytes = b"\xca\xfe\xba\xbe\xfa\xce\xdb\xad\xde\xca\xf8\x88"
+
+///|
+test "bench aead AES-128-GCM seal 1 KiB" (it : @bench.T) {
+  let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
+  it.bench(name="AES-128-GCM seal 1KiB", count=200, () => {
+    it.keep(
+      @aead.seal(Aes128Gcm, bench_aes128_key, bench_gcm_nonce, b"", plaintext) catch {
+        _ => abort("unreachable")
+      },
+    )
+  })
+}
+
+///|
+test "bench aead AES-128-GCM seal 16 KiB" (it : @bench.T) {
+  let plaintext = Bytes::makei(16 * 1024, fn(i) { (i % 251).to_byte() })
+  it.bench(name="AES-128-GCM seal 16KiB", count=50, () => {
+    it.keep(
+      @aead.seal(Aes128Gcm, bench_aes128_key, bench_gcm_nonce, b"", plaintext) catch {
+        _ => abort("unreachable")
+      },
+    )
+  })
+}
+
+///|
+test "bench aead AES-128-GCM open 1 KiB" (it : @bench.T) {
+  let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
+  let sealed = @aead.seal(
+    Aes128Gcm,
+    bench_aes128_key,
+    bench_gcm_nonce,
+    b"",
+    plaintext,
+  ) catch {
+    _ => abort("unreachable")
+  }
+  it.bench(name="AES-128-GCM open 1KiB", count=200, () => {
+    it.keep(
+      @aead.open(Aes128Gcm, bench_aes128_key, bench_gcm_nonce, b"", sealed) catch {
+        _ => abort("unreachable")
+      },
+    )
+  })
+}
+
+///|
+test "bench aead AES-256-GCM seal 1 KiB" (it : @bench.T) {
+  let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
+  it.bench(name="AES-256-GCM seal 1KiB", count=200, () => {
+    it.keep(
+      @aead.seal(Aes256Gcm, bench_aes256_key, bench_gcm_nonce, b"", plaintext) catch {
+        _ => abort("unreachable")
+      },
+    )
+  })
+}
+
+///|
+test "bench aead AES-256-GCM seal 16 KiB" (it : @bench.T) {
+  let plaintext = Bytes::makei(16 * 1024, fn(i) { (i % 251).to_byte() })
+  it.bench(name="AES-256-GCM seal 16KiB", count=50, () => {
+    it.keep(
+      @aead.seal(Aes256Gcm, bench_aes256_key, bench_gcm_nonce, b"", plaintext) catch {
+        _ => abort("unreachable")
+      },
+    )
+  })
+}
+
+///|
+test "bench aead AES-256-GCM open 1 KiB" (it : @bench.T) {
+  let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
+  let sealed = @aead.seal(
+    Aes256Gcm,
+    bench_aes256_key,
+    bench_gcm_nonce,
+    b"",
+    plaintext,
+  ) catch {
+    _ => abort("unreachable")
+  }
+  it.bench(name="AES-256-GCM open 1KiB", count=200, () => {
+    it.keep(
+      @aead.open(Aes256Gcm, bench_aes256_key, bench_gcm_nonce, b"", sealed) catch {
+        _ => abort("unreachable")
+      },
+    )
+  })
+}
