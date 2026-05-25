@@ -1,7 +1,6 @@
-// Benchmarks for X25519. The current implementation goes through @bigint
-// (variable-time) so this measures the BigInt Montgomery ladder as a
-// baseline; a future limb-level rewrite should beat these numbers by 1-2
-// orders of magnitude.
+// Benchmarks for X25519. The implementation uses a 10-limb radix-2^25.5
+// field representation over UInt64 with schoolbook multiplication and a
+// 254-step Fermat inversion chain.
 
 ///|
 test "bench x25519 diffie_hellman (Alice key on Bob pubkey)" (it : @bench.T) {
