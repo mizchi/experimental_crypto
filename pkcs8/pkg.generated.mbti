@@ -20,6 +20,8 @@ pub fn serialize_der(PrivateKeyInfo) -> Bytes
 
 pub fn serialize_encrypted_der(EncryptedPrivateKeyInfo) -> Bytes
 
+pub fn serialize_encrypted_pem(EncryptedPrivateKeyInfo) -> String
+
 pub fn serialize_pem(PrivateKeyInfo) -> String
 
 // Errors
@@ -32,12 +34,12 @@ pub suberror Pkcs8Error {
 } derive(Show)
 
 // Types and methods
-pub struct EncryptedPrivateKeyInfo {
+pub(all) struct EncryptedPrivateKeyInfo {
   algorithm : @pkix.AlgorithmIdentifier
   encrypted_data : Bytes
 } derive(Eq, Show)
 
-pub struct PrivateKeyInfo {
+pub(all) struct PrivateKeyInfo {
   version : Int
   algorithm : @pkix.AlgorithmIdentifier
   private_key : Bytes

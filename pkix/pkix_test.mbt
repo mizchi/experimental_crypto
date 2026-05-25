@@ -36,7 +36,10 @@ fn sample_cert() -> @pkix.Certificate raise {
   let tbs : @pkix.TbsCertificate = {
     version: 2,
     serial_number: b"\x01",
-    signature: { algorithm: sha256_with_rsa(), parameters: Some(null_parameters()) },
+    signature: {
+      algorithm: sha256_with_rsa(),
+      parameters: Some(null_parameters()),
+    },
     issuer: name_cn("Test CA"),
     validity: {
       not_before: "230101000000Z",
@@ -150,7 +153,10 @@ test "pkix: serialize_name + parse_name roundtrip" {
 ///|
 test "pkix: serialize_subject_public_key_info + parse roundtrip" {
   let spki : @pkix.SubjectPublicKeyInfo = {
-    algorithm: { algorithm: rsa_encryption(), parameters: Some(null_parameters()) },
+    algorithm: {
+      algorithm: rsa_encryption(),
+      parameters: Some(null_parameters()),
+    },
     subject_public_key: { bytes: b"\x00\x01\x02", unused_bits: 0 },
   }
   let bytes1 = @pkix.serialize_subject_public_key_info(spki)

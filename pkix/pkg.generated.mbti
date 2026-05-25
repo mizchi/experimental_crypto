@@ -6,6 +6,10 @@ import {
 }
 
 // Values
+pub fn algorithm_identifier_to_element(AlgorithmIdentifier) -> @asn1.Element raise PkixError
+
+pub fn parse_algorithm_identifier_elem(@asn1.Element) -> AlgorithmIdentifier raise PkixError
+
 pub fn parse_certificate(Bytes) -> Certificate raise PkixError
 
 pub fn parse_name(Bytes) -> Name raise PkixError
@@ -28,38 +32,38 @@ pub suberror PkixError {
 } derive(Show)
 
 // Types and methods
-pub struct AlgorithmIdentifier {
+pub(all) struct AlgorithmIdentifier {
   algorithm : @asn1.ObjectIdentifier
   parameters : Bytes?
 } derive(Eq, Show)
 
-pub struct AttributeTypeAndValue {
+pub(all) struct AttributeTypeAndValue {
   oid : @asn1.ObjectIdentifier
   value : @asn1.Element
 } derive(Show)
 
-pub struct Certificate {
+pub(all) struct Certificate {
   tbs : TbsCertificate
   signature_algorithm : AlgorithmIdentifier
   signature : @asn1.BitString
 } derive(Show)
 
-pub struct Extension {
+pub(all) struct Extension {
   oid : @asn1.ObjectIdentifier
   critical : Bool
   value : Bytes
 } derive(Show)
 
-pub struct Name {
+pub(all) struct Name {
   rdns : Array[Array[AttributeTypeAndValue]]
 } derive(Show)
 
-pub struct SubjectPublicKeyInfo {
+pub(all) struct SubjectPublicKeyInfo {
   algorithm : AlgorithmIdentifier
   subject_public_key : @asn1.BitString
 } derive(Show)
 
-pub struct TbsCertificate {
+pub(all) struct TbsCertificate {
   version : Int
   serial_number : Bytes
   signature : AlgorithmIdentifier
@@ -72,9 +76,11 @@ pub struct TbsCertificate {
   extensions : Array[Extension]
 } derive(Show)
 
-pub struct Validity {
+pub(all) struct Validity {
   not_before : String
   not_after : String
+  not_before_tag : @asn1.Tag
+  not_after_tag : @asn1.Tag
 } derive(Eq, Show)
 
 // Type aliases

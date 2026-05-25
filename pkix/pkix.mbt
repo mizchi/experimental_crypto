@@ -72,7 +72,9 @@ pub suberror PkixError {
 // ─── helpers ─────────────────────────────────────────────────────────────
 
 ///|
-fn expect_sequence(elem : @asn1.Element) -> Array[@asn1.Element] raise PkixError {
+fn expect_sequence(
+  elem : @asn1.Element,
+) -> Array[@asn1.Element] raise PkixError {
   match elem.value {
     Sequence(items) =>
       if elem.tag == @asn1.tag_sequence {
@@ -161,6 +163,7 @@ fn expect_time(elem : @asn1.Element) -> (String, @asn1.Tag) raise PkixError {
 
 // Context [n] EXPLICIT: outer tag = ContextSpecific n constructed,
 // content = a single nested TLV.
+
 ///|
 fn match_context_explicit(
   elem : @asn1.Element,
@@ -170,22 +173,28 @@ fn match_context_explicit(
     return None
   }
   if not(elem.tag.constructed) {
-    raise UnexpectedStructure("context [" + number.to_string() + "] not constructed")
+    raise UnexpectedStructure(
+      "context [" + number.to_string() + "] not constructed",
+    )
   }
   match elem.value {
-    Unknown(raw) =>
-      Some(@asn1.decode_der(raw) catch { e => raise Asn1(e) })
+    Unknown(raw) => Some(@asn1.decode_der(raw) catch { e => raise Asn1(e) })
     Sequence(_) | Set(_) =>
       // asn1 decode_value never gives us Sequence/Set for context tags, but
       // be defensive.
-      raise UnexpectedStructure("context [" + number.to_string() + "] unexpected value kind")
+      raise UnexpectedStructure(
+        "context [" + number.to_string() + "] unexpected value kind",
+      )
     _ =>
-      raise UnexpectedStructure("context [" + number.to_string() + "] missing raw payload")
+      raise UnexpectedStructure(
+        "context [" + number.to_string() + "] missing raw payload",
+      )
   }
 }
 
 // Context [n] IMPLICIT BIT STRING: tag = ContextSpecific n primitive,
 // content = standard BIT STRING content (unused_bits prefix + data).
+
 ///|
 fn match_context_implicit_bit_string(
   elem : @asn1.Element,
@@ -195,11 +204,16 @@ fn match_context_implicit_bit_string(
     return None
   }
   if elem.tag.constructed {
-    raise UnexpectedStructure("[" + number.to_string() + "] IMPLICIT BIT STRING must be primitive")
+    raise UnexpectedStructure(
+      "[" + number.to_string() + "] IMPLICIT BIT STRING must be primitive",
+    )
   }
   match elem.value {
     Unknown(raw) => Some(decode_bit_string_content(raw))
-    _ => raise UnexpectedStructure("[" + number.to_string() + "] missing raw payload")
+    _ =>
+      raise UnexpectedStructure(
+        "[" + number.to_string() + "] missing raw payload",
+      )
   }
 }
 
@@ -219,7 +233,7 @@ fn decode_bit_string_content(b : Bytes) -> @asn1.BitString raise PkixError {
 // ─── low-level structure parsers ─────────────────────────────────────────
 
 ///|
-fn parse_algorithm_identifier_elem(
+pub fn parse_algorithm_identifier_elem(
   elem : @asn1.Element,
 ) -> AlgorithmIdentifier raise PkixError {
   let items = expect_sequence(elem)
@@ -243,7 +257,12 @@ fn parse_validity_elem(elem : @asn1.Element) -> Validity raise PkixError {
   }
   let (nb, nb_tag) = expect_time(items[0])
   let (na, na_tag) = expect_time(items[1])
-  { not_before: nb, not_after: na, not_before_tag: nb_tag, not_after_tag: na_tag }
+  {
+    not_before: nb,
+    not_after: na,
+    not_before_tag: nb_tag,
+    not_after_tag: na_tag,
+  }
 }
 
 ///|
@@ -258,7 +277,9 @@ fn parse_attribute_type_and_value(
 }
 
 ///|
-fn parse_rdn(elem : @asn1.Element) -> Array[AttributeTypeAndValue] raise PkixError {
+fn parse_rdn(
+  elem : @asn1.Element,
+) -> Array[AttributeTypeAndValue] raise PkixError {
   let items = expect_set(elem)
   if items.length() == 0 {
     raise UnexpectedStructure("RelativeDistinguishedName must be non-empty")
@@ -313,7 +334,9 @@ fn parse_extension(elem : @asn1.Element) -> Extension raise PkixError {
 }
 
 ///|
-fn parse_extensions_seq(elem : @asn1.Element) -> Array[Extension] raise PkixError {
+fn parse_extensions_seq(
+  elem : @asn1.Element,
+) -> Array[Extension] raise PkixError {
   let items = expect_sequence(elem)
   let out : Array[Extension] = []
   for item in items {
@@ -437,7 +460,9 @@ pub fn parse_name(der : Bytes) -> Name raise PkixError {
 // ─── serializers ─────────────────────────────────────────────────────────
 
 ///|
-fn algorithm_identifier_to_element(alg : AlgorithmIdentifier) -> @asn1.Element raise PkixError {
+pub fn algorithm_identifier_to_element(
+  alg : AlgorithmIdentifier,
+) -> @asn1.Element raise PkixError {
   let items : Array[@asn1.Element] = [
     @asn1.Element::new(@asn1.tag_oid, Oid(alg.algorithm)),
   ]
@@ -450,7 +475,9 @@ fn algorithm_identifier_to_element(alg : AlgorithmIdentifier) -> @asn1.Element r
 }
 
 ///|
-fn attribute_type_and_value_to_element(av : AttributeTypeAndValue) -> @asn1.Element {
+fn attribute_type_and_value_to_element(
+  av : AttributeTypeAndValue,
+) -> @asn1.Element {
   let items : Array[@asn1.Element] = [
     @asn1.Element::new(@asn1.tag_oid, Oid(av.oid)),
     av.value,
@@ -496,7 +523,9 @@ fn validity_to_element(v : Validity) -> @asn1.Element {
 }
 
 ///|
-fn spki_to_element(spki : SubjectPublicKeyInfo) -> @asn1.Element raise PkixError {
+fn spki_to_element(
+  spki : SubjectPublicKeyInfo,
+) -> @asn1.Element raise PkixError {
   let items : Array[@asn1.Element] = [
     algorithm_identifier_to_element(spki.algorithm),
     @asn1.Element::new(@asn1.tag_bit_string, BitString(spki.subject_public_key)),
@@ -542,23 +571,24 @@ fn wrap_context_implicit_bit_string(
   let buf = Buffer()
   buf.write_byte(bs.unused_bits.to_byte())
   buf.write_bytes(bs.bytes)
-  @asn1.Element::new(
-    @asn1.Tag::context(number),
-    Unknown(buf.to_bytes()),
-  )
+  @asn1.Element::new(@asn1.Tag::context(number), Unknown(buf.to_bytes()))
 }
 
 ///|
-fn tbs_certificate_to_element(tbs : TbsCertificate) -> @asn1.Element raise PkixError {
+fn tbs_certificate_to_element(
+  tbs : TbsCertificate,
+) -> @asn1.Element raise PkixError {
   let items : Array[@asn1.Element] = []
   if tbs.version != 0 {
-    items.push(wrap_context_explicit(
-      0U,
-      @asn1.Element::new(
-        @asn1.tag_integer,
-        Integer(int_to_be_minimal(tbs.version)),
+    items.push(
+      wrap_context_explicit(
+        0U,
+        @asn1.Element::new(
+          @asn1.tag_integer,
+          Integer(int_to_be_minimal(tbs.version)),
+        ),
       ),
-    ))
+    )
   }
   items.push(@asn1.Element::new(@asn1.tag_integer, Integer(tbs.serial_number)))
   items.push(algorithm_identifier_to_element(tbs.signature))
@@ -610,7 +640,9 @@ fn int_to_be_minimal(value : Int) -> Bytes {
 
 ///|
 pub fn serialize_certificate(cert : Certificate) -> Bytes {
-  serialize_certificate_checked(cert) catch { _ => abort("serialize_certificate: invalid algorithm parameters") }
+  serialize_certificate_checked(cert) catch {
+    _ => abort("serialize_certificate: invalid algorithm parameters")
+  }
 }
 
 ///|
@@ -625,7 +657,9 @@ fn serialize_certificate_checked(cert : Certificate) -> Bytes raise PkixError {
 
 ///|
 pub fn serialize_subject_public_key_info(spki : SubjectPublicKeyInfo) -> Bytes {
-  serialize_spki_checked(spki) catch { _ => abort("serialize_spki: invalid algorithm parameters") }
+  serialize_spki_checked(spki) catch {
+    _ => abort("serialize_spki: invalid algorithm parameters")
+  }
 }
 
 ///|

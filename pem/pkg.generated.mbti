@@ -21,7 +21,7 @@ pub suberror PemError {
 } derive(Show)
 
 // Types and methods
-pub struct PemBlock {
+pub(all) struct PemBlock {
   label : String
   data : Bytes
   headers : Array[(String, String)]
