@@ -1,7 +1,11 @@
 // AES-128 and AES-256 block cipher (FIPS 197). Encryption only — GCM does
-// not need the inverse direction. This is a straightforward table-based
-// implementation: it is NOT constant-time (the S-box lookup leaks key bits
-// via cache timing).
+// not need the inverse direction. This implementation uses the T-table
+// (Te0..Te3) optimization: each main round becomes 16 table lookups + 16
+// XORs over four 32-bit words, instead of per-byte SubBytes / ShiftRows /
+// MixColumns. The final round still uses the raw S-box (no MixColumns).
+//
+// This is NOT constant-time: the table lookups leak key bits via cache
+// timing. Do not use where side-channel resistance matters.
 
 ///|
 /// AES forward S-box (FIPS 197 §5.1.1, Figure 7). 256 entries.
@@ -82,6 +86,71 @@ fn xtime(b : Int) -> Int {
 }
 
 ///|
+/// Build Te0: the 256-entry T-table where Te0[s] equals the MixColumns
+/// transform applied to the column (SBox[s], 0, 0, 0). Words are packed
+/// with row 0 in the high byte: word = (r0 << 24) | (r1 << 16) | (r2 << 8) | r3.
+fn build_te0() -> FixedArray[Int] {
+  let t = FixedArray::make(256, 0)
+  for s in 0..<256 {
+    let v = aes_sbox[s]
+    let v2 = xtime(v)
+    let v3 = v2 ^ v
+    // MixColumns × (v, 0, 0, 0) = (2v, v, v, 3v)
+    t[s] = (v2 << 24) | (v << 16) | (v << 8) | v3
+  }
+  t
+}
+
+///|
+/// Te1[s] = rotate Te0[s] right by 8 bits. Corresponds to MixColumns ×
+/// (0, SBox[s], 0, 0) = (3v, 2v, v, v).
+fn build_te1(te0 : FixedArray[Int]) -> FixedArray[Int] {
+  let t = FixedArray::make(256, 0)
+  for s in 0..<256 {
+    let w = te0[s]
+    // rotate right 8: (w >> 8) | (w << 24), masked to 32 bits.
+    t[s] = (((w >> 8) & 0x00FFFFFF) | (w << 24)) & 0xFFFFFFFF
+  }
+  t
+}
+
+///|
+/// Te2[s] = rotate Te0[s] right by 16 bits. MixColumns × (0, 0, SBox[s], 0)
+/// = (v, 3v, 2v, v).
+fn build_te2(te0 : FixedArray[Int]) -> FixedArray[Int] {
+  let t = FixedArray::make(256, 0)
+  for s in 0..<256 {
+    let w = te0[s]
+    t[s] = (((w >> 16) & 0x0000FFFF) | (w << 16)) & 0xFFFFFFFF
+  }
+  t
+}
+
+///|
+/// Te3[s] = rotate Te0[s] right by 24 bits. MixColumns × (0, 0, 0, SBox[s])
+/// = (v, v, 3v, 2v).
+fn build_te3(te0 : FixedArray[Int]) -> FixedArray[Int] {
+  let t = FixedArray::make(256, 0)
+  for s in 0..<256 {
+    let w = te0[s]
+    t[s] = (((w >> 24) & 0x000000FF) | (w << 8)) & 0xFFFFFFFF
+  }
+  t
+}
+
+///|
+let te0 : FixedArray[Int] = build_te0()
+
+///|
+let te1 : FixedArray[Int] = build_te1(te0)
+
+///|
+let te2 : FixedArray[Int] = build_te2(te0)
+
+///|
+let te3 : FixedArray[Int] = build_te3(te0)
+
+///|
 /// AES key schedule. Returns Nr+1 round keys, each 16 bytes packed as 4 ×
 /// UInt (column-major: column 0 is bytes 0..3 = (a0, a1, a2, a3)). Nr is 10
 /// for AES-128 and 14 for AES-256.
@@ -129,105 +198,115 @@ fn aes_key_schedule(key : Bytes) -> (FixedArray[Int], Int) {
 }
 
 ///|
-/// AES block encryption. `block` is exactly 16 bytes; `(round_keys, nr)`
-/// comes from `aes_key_schedule`. Output is 16 bytes.
+/// AES block encryption (T-table). `block` is exactly 16 bytes;
+/// `(round_keys, nr)` comes from `aes_key_schedule`. Output is 16 bytes.
+///
+/// State is held as 4 × 32-bit column words (Int). Each column c packs
+/// state bytes as word_c = (s[0,c] << 24) | (s[1,c] << 16) | (s[2,c] << 8)
+/// | s[3,c], i.e. row 0 of the column in the high byte.
+///
+/// One main round (with MixColumns):
+///   new_col[j] = Te0[byte(col_j,    row=0)]
+///              ^ Te1[byte(col_j+1, row=1)]
+///              ^ Te2[byte(col_j+2, row=2)]
+///              ^ Te3[byte(col_j+3, row=3)]
+///              ^ rk[round*4 + j]
+///
+/// Final round (no MixColumns) uses the raw S-box with the same byte
+/// permutation pattern.
 fn aes_encrypt_block(
   block : Bytes,
   round_keys : FixedArray[Int],
   nr : Int,
 ) -> Bytes {
-  // State is 4 columns of 4 bytes each. Use 16 mutable Ints in column-major
-  // order: s[col*4 + row].
-  let s = FixedArray::make(16, 0)
-  for c in 0..<4 {
-    for r in 0..<4 {
-      s[c * 4 + r] = block[c * 4 + r].to_int() & 0xFF
-    }
+  // Load 4 column words from input, then XOR initial round key.
+  let mut s0 = ((block[0].to_int() << 24) |
+    (block[1].to_int() << 16) |
+    (block[2].to_int() << 8) |
+    block[3].to_int()) ^
+    round_keys[0]
+  let mut s1 = ((block[4].to_int() << 24) |
+    (block[5].to_int() << 16) |
+    (block[6].to_int() << 8) |
+    block[7].to_int()) ^
+    round_keys[1]
+  let mut s2 = ((block[8].to_int() << 24) |
+    (block[9].to_int() << 16) |
+    (block[10].to_int() << 8) |
+    block[11].to_int()) ^
+    round_keys[2]
+  let mut s3 = ((block[12].to_int() << 24) |
+    (block[13].to_int() << 16) |
+    (block[14].to_int() << 8) |
+    block[15].to_int()) ^
+    round_keys[3]
+
+  // Main rounds 1..nr-1: T-table.
+  let mut round = 1
+  while round < nr {
+    let rk_off = round * 4
+    let t0 = te0[(s0 >> 24) & 0xFF] ^
+      te1[(s1 >> 16) & 0xFF] ^
+      te2[(s2 >> 8) & 0xFF] ^
+      te3[s3 & 0xFF] ^
+      round_keys[rk_off]
+    let t1 = te0[(s1 >> 24) & 0xFF] ^
+      te1[(s2 >> 16) & 0xFF] ^
+      te2[(s3 >> 8) & 0xFF] ^
+      te3[s0 & 0xFF] ^
+      round_keys[rk_off + 1]
+    let t2 = te0[(s2 >> 24) & 0xFF] ^
+      te1[(s3 >> 16) & 0xFF] ^
+      te2[(s0 >> 8) & 0xFF] ^
+      te3[s1 & 0xFF] ^
+      round_keys[rk_off + 2]
+    let t3 = te0[(s3 >> 24) & 0xFF] ^
+      te1[(s0 >> 16) & 0xFF] ^
+      te2[(s1 >> 8) & 0xFF] ^
+      te3[s2 & 0xFF] ^
+      round_keys[rk_off + 3]
+    s0 = t0
+    s1 = t1
+    s2 = t2
+    s3 = t3
+    round = round + 1
   }
-  // AddRoundKey round 0
-  add_round_key(s, round_keys, 0)
-  // Main rounds 1..nr-1
-  for round = 1; round < nr; round = round + 1 {
-    sub_bytes(s)
-    shift_rows(s)
-    mix_columns(s)
-    add_round_key(s, round_keys, round)
-  }
-  // Final round (no MixColumns)
-  sub_bytes(s)
-  shift_rows(s)
-  add_round_key(s, round_keys, nr)
+
+  // Final round: SubBytes + ShiftRows + AddRoundKey (no MixColumns).
+  let rk_off = nr * 4
+  let f0 = ((aes_sbox[(s0 >> 24) & 0xFF] << 24) |
+    (aes_sbox[(s1 >> 16) & 0xFF] << 16) |
+    (aes_sbox[(s2 >> 8) & 0xFF] << 8) |
+    aes_sbox[s3 & 0xFF]) ^
+    round_keys[rk_off]
+  let f1 = ((aes_sbox[(s1 >> 24) & 0xFF] << 24) |
+    (aes_sbox[(s2 >> 16) & 0xFF] << 16) |
+    (aes_sbox[(s3 >> 8) & 0xFF] << 8) |
+    aes_sbox[s0 & 0xFF]) ^
+    round_keys[rk_off + 1]
+  let f2 = ((aes_sbox[(s2 >> 24) & 0xFF] << 24) |
+    (aes_sbox[(s3 >> 16) & 0xFF] << 16) |
+    (aes_sbox[(s0 >> 8) & 0xFF] << 8) |
+    aes_sbox[s1 & 0xFF]) ^
+    round_keys[rk_off + 2]
+  let f3 = ((aes_sbox[(s3 >> 24) & 0xFF] << 24) |
+    (aes_sbox[(s0 >> 16) & 0xFF] << 16) |
+    (aes_sbox[(s1 >> 8) & 0xFF] << 8) |
+    aes_sbox[s2 & 0xFF]) ^
+    round_keys[rk_off + 3]
+
+  // Pack the four column words back into 16 output bytes.
   Bytes::makei(16, fn(i) {
     let col = i / 4
     let row = i % 4
-    s[col * 4 + row].to_byte()
+    let w = match col {
+      0 => f0
+      1 => f1
+      2 => f2
+      _ => f3
+    }
+    ((w >> ((3 - row) * 8)) & 0xFF).to_byte()
   })
-}
-
-///|
-fn add_round_key(
-  s : FixedArray[Int],
-  round_keys : FixedArray[Int],
-  round : Int,
-) -> Unit {
-  // Each round key is 4 words = round_keys[round*4 .. round*4+3].
-  // Word w packs bytes (a0 a1 a2 a3) with a0 in the high byte.
-  for c in 0..<4 {
-    let w = round_keys[round * 4 + c]
-    s[c * 4 + 0] = s[c * 4 + 0] ^ ((w >> 24) & 0xFF)
-    s[c * 4 + 1] = s[c * 4 + 1] ^ ((w >> 16) & 0xFF)
-    s[c * 4 + 2] = s[c * 4 + 2] ^ ((w >> 8) & 0xFF)
-    s[c * 4 + 3] = s[c * 4 + 3] ^ (w & 0xFF)
-  }
-}
-
-///|
-fn sub_bytes(s : FixedArray[Int]) -> Unit {
-  for i in 0..<16 {
-    s[i] = aes_sbox[s[i] & 0xFF]
-  }
-}
-
-///|
-fn shift_rows(s : FixedArray[Int]) -> Unit {
-  // Row r is shifted left by r positions.
-  // Row 0: no change (positions 0,4,8,12 — column*4 + 0)
-  // Row 1: positions 1,5,9,13 ← shift left by 1
-  // Row 2: positions 2,6,10,14 ← shift left by 2
-  // Row 3: positions 3,7,11,15 ← shift left by 3
-  let r1_0 = s[1]
-  s[1] = s[5]
-  s[5] = s[9]
-  s[9] = s[13]
-  s[13] = r1_0
-  let r2_0 = s[2]
-  let r2_1 = s[6]
-  s[2] = s[10]
-  s[6] = s[14]
-  s[10] = r2_0
-  s[14] = r2_1
-  let r3_0 = s[3]
-  let r3_1 = s[7]
-  let r3_2 = s[11]
-  s[3] = s[15]
-  s[7] = r3_0
-  s[11] = r3_1
-  s[15] = r3_2
-}
-
-///|
-fn mix_columns(s : FixedArray[Int]) -> Unit {
-  for c in 0..<4 {
-    let a0 = s[c * 4 + 0]
-    let a1 = s[c * 4 + 1]
-    let a2 = s[c * 4 + 2]
-    let a3 = s[c * 4 + 3]
-    let t = a0 ^ a1 ^ a2 ^ a3
-    s[c * 4 + 0] = a0 ^ t ^ xtime(a0 ^ a1)
-    s[c * 4 + 1] = a1 ^ t ^ xtime(a1 ^ a2)
-    s[c * 4 + 2] = a2 ^ t ^ xtime(a2 ^ a3)
-    s[c * 4 + 3] = a3 ^ t ^ xtime(a3 ^ a0)
-  }
 }
 
 ///|
@@ -237,4 +316,3 @@ fn aes_encrypt(key : Bytes, block : Bytes) -> Bytes {
   let (rk, nr) = aes_key_schedule(key)
   aes_encrypt_block(block, rk, nr)
 }
-
