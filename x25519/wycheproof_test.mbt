@@ -1,0 +1,374 @@
+// Google Project Wycheproof external test vectors for X25519 (curve25519 XdhComp).
+// Source: https://github.com/google/wycheproof/blob/main/testvectors_v1/x25519_test.json
+//
+// Selection:
+//   * valid (Normal / SpecialPublicKey / EdgeCaseMultiplication): 12 vectors
+//     The implementation must return the documented shared secret.
+//   * acceptable + ZeroSharedSecret (LowOrderPublic / small subgroup): 7 vectors
+//     This implementation rejects the resulting all-zero output with
+//     AllZeroSharedSecret, matching the RFC 7748 §6.1 recommendation.
+//   * acceptable + non-zero shared (Twist / NonCanonicalPublic):
+//     5 vectors. RFC 7748 clamping plus high-bit masking still yields
+//     a well-defined scalar multiplication; the result must match the
+//     documented shared secret.
+
+///|
+test "wycheproof x25519 tcId=1 (valid)" {
+  // normal case
+  // flags: Normal
+  let private_bytes : Bytes = b"\xc8\xa9\xd5\xa9\x10\x91\xad\x85\x1c\x66\x8b\x07\x36\xc1\xc9\xa0\x29\x36\xc0\xd3\xad\x62\x67\x08\x58\x08\x80\x47\xba\x05\x74\x75"
+  let public_bytes : Bytes = b"\x50\x4a\x36\x99\x9f\x48\x9c\xd2\xfd\xbc\x08\xba\xff\x3d\x88\xfa\x00\x56\x9b\xa9\x86\xcb\xa2\x25\x48\xff\xde\x80\xf9\x80\x68\x29"
+  let shared : Bytes = b"\x43\x6a\x2c\x04\x0c\xf4\x5f\xea\x9b\x29\xa0\xcb\x81\xb1\xf4\x14\x58\xf8\x63\xd0\xd6\x1b\x45\x3d\x0a\x98\x27\x20\xd6\xd6\x13\x20"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=34 (valid)" {
+  // edge case public key
+  // flags: SpecialPublicKey
+  let private_bytes : Bytes = b"\xa8\x38\x6f\x7f\x16\xc5\x07\x31\xd6\x4f\x82\xe6\xa1\x70\xb1\x42\xa4\xe3\x4f\x31\xfd\x77\x68\xfc\xb8\x90\x29\x25\xe7\xd1\xe2\x5a"
+  let public_bytes : Bytes = b"\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let shared : Bytes = b"\x34\xb7\xe4\xfa\x53\x26\x44\x20\xd9\xf9\x43\xd1\x55\x13\x90\x23\x42\xb3\x86\xb1\x72\xa0\xb0\xb7\xc8\xb8\xf2\xdd\x3d\x66\x9f\x59"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=35 (valid)" {
+  // edge case public key
+  // flags: SpecialPublicKey
+  let private_bytes : Bytes = b"\xd0\x5a\xbd\x08\xbf\x5e\x62\x53\x8c\xb9\xa5\xed\x10\x5d\xbe\xdd\x6d\xe3\x8d\x07\x94\x00\x85\x07\x2b\x43\x11\xc2\x67\x8e\xd7\x7d"
+  let public_bytes : Bytes = b"\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let shared : Bytes = b"\x3a\xa2\x27\xa3\x07\x81\xed\x74\x6b\xd4\xb3\x36\x5e\x5f\x61\x46\x1b\x84\x4d\x09\x41\x0c\x70\x57\x0a\xbd\x0d\x75\x57\x4d\xfc\x77"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=38 (valid)" {
+  // edge case public key
+  // flags: SpecialPublicKey
+  let private_bytes : Bytes = b"\x38\x5f\xc8\x05\x89\x00\xa8\x50\x21\xdd\x92\x42\x5d\x2f\xb3\x9a\x62\xd4\xe2\x3a\xef\x1d\x51\x04\xc4\xc2\xd8\x87\x12\xd3\x9e\x4d"
+  let public_bytes : Bytes = b"\xff\xff\xff\xff\xff\xff\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let shared : Bytes = b"\x38\x8f\xaf\xfb\x4a\x85\xd0\x67\x02\xba\x3e\x47\x9c\x6b\x21\x6a\x8f\x33\xef\xce\x05\x42\x97\x9b\xf1\x29\xd8\x60\xf9\x3b\x9f\x02"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=47 (valid)" {
+  // edge case public key
+  // flags: SpecialPublicKey
+  let private_bytes : Bytes = b"\x38\xd6\x40\x3e\x13\x77\x73\x4c\xdc\xe9\x82\x85\xe8\x20\xf2\x56\xad\x6b\x76\x9d\x6b\x56\x12\xbc\xf4\x2c\xf2\xb9\x79\x45\xc0\x73"
+  let public_bytes : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00"
+  let shared : Bytes = b"\x4d\x46\x05\x2c\x7e\xab\xba\x21\x5d\xf8\xd9\x13\x27\xe0\xc4\x61\x04\x21\xd2\xd9\x12\x9b\x14\x86\xd9\x14\xc7\x66\xcf\x10\x4c\x27"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=54 (valid)" {
+  // edge case public key
+  // flags: SpecialPublicKey
+  let private_bytes : Bytes = b"\x18\x41\x98\xc6\x22\x81\x77\xf3\xef\x41\xdc\x9a\x34\x12\x58\xf8\x18\x1a\xe3\x65\xfe\x9e\xc9\x8d\x93\x63\x9b\x0b\xbe\xe1\x46\x7d"
+  let public_bytes : Bytes = b"\xff\xff\xff\xff\xfe\xff\xff\x7f\xff\xff\xff\xff\xfe\xff\xff\x7f\xff\xff\xff\xff\xfe\xff\xff\x7f\xff\xff\xff\xff\xfe\xff\xff\x7f"
+  let shared : Bytes = b"\x80\x39\xee\xbe\xd1\xa4\xf3\xb8\x11\xea\x92\x10\x2a\x62\x67\xd4\xda\x41\x23\x70\xf3\xf0\xd6\xb7\x0f\x1f\xaa\xa2\xe8\xd5\x23\x6d"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=60 (valid)" {
+  // edge case public key
+  // flags: SpecialPublicKey
+  let private_bytes : Bytes = b"\x88\x03\x7a\xc8\xe3\x3c\x72\xc2\xc5\x10\x37\xc7\xc8\xc5\x28\x8b\xba\x92\x65\xc8\x2f\xd8\xc3\x17\x96\xdd\x7e\xa5\xdf\x9a\xaa\x4a"
+  let public_bytes : Bytes = b"\xed\xff\xff\xef\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"
+  let shared : Bytes = b"\x8c\x27\xb3\xbf\xf8\xd3\xc1\xf6\xda\xf2\xd3\xb7\xb3\x47\x9c\xf9\xad\x20\x56\xe2\x00\x2b\xe2\x47\x99\x2a\x3b\x29\xde\x13\xa6\x25"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=79 (acceptable)" {
+  // public key with low order
+  // flags: LowOrderPublic,ZeroSharedSecret
+  let private_bytes : Bytes = b"\x78\x6a\x33\xa4\xf7\xaf\x29\x7a\x20\xe7\x64\x29\x25\x93\x2b\xf5\x09\xe7\x07\x0f\xa1\xbc\x36\x98\x6a\xf1\xeb\x13\xf4\xf5\x0b\x55"
+  let public_bytes : Bytes = b"\x5f\x9c\x95\xbc\xa3\x50\x8c\x24\xb1\xd0\xb1\x55\x9c\x83\xef\x5b\x04\x44\x5c\xc4\x58\x1c\x8e\x86\xd8\x22\x4e\xdd\xd0\x9f\x11\xd7"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=124 (acceptable)" {
+  // special case public key
+  // flags: EdgeCaseMultiplication,Twist
+  let private_bytes : Bytes = b"\x38\xcf\xac\xaa\x44\x60\x79\x6b\x4d\xe4\x34\xbd\xd6\x73\x9f\x0d\x04\x36\x71\xf9\x7f\xa8\x29\x51\x75\x11\xe6\xb4\x7a\xa9\x34\x74"
+  let public_bytes : Bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let shared : Bytes = b"\x5d\xd7\xd1\x6f\xff\x25\xcc\x5f\xdf\x9e\x03\xc3\x15\x7c\xb0\xa2\x35\xce\xa1\x7d\x61\x8f\x36\xe6\xf1\x34\x61\x56\x7e\xde\xb9\x43"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=207 (acceptable)" {
+  // special case for z_2 in multiplication by 2
+  // flags: EdgeCaseMultiplication,Twist
+  let private_bytes : Bytes = b"\x20\x9e\x5e\x0a\xe1\x99\x4b\xd8\x59\xce\x89\x92\xb6\x2e\xc3\xa6\x6d\xf2\xeb\x50\x23\x2b\xcc\x3a\x3d\x27\xb6\x61\x4f\x6b\x01\x4d"
+  let public_bytes : Bytes = b"\xfa\xd9\xab\x3e\x80\x3b\x49\xfc\x81\xb2\x7e\xe6\x9d\xb6\xfc\x9f\xdb\x82\xe3\x54\x53\xb5\x9e\xf8\xfa\xb2\xa3\xbe\xb5\xe1\x13\x4c"
+  let shared : Bytes = b"\x85\xd9\xdb\x8f\x18\x2b\xc6\x8d\xb6\x7d\xe3\x47\x1f\x78\x6b\x45\xb1\x61\x9a\xec\x0f\x32\xb1\x08\xac\xe3\x0e\xe7\xb2\x62\x43\x05"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=256 (acceptable)" {
+  // special case for AA in multiplication by 3
+  // flags: EdgeCaseMultiplication,Twist
+  let private_bytes : Bytes = b"\xd0\xe6\x7f\x68\x18\x3a\x4c\x1a\xed\x9c\x56\x86\x4b\x36\x27\x8b\xb7\xbb\x75\xd5\x7a\x78\x32\x1b\xc7\xc2\x4f\xf6\x16\x36\x60\x7a"
+  let public_bytes : Bytes = b"\xd8\xc8\xe2\xc6\xf3\x3a\x98\x52\x5d\xf3\x76\x7d\x1d\x04\x43\x0d\xab\x0b\xda\x41\xf1\xf9\x04\xc9\x5b\xc6\x1c\xc1\x22\xca\xca\x74"
+  let shared : Bytes = b"\xef\x76\x12\xc1\x56\x07\x8d\xae\x3a\x81\xe5\x0e\xf3\x39\x51\xca\xb6\x61\xfb\x07\x73\x1d\x8f\x41\x9b\xc0\x10\x5c\x4d\x6d\x60\x50"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=290 (acceptable)" {
+  // special case for x_2 in multiplication by 4
+  // flags: EdgeCaseMultiplication,Twist
+  let private_bytes : Bytes = b"\x00\x9e\x8e\x9f\xa9\x93\x80\x4d\xce\x94\xce\xcb\x96\xb1\xde\x25\x68\x24\x5a\x97\x05\x9e\x4d\x7a\xe1\x16\xec\xdb\x1b\xad\xd1\x41"
+  let public_bytes : Bytes = b"\xfa\x8f\x24\xe9\x44\xde\x5d\x00\x37\x46\xd4\x63\x03\x50\xc0\xf4\xf6\x17\x5a\x32\x69\xc1\x91\x84\x82\x41\x05\x39\x8f\xbd\xd3\x29"
+  let shared : Bytes = b"\x56\xe2\xbf\xc7\xf6\xab\x7d\xa8\xfc\x73\x4a\xfc\x51\x5e\x57\xd0\x79\x4d\x00\x24\x34\xf9\xbc\x8e\x18\xbd\x0b\x72\xc0\xdf\x3c\x4a"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=32 (acceptable)" {
+  // public key = 0
+  // flags: SmallPublicKey,LowOrderPublic,SpecialPublicKey,ZeroSharedSecret
+  let private_bytes : Bytes = b"\x88\x22\x74\x94\x03\x8f\x2b\xb8\x11\xd4\x78\x05\xbc\xdf\x04\xa2\xac\x58\x5a\xda\x7f\x2f\x23\x38\x9b\xfd\x46\x58\xf9\xdd\xd4\x5e"
+  let public_bytes : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=33 (acceptable)" {
+  // public key = 1
+  // flags: SmallPublicKey,LowOrderPublic,SpecialPublicKey,ZeroSharedSecret
+  let private_bytes : Bytes = b"\x48\x23\x2e\x89\x72\xb6\x1c\x7e\x61\x93\x0e\xb9\x45\x0b\x50\x70\xea\xe1\xc6\x70\x47\x56\x85\x54\x1f\x04\x76\x21\x7e\x48\x18\x4f"
+  let public_bytes : Bytes = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=63 (acceptable)" {
+  // public key with low order
+  // flags: LowOrderPublic,SpecialPublicKey,ZeroSharedSecret
+  let private_bytes : Bytes = b"\xe0\xf9\x78\xdf\xcd\x3a\x8f\x1a\x50\x93\x41\x8d\xe5\x41\x36\xa5\x84\xc2\x0b\x7b\x34\x9a\xfd\xf6\xc0\x52\x08\x86\xf9\x5b\x12\x72"
+  let public_bytes : Bytes = b"\xe0\xeb\x7a\x7c\x3b\x41\xb8\xae\x16\x56\xe3\xfa\xf1\x9f\xc4\x6a\xda\x09\x8d\xeb\x9c\x32\xb1\xfd\x86\x62\x05\x16\x5f\x49\xb8\x00"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=64 (acceptable)" {
+  // public key with low order
+  // flags: LowOrderPublic,SpecialPublicKey,ZeroSharedSecret
+  let private_bytes : Bytes = b"\x38\x73\x55\xd9\x95\x61\x60\x90\x50\x3a\xaf\xad\x49\xda\x01\xfb\x3d\xc3\xed\xa9\x62\x70\x4e\xae\xe6\xb8\x6f\x9e\x20\xc9\x25\x79"
+  let public_bytes : Bytes = b"\x5f\x9c\x95\xbc\xa3\x50\x8c\x24\xb1\xd0\xb1\x55\x9c\x83\xef\x5b\x04\x44\x5c\xc4\x58\x1c\x8e\x86\xd8\x22\x4e\xdd\xd0\x9f\x11\x57"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=65 (acceptable)" {
+  // public key with low order
+  // flags: LowOrderPublic,Twist,SpecialPublicKey,ZeroSharedSecret
+  let private_bytes : Bytes = b"\xc8\xfe\x0d\xf9\x2a\xe6\x8a\x03\x02\x3f\xc0\xc9\xad\xb9\x55\x7d\x31\xbe\x7f\xee\xd0\xd3\xab\x36\xc5\x58\x14\x3d\xaf\x4d\xbb\x40"
+  let public_bytes : Bytes = b"\xec\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=66 (acceptable)" {
+  // public key with low order
+  // flags: LowOrderPublic,NonCanonicalPublic,SpecialPublicKey,ZeroSharedSecret
+  let private_bytes : Bytes = b"\xc8\xd7\x4a\xcd\xe5\x93\x4e\x64\xb9\x89\x5d\x5f\xf7\xaf\xbf\xfd\x7f\x70\x4f\x7d\xfc\xcf\xf7\xac\x28\xfa\x62\xa1\xe6\x41\x03\x47"
+  let public_bytes : Bytes = b"\xe0\xeb\x7a\x7c\x3b\x41\xb8\xae\x16\x56\xe3\xfa\xf1\x9f\xc4\x6a\xda\x09\x8d\xeb\x9c\x32\xb1\xfd\x86\x62\x05\x16\x5f\x49\xb8\x80"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=68 (acceptable)" {
+  // public key with low order
+  // flags: LowOrderPublic,NonCanonicalPublic,SpecialPublicKey,ZeroSharedSecret,Twist
+  let private_bytes : Bytes = b"\x20\x64\xb2\xf4\xc9\xdc\x97\xec\x7c\xf5\x89\x32\xfd\xfa\x32\x65\xba\x6e\xa4\xd1\x1f\x02\x59\xb8\xef\xc8\xaf\xb3\x5d\xb8\x8c\x48"
+  let public_bytes : Bytes = b"\xec\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+  let shared : Bytes = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(@x25519.AllZeroSharedSecret) => ()
+    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
+    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  }
+  ignore(shared)
+}
+
+///|
+test "wycheproof x25519 tcId=2 (acceptable)" {
+  // public key on twist
+  // flags: Twist
+  let private_bytes : Bytes = b"\xd8\x5d\x8c\x06\x1a\x50\x80\x4a\xc4\x88\xad\x77\x4a\xc7\x16\xc3\xf5\xba\x71\x4b\x27\x12\xe0\x48\x49\x13\x79\xa5\x00\x21\x19\x58"
+  let public_bytes : Bytes = b"\x63\xaa\x40\xc6\xe3\x83\x46\xc5\xca\xf2\x3a\x6d\xf0\xa5\xe6\xc8\x08\x89\xa0\x86\x47\xe5\x51\xb3\x56\x34\x49\xbe\xfc\xfc\x97\x33"
+  let shared : Bytes = b"\x27\x9d\xf6\x7a\x7c\x46\x11\xdb\x47\x08\xa0\xe8\x28\x2b\x19\x5e\x5a\xc0\xed\x6f\x4b\x2f\x29\x2c\x6f\xbd\x0a\xca\xc3\x0d\x13\x32"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=3 (acceptable)" {
+  // public key on twist
+  // flags: Twist
+  let private_bytes : Bytes = b"\xc8\xb4\x5b\xfd\x32\xe5\x53\x25\xd9\xfd\x64\x8c\xb3\x02\x84\x80\x39\x00\x0b\x39\x0e\x44\xd5\x21\xe5\x8a\xab\x3b\x29\xa6\x96\x4b"
+  let public_bytes : Bytes = b"\x0f\x83\xc3\x6f\xde\xd9\xd3\x2f\xad\xf4\xef\xa3\xae\x93\xa9\x0b\xb5\xcf\xa6\x68\x93\xbc\x41\x2c\x43\xfa\x72\x87\xdb\xb9\x97\x79"
+  let shared : Bytes = b"\x4b\xc7\xe0\x1e\x7d\x83\xd6\xcf\x67\x63\x2b\xf9\x00\x33\x48\x7a\x5f\xc2\x9e\xba\x53\x28\x89\x0e\xa7\xb1\x02\x6d\x23\xb9\xa4\x5f"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=87 (acceptable)" {
+  // non-canonical public key
+  // flags: NonCanonicalPublic,Twist,SpecialPublicKey
+  let private_bytes : Bytes = b"\x00\x16\xb6\x2a\xf5\xca\xbd\xe8\xc4\x09\x38\xeb\xf2\x10\x8e\x05\xd2\x7f\xa0\x53\x3e\xd8\x5d\x70\x01\x5a\xd4\xad\x39\x76\x2d\x54"
+  let public_bytes : Bytes = b"\xef\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"
+  let shared : Bytes = b"\xb4\xd1\x0e\x83\x27\x14\x97\x2f\x96\xbd\x33\x82\xe4\xd0\x82\xa2\x1a\x83\x33\xa1\x63\x15\xb3\xff\xb5\x36\x06\x1d\x24\x82\x36\x0d"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=89 (acceptable)" {
+  // non-canonical public key
+  // flags: NonCanonicalPublic,SpecialPublicKey
+  let private_bytes : Bytes = b"\x88\xdd\x14\xe2\x71\x1e\xbd\x0b\x00\x26\xc6\x51\x26\x4c\xa9\x65\xe7\xe3\xda\x50\x82\x78\x9f\xba\xb7\xe2\x44\x25\xe7\xb4\x37\x7e"
+  let public_bytes : Bytes = b"\xf1\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f"
+  let shared : Bytes = b"\x69\x19\x99\x2d\x6a\x59\x1e\x77\xb3\xf2\xba\xcb\xd7\x4c\xaf\x3a\xea\x4b\xe4\x80\x2b\x18\xb2\xbc\x07\xeb\x09\xad\xe3\xad\x66\x62"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
+
+///|
+test "wycheproof x25519 tcId=91 (acceptable)" {
+  // non-canonical public key
+  // flags: NonCanonicalPublic,Twist,SpecialPublicKey
+  let private_bytes : Bytes = b"\xc0\x69\x7b\x6f\x05\xe0\xf3\x43\x3b\x44\xea\x35\x2f\x20\x50\x8e\xb0\x62\x30\x98\xa7\x77\x08\x53\xaf\x5c\xa0\x97\x27\x34\x0c\x4e"
+  let public_bytes : Bytes = b"\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80"
+  let shared : Bytes = b"\xed\x18\xb0\x6d\xa5\x12\xca\xb6\x3f\x22\xd2\xd5\x1d\x77\xd9\x9f\xac\xd3\xc4\x50\x2e\x4a\xbf\x4e\x97\xb0\x94\xc2\x0a\x9d\xdf\x10"
+  let sk = @x25519.PrivateKey::from_bytes(private_bytes)
+  let pk = @x25519.PublicKey::from_bytes(public_bytes)
+  // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
+  let ss = @x25519.diffie_hellman(sk, pk)
+  assert_eq(ss.to_bytes(), shared)
+}
