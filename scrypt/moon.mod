@@ -22,3 +22,7 @@ license = "Apache-2.0"
 keywords = [ ]
 
 description = ""
+
+import {
+  "mizchi/pbkdf2@0.1.0",
+}
