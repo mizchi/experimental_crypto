@@ -417,9 +417,27 @@ fn fill_segment(
   // RFC 9106 §3.4.1.1 says we run G with zero block as first input and a
   // block built from (pass, lane, slice, m_prime_total_blocks?, t_cost, type, counter).
   // We compute the address blocks on demand.
-  let address_block = FixedArray::make(BLOCK_WORDS, 0UL)
-  let input_block = FixedArray::make(BLOCK_WORDS, 0UL)
-  let zero_block = FixedArray::make(BLOCK_WORDS, 0UL)
+  // Allocate scratch lazily — only Argon2i and Argon2id-first-half need these.
+  let address_block = if data_independent {
+    FixedArray::make(BLOCK_WORDS, 0UL)
+  } else {
+    FixedArray::make(0, 0UL)
+  }
+  let input_block = if data_independent {
+    FixedArray::make(BLOCK_WORDS, 0UL)
+  } else {
+    FixedArray::make(0, 0UL)
+  }
+  let zero_block = if data_independent {
+    FixedArray::make(BLOCK_WORDS, 0UL)
+  } else {
+    FixedArray::make(0, 0UL)
+  }
+  let addr_tmp = if data_independent {
+    FixedArray::make(BLOCK_WORDS, 0UL)
+  } else {
+    FixedArray::make(0, 0UL)
+  }
   if data_independent {
     input_block[0] = pass.to_uint64()
     input_block[1] = lane.to_uint64()
@@ -453,8 +471,14 @@ fn fill_segment(
   // Pre-compute first address block if needed.
   if data_independent {
     input_block[6] = input_block[6] + 1UL
-    compute_address_block(input_block, zero_block, address_block)
+    compute_address_block(input_block, zero_block, address_block, addr_tmp)
   }
+
+  // Pre-allocate the per-iteration scratch block once. compress_g writes its
+  // output here and we then *swap* it with memory[curr_offset] (rather than
+  // copying), so each iteration only spends 128 writes on the compress_g
+  // output, not 2×128 (compress_g write + memcpy into memory).
+  let mut new_block = FixedArray::make(BLOCK_WORDS, 0UL)
 
   // Iterate fill positions within this segment.
   for i in starting_col..<segment_length {
@@ -463,7 +487,7 @@ fn fill_segment(
       let idx = i % 128
       if idx == 0 && i != starting_col {
         input_block[6] = input_block[6] + 1UL
-        compute_address_block(input_block, zero_block, address_block)
+        compute_address_block(input_block, zero_block, address_block, addr_tmp)
       }
       address_block[idx]
     } else {
@@ -501,7 +525,6 @@ fn fill_segment(
     let ref_index = ref_lane * lane_length + abs_pos
 
     // Compute new block.
-    let new_block = FixedArray::make(BLOCK_WORDS, 0UL)
     let with_xor = pass != 0
     compress_g(
       memory[prev_offset],
@@ -510,11 +533,14 @@ fn fill_segment(
       with_xor,
       memory[curr_offset],
     )
-    // Write back into memory[curr_offset].
-    let dest = memory[curr_offset]
-    for k in 0..<BLOCK_WORDS {
-      dest[k] = new_block[k]
-    }
+    // Swap new_block ↔ memory[curr_offset]: the freshly computed bytes become
+    // the canonical memory slot, and the slot's previous contents become the
+    // scratch we'll overwrite next iteration. Correct because compress_g has
+    // already consumed memory[curr_offset] as `overlay` (when pass>0) and
+    // overwrites all of `new_block` before we read it again.
+    let old_slot = memory[curr_offset]
+    memory[curr_offset] = new_block
+    new_block = old_slot
     prev_offset = curr_offset
     curr_offset = curr_offset + 1
   }
@@ -551,12 +577,15 @@ fn compute_ref_area_size(
 ///|
 /// Compute one address block for data-independent variants.
 /// addr_block[i] = G(zero, G(zero, input_block))[i]
+///
+/// `tmp` is caller-provided scratch (BLOCK_WORDS UInt64) to avoid allocating
+/// 1 KiB per address-block computation.
 fn compute_address_block(
   input_block : FixedArray[UInt64],
   zero_block : FixedArray[UInt64],
   address_block : FixedArray[UInt64],
+  tmp : FixedArray[UInt64],
 ) -> Unit {
-  let tmp = FixedArray::make(BLOCK_WORDS, 0UL)
   // First: tmp = G(zero, input_block) with no XOR overlay (zero overlay).
   compress_g(zero_block, input_block, tmp, false, zero_block)
   // Then: address_block = G(zero, tmp)
@@ -568,6 +597,14 @@ fn compute_address_block(
 ///|
 /// G(X, Y) → R = X XOR Y; Z = P-shuffled R; output = Z XOR R.
 /// If `with_xor` is true, output ⊕= overlay (used for passes > 0).
+///
+/// Implementation notes (perf):
+/// - Allocates no scratch buffers; uses `out` as the working block.
+/// - `out` may alias `overlay` (the caller passes `memory[curr_offset]` for
+///   both), so we read `overlay[i]` *before* writing `out[i]` in the final
+///   XOR-back step.
+/// - Row- and column-permutations are inlined so the 16-word scratch from
+///   `permute_p` is eliminated. The G round is unrolled in `gb_inline`.
 fn compress_g(
   x : FixedArray[UInt64],
   y : FixedArray[UInt64],
@@ -575,109 +612,265 @@ fn compress_g(
   with_xor : Bool,
   overlay : FixedArray[UInt64],
 ) -> Unit {
-  // R = X XOR Y
-  let r = FixedArray::make(BLOCK_WORDS, 0UL)
+  // out = X XOR Y; this is both R and the initial Q.
   for i in 0..<BLOCK_WORDS {
-    r[i] = x[i] ^ y[i]
+    out[i] = x[i] ^ y[i]
   }
-  // Q = R (we'll apply P to Q in place)
-  let q = FixedArray::make(BLOCK_WORDS, 0UL)
-  for i in 0..<BLOCK_WORDS {
-    q[i] = r[i]
-  }
-  // Apply P row-wise. Each row is 8 consecutive 128-bit pairs = 16 u64.
-  // 8 rows of 16 u64 each = 128 u64 = one block.
+  // Row-wise P: each row is 16 contiguous u64 (rows 0..7 → offsets 0,16,..112).
   for row in 0..<8 {
-    let off = row * 16
-    permute_p(q, off, 1)
+    permute_p_row(out, row * 16)
   }
-  // Apply P column-wise. Each "column" = 16 u64 with stride 16.
+  // Column-wise P: 8 columns of 16 u64 picked at stride 16 in pairs.
   for col in 0..<8 {
-    let off = col * 2
-    permute_p_columnwise(q, off)
+    permute_p_col(out, col * 2)
   }
-  // Z = Q
-  // out = Z XOR R, possibly XOR overlay
+  // Apply Z XOR R XOR (overlay if with_xor). out currently holds Z (post-P)
+  // but we lost R. We recompute R inline by re-XORing X and Y, then XOR with
+  // overlay if requested.
   if with_xor {
     for i in 0..<BLOCK_WORDS {
-      out[i] = q[i] ^ r[i] ^ overlay[i]
+      out[i] = out[i] ^ x[i] ^ y[i] ^ overlay[i]
     }
   } else {
     for i in 0..<BLOCK_WORDS {
-      out[i] = q[i] ^ r[i]
+      out[i] = out[i] ^ x[i] ^ y[i]
     }
   }
 }
 
 ///|
-/// P permutation: BLAKE2b round on 16 64-bit words = 8x16-byte matrix.
-/// Operates on q[off..off+16] when stride=1.
-fn permute_p(q : FixedArray[UInt64], off : Int, stride : Int) -> Unit {
-  // Load 16 words.
-  let v = FixedArray::make(16, 0UL)
-  for i in 0..<16 {
-    v[i] = q[off + i * stride]
-  }
-  // Apply BLAKE2b-like round (Argon2's modified G with full 64-bit multiply).
-  gb(v, 0, 4, 8, 12)
-  gb(v, 1, 5, 9, 13)
-  gb(v, 2, 6, 10, 14)
-  gb(v, 3, 7, 11, 15)
-  gb(v, 0, 5, 10, 15)
-  gb(v, 1, 6, 11, 12)
-  gb(v, 2, 7, 8, 13)
-  gb(v, 3, 4, 9, 14)
-  for i in 0..<16 {
-    q[off + i * stride] = v[i]
-  }
-}
-
-///|
-/// Apply P to a column: 8 pairs of words at indices (col*2, col*2 + 16, col*2 + 32, …)
-/// where each "word" is actually a pair (u64, u64). The permutation acts on 16 words
-/// taken as the 8 pairs in column order.
-fn permute_p_columnwise(q : FixedArray[UInt64], col_off : Int) -> Unit {
-  // 16 words at positions col_off + row*16 + k where row in 0..7 and k in {0,1}.
-  // Indices: col_off, col_off+1, col_off+16, col_off+17, ..., col_off+7*16, col_off+7*16+1.
-  let v = FixedArray::make(16, 0UL)
-  for row in 0..<8 {
-    v[row * 2] = q[col_off + row * 16]
-    v[row * 2 + 1] = q[col_off + row * 16 + 1]
-  }
-  gb(v, 0, 4, 8, 12)
-  gb(v, 1, 5, 9, 13)
-  gb(v, 2, 6, 10, 14)
-  gb(v, 3, 7, 11, 15)
-  gb(v, 0, 5, 10, 15)
-  gb(v, 1, 6, 11, 12)
-  gb(v, 2, 7, 8, 13)
-  gb(v, 3, 4, 9, 14)
-  for row in 0..<8 {
-    q[col_off + row * 16] = v[row * 2]
-    q[col_off + row * 16 + 1] = v[row * 2 + 1]
-  }
-}
-
-///|
-/// BLAKE2b-style G function modified by Argon2 (RFC 9106 §3.5):
-///   a = a + b + 2 * lsw(a) * lsw(b)
-///   d = rotr(d XOR a, 32)
-///   c = c + d + 2 * lsw(c) * lsw(d)
-///   b = rotr(b XOR c, 24)
-///   a = a + b + 2 * lsw(a) * lsw(b)
-///   d = rotr(d XOR a, 16)
-///   c = c + d + 2 * lsw(c) * lsw(d)
-///   b = rotr(b XOR c, 63)
-fn gb(v : FixedArray[UInt64], a : Int, b : Int, c : Int, d : Int) -> Unit {
+/// P permutation, row variant: BLAKE2b round on 16 contiguous u64 starting at
+/// `o` (so v[i] := q[o+i]). Unrolled, no scratch allocation.
+fn permute_p_row(q : FixedArray[UInt64], o : Int) -> Unit {
+  // Load 16 words into locals.
+  let mut v0 = q[o]
+  let mut v1 = q[o + 1]
+  let mut v2 = q[o + 2]
+  let mut v3 = q[o + 3]
+  let mut v4 = q[o + 4]
+  let mut v5 = q[o + 5]
+  let mut v6 = q[o + 6]
+  let mut v7 = q[o + 7]
+  let mut v8 = q[o + 8]
+  let mut v9 = q[o + 9]
+  let mut v10 = q[o + 10]
+  let mut v11 = q[o + 11]
+  let mut v12 = q[o + 12]
+  let mut v13 = q[o + 13]
+  let mut v14 = q[o + 14]
+  let mut v15 = q[o + 15]
   let mask32 : UInt64 = 0xFFFFFFFFUL
-  v[a] = v[a] + v[b] + 2UL * (v[a] & mask32) * (v[b] & mask32)
-  v[d] = rotr64(v[d] ^ v[a], 32)
-  v[c] = v[c] + v[d] + 2UL * (v[c] & mask32) * (v[d] & mask32)
-  v[b] = rotr64(v[b] ^ v[c], 24)
-  v[a] = v[a] + v[b] + 2UL * (v[a] & mask32) * (v[b] & mask32)
-  v[d] = rotr64(v[d] ^ v[a], 16)
-  v[c] = v[c] + v[d] + 2UL * (v[c] & mask32) * (v[d] & mask32)
-  v[b] = rotr64(v[b] ^ v[c], 63)
+  // gb(0,4,8,12)
+  v0 = v0 + v4 + 2UL * (v0 & mask32) * (v4 & mask32)
+  v12 = rotr64(v12 ^ v0, 32)
+  v8 = v8 + v12 + 2UL * (v8 & mask32) * (v12 & mask32)
+  v4 = rotr64(v4 ^ v8, 24)
+  v0 = v0 + v4 + 2UL * (v0 & mask32) * (v4 & mask32)
+  v12 = rotr64(v12 ^ v0, 16)
+  v8 = v8 + v12 + 2UL * (v8 & mask32) * (v12 & mask32)
+  v4 = rotr64(v4 ^ v8, 63)
+  // gb(1,5,9,13)
+  v1 = v1 + v5 + 2UL * (v1 & mask32) * (v5 & mask32)
+  v13 = rotr64(v13 ^ v1, 32)
+  v9 = v9 + v13 + 2UL * (v9 & mask32) * (v13 & mask32)
+  v5 = rotr64(v5 ^ v9, 24)
+  v1 = v1 + v5 + 2UL * (v1 & mask32) * (v5 & mask32)
+  v13 = rotr64(v13 ^ v1, 16)
+  v9 = v9 + v13 + 2UL * (v9 & mask32) * (v13 & mask32)
+  v5 = rotr64(v5 ^ v9, 63)
+  // gb(2,6,10,14)
+  v2 = v2 + v6 + 2UL * (v2 & mask32) * (v6 & mask32)
+  v14 = rotr64(v14 ^ v2, 32)
+  v10 = v10 + v14 + 2UL * (v10 & mask32) * (v14 & mask32)
+  v6 = rotr64(v6 ^ v10, 24)
+  v2 = v2 + v6 + 2UL * (v2 & mask32) * (v6 & mask32)
+  v14 = rotr64(v14 ^ v2, 16)
+  v10 = v10 + v14 + 2UL * (v10 & mask32) * (v14 & mask32)
+  v6 = rotr64(v6 ^ v10, 63)
+  // gb(3,7,11,15)
+  v3 = v3 + v7 + 2UL * (v3 & mask32) * (v7 & mask32)
+  v15 = rotr64(v15 ^ v3, 32)
+  v11 = v11 + v15 + 2UL * (v11 & mask32) * (v15 & mask32)
+  v7 = rotr64(v7 ^ v11, 24)
+  v3 = v3 + v7 + 2UL * (v3 & mask32) * (v7 & mask32)
+  v15 = rotr64(v15 ^ v3, 16)
+  v11 = v11 + v15 + 2UL * (v11 & mask32) * (v15 & mask32)
+  v7 = rotr64(v7 ^ v11, 63)
+  // gb(0,5,10,15)
+  v0 = v0 + v5 + 2UL * (v0 & mask32) * (v5 & mask32)
+  v15 = rotr64(v15 ^ v0, 32)
+  v10 = v10 + v15 + 2UL * (v10 & mask32) * (v15 & mask32)
+  v5 = rotr64(v5 ^ v10, 24)
+  v0 = v0 + v5 + 2UL * (v0 & mask32) * (v5 & mask32)
+  v15 = rotr64(v15 ^ v0, 16)
+  v10 = v10 + v15 + 2UL * (v10 & mask32) * (v15 & mask32)
+  v5 = rotr64(v5 ^ v10, 63)
+  // gb(1,6,11,12)
+  v1 = v1 + v6 + 2UL * (v1 & mask32) * (v6 & mask32)
+  v12 = rotr64(v12 ^ v1, 32)
+  v11 = v11 + v12 + 2UL * (v11 & mask32) * (v12 & mask32)
+  v6 = rotr64(v6 ^ v11, 24)
+  v1 = v1 + v6 + 2UL * (v1 & mask32) * (v6 & mask32)
+  v12 = rotr64(v12 ^ v1, 16)
+  v11 = v11 + v12 + 2UL * (v11 & mask32) * (v12 & mask32)
+  v6 = rotr64(v6 ^ v11, 63)
+  // gb(2,7,8,13)
+  v2 = v2 + v7 + 2UL * (v2 & mask32) * (v7 & mask32)
+  v13 = rotr64(v13 ^ v2, 32)
+  v8 = v8 + v13 + 2UL * (v8 & mask32) * (v13 & mask32)
+  v7 = rotr64(v7 ^ v8, 24)
+  v2 = v2 + v7 + 2UL * (v2 & mask32) * (v7 & mask32)
+  v13 = rotr64(v13 ^ v2, 16)
+  v8 = v8 + v13 + 2UL * (v8 & mask32) * (v13 & mask32)
+  v7 = rotr64(v7 ^ v8, 63)
+  // gb(3,4,9,14)
+  v3 = v3 + v4 + 2UL * (v3 & mask32) * (v4 & mask32)
+  v14 = rotr64(v14 ^ v3, 32)
+  v9 = v9 + v14 + 2UL * (v9 & mask32) * (v14 & mask32)
+  v4 = rotr64(v4 ^ v9, 24)
+  v3 = v3 + v4 + 2UL * (v3 & mask32) * (v4 & mask32)
+  v14 = rotr64(v14 ^ v3, 16)
+  v9 = v9 + v14 + 2UL * (v9 & mask32) * (v14 & mask32)
+  v4 = rotr64(v4 ^ v9, 63)
+  // Store back.
+  q[o] = v0
+  q[o + 1] = v1
+  q[o + 2] = v2
+  q[o + 3] = v3
+  q[o + 4] = v4
+  q[o + 5] = v5
+  q[o + 6] = v6
+  q[o + 7] = v7
+  q[o + 8] = v8
+  q[o + 9] = v9
+  q[o + 10] = v10
+  q[o + 11] = v11
+  q[o + 12] = v12
+  q[o + 13] = v13
+  q[o + 14] = v14
+  q[o + 15] = v15
+}
+
+///|
+/// P permutation, column variant: the 16 words live at indices
+/// `c + row*16 + k` for `row in 0..7` and `k in {0,1}`, mapped to v indices
+/// `row*2 + k`. Unrolled, no scratch allocation.
+fn permute_p_col(q : FixedArray[UInt64], c : Int) -> Unit {
+  // Indices in q (paired): row*16 + k for row 0..7, k 0..1.
+  let i0 = c
+  let i1 = c + 1
+  let i2 = c + 16
+  let i3 = c + 17
+  let i4 = c + 32
+  let i5 = c + 33
+  let i6 = c + 48
+  let i7 = c + 49
+  let i8 = c + 64
+  let i9 = c + 65
+  let i10 = c + 80
+  let i11 = c + 81
+  let i12 = c + 96
+  let i13 = c + 97
+  let i14 = c + 112
+  let i15 = c + 113
+  let mut v0 = q[i0]
+  let mut v1 = q[i1]
+  let mut v2 = q[i2]
+  let mut v3 = q[i3]
+  let mut v4 = q[i4]
+  let mut v5 = q[i5]
+  let mut v6 = q[i6]
+  let mut v7 = q[i7]
+  let mut v8 = q[i8]
+  let mut v9 = q[i9]
+  let mut v10 = q[i10]
+  let mut v11 = q[i11]
+  let mut v12 = q[i12]
+  let mut v13 = q[i13]
+  let mut v14 = q[i14]
+  let mut v15 = q[i15]
+  let mask32 : UInt64 = 0xFFFFFFFFUL
+  // Same 8 gb-rounds as permute_p_row.
+  v0 = v0 + v4 + 2UL * (v0 & mask32) * (v4 & mask32)
+  v12 = rotr64(v12 ^ v0, 32)
+  v8 = v8 + v12 + 2UL * (v8 & mask32) * (v12 & mask32)
+  v4 = rotr64(v4 ^ v8, 24)
+  v0 = v0 + v4 + 2UL * (v0 & mask32) * (v4 & mask32)
+  v12 = rotr64(v12 ^ v0, 16)
+  v8 = v8 + v12 + 2UL * (v8 & mask32) * (v12 & mask32)
+  v4 = rotr64(v4 ^ v8, 63)
+  v1 = v1 + v5 + 2UL * (v1 & mask32) * (v5 & mask32)
+  v13 = rotr64(v13 ^ v1, 32)
+  v9 = v9 + v13 + 2UL * (v9 & mask32) * (v13 & mask32)
+  v5 = rotr64(v5 ^ v9, 24)
+  v1 = v1 + v5 + 2UL * (v1 & mask32) * (v5 & mask32)
+  v13 = rotr64(v13 ^ v1, 16)
+  v9 = v9 + v13 + 2UL * (v9 & mask32) * (v13 & mask32)
+  v5 = rotr64(v5 ^ v9, 63)
+  v2 = v2 + v6 + 2UL * (v2 & mask32) * (v6 & mask32)
+  v14 = rotr64(v14 ^ v2, 32)
+  v10 = v10 + v14 + 2UL * (v10 & mask32) * (v14 & mask32)
+  v6 = rotr64(v6 ^ v10, 24)
+  v2 = v2 + v6 + 2UL * (v2 & mask32) * (v6 & mask32)
+  v14 = rotr64(v14 ^ v2, 16)
+  v10 = v10 + v14 + 2UL * (v10 & mask32) * (v14 & mask32)
+  v6 = rotr64(v6 ^ v10, 63)
+  v3 = v3 + v7 + 2UL * (v3 & mask32) * (v7 & mask32)
+  v15 = rotr64(v15 ^ v3, 32)
+  v11 = v11 + v15 + 2UL * (v11 & mask32) * (v15 & mask32)
+  v7 = rotr64(v7 ^ v11, 24)
+  v3 = v3 + v7 + 2UL * (v3 & mask32) * (v7 & mask32)
+  v15 = rotr64(v15 ^ v3, 16)
+  v11 = v11 + v15 + 2UL * (v11 & mask32) * (v15 & mask32)
+  v7 = rotr64(v7 ^ v11, 63)
+  v0 = v0 + v5 + 2UL * (v0 & mask32) * (v5 & mask32)
+  v15 = rotr64(v15 ^ v0, 32)
+  v10 = v10 + v15 + 2UL * (v10 & mask32) * (v15 & mask32)
+  v5 = rotr64(v5 ^ v10, 24)
+  v0 = v0 + v5 + 2UL * (v0 & mask32) * (v5 & mask32)
+  v15 = rotr64(v15 ^ v0, 16)
+  v10 = v10 + v15 + 2UL * (v10 & mask32) * (v15 & mask32)
+  v5 = rotr64(v5 ^ v10, 63)
+  v1 = v1 + v6 + 2UL * (v1 & mask32) * (v6 & mask32)
+  v12 = rotr64(v12 ^ v1, 32)
+  v11 = v11 + v12 + 2UL * (v11 & mask32) * (v12 & mask32)
+  v6 = rotr64(v6 ^ v11, 24)
+  v1 = v1 + v6 + 2UL * (v1 & mask32) * (v6 & mask32)
+  v12 = rotr64(v12 ^ v1, 16)
+  v11 = v11 + v12 + 2UL * (v11 & mask32) * (v12 & mask32)
+  v6 = rotr64(v6 ^ v11, 63)
+  v2 = v2 + v7 + 2UL * (v2 & mask32) * (v7 & mask32)
+  v13 = rotr64(v13 ^ v2, 32)
+  v8 = v8 + v13 + 2UL * (v8 & mask32) * (v13 & mask32)
+  v7 = rotr64(v7 ^ v8, 24)
+  v2 = v2 + v7 + 2UL * (v2 & mask32) * (v7 & mask32)
+  v13 = rotr64(v13 ^ v2, 16)
+  v8 = v8 + v13 + 2UL * (v8 & mask32) * (v13 & mask32)
+  v7 = rotr64(v7 ^ v8, 63)
+  v3 = v3 + v4 + 2UL * (v3 & mask32) * (v4 & mask32)
+  v14 = rotr64(v14 ^ v3, 32)
+  v9 = v9 + v14 + 2UL * (v9 & mask32) * (v14 & mask32)
+  v4 = rotr64(v4 ^ v9, 24)
+  v3 = v3 + v4 + 2UL * (v3 & mask32) * (v4 & mask32)
+  v14 = rotr64(v14 ^ v3, 16)
+  v9 = v9 + v14 + 2UL * (v9 & mask32) * (v14 & mask32)
+  v4 = rotr64(v4 ^ v9, 63)
+  q[i0] = v0
+  q[i1] = v1
+  q[i2] = v2
+  q[i3] = v3
+  q[i4] = v4
+  q[i5] = v5
+  q[i6] = v6
+  q[i7] = v7
+  q[i8] = v8
+  q[i9] = v9
+  q[i10] = v10
+  q[i11] = v11
+  q[i12] = v12
+  q[i13] = v13
+  q[i14] = v14
+  q[i15] = v15
 }
 
 ///|
