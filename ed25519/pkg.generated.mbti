@@ -1,0 +1,37 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/ed25519"
+
+// Values
+
+// Errors
+pub suberror Ed25519Error {
+  InvalidSeedLength(Int)
+  InvalidPublicKeyLength(Int)
+  InvalidSignatureLength(Int)
+  InvalidEncoding(String)
+}
+pub impl Show for Ed25519Error
+
+// Types and methods
+pub(all) struct PrivateKey {
+  seed : FixedArray[Byte]
+}
+pub fn PrivateKey::from_seed(Bytes) -> Self raise Ed25519Error
+pub fn PrivateKey::public_key(Self) -> PublicKey
+pub fn PrivateKey::seed_bytes(Self) -> Bytes
+pub fn PrivateKey::sign(Self, Bytes) -> Bytes
+pub impl Show for PrivateKey
+
+pub(all) struct PublicKey {
+  bytes : FixedArray[Byte]
+} derive(Eq)
+pub fn PublicKey::from_bytes(Bytes) -> Self raise Ed25519Error
+pub fn PublicKey::to_bytes(Self) -> Bytes
+pub fn PublicKey::verify(Self, Bytes, Bytes) -> Bool
+pub fn PublicKey::verify_strict(Self, Bytes, Bytes) -> Bool raise Ed25519Error
+pub impl Show for PublicKey
+
+// Type aliases
+
+// Traits
+
