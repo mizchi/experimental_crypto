@@ -182,3 +182,519 @@ test "fuzz jwks kid: malformed header kid rejects before key selection" {
     assert_true(rejected)
   }
 }
+
+///|
+fn fuzz_oidc_subject(raw : Bytes) -> String {
+  "user-" + fuzz_safe_kid(raw)
+}
+
+///|
+fn fuzz_oidc_claims(
+  now : Int64,
+  sub : String,
+  extra : Map[String, Json],
+) -> Json {
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://issuer.example/")
+  m["sub"] = Json::string(sub)
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  for k, v in extra {
+    m[k] = v
+  }
+  Json::object(m)
+}
+
+///|
+fn fuzz_logout_claims(
+  now : Int64,
+  subject : String,
+  include_nonce : Bool,
+) -> Json {
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://issuer.example/")
+  m["aud"] = Json::string("client-abc")
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("logout-" + subject)
+  m["sub"] = Json::string(subject)
+  let events : Map[String, Json] = Map([])
+  events["http://schemas.openid.net/event/backchannel-logout"] = Json::object(
+    Map([]),
+  )
+  m["events"] = Json::object(events)
+  if include_nonce {
+    m["nonce"] = Json::string("login-nonce")
+  }
+  Json::object(m)
+}
+
+///|
+fn fuzz_entity_statement_claims(
+  now : Int64,
+  issuer : String,
+  subject : String,
+) -> Json {
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string(issuer)
+  m["sub"] = Json::string(subject)
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let jwks : Map[String, Json] = Map([])
+  jwks["keys"] = Json::array([])
+  m["jwks"] = Json::object(jwks)
+  Json::object(m)
+}
+
+///|
+test "fuzz oidc profiles: high-level verifiers never panic on random compact strings" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-fuzz-secret"
+  let oidc_opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://issuer.example/", "client-abc",
+  )
+  let logout_opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://issuer.example/", "client-abc",
+  )
+  let userinfo_opts : @jwt.UserInfoVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://issuer.example/",
+    client_id: "client-abc",
+    expected_sub: "user-1",
+    allowed_algorithms: None,
+  }
+  let request_opts : @jwt.RequestObjectVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id: "client-abc",
+    expected_aud: "https://issuer.example/",
+    allowed_algorithms: None,
+  }
+  let jarm_opts : @jwt.JarmVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_issuer: "https://issuer.example/",
+    client_id: "client-abc",
+    expected_state: Some("state-1"),
+    allowed_algorithms: None,
+  }
+  let entity_opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example/",
+    expected_issuer: None,
+    expected_kind: None,
+    allowed_algorithms: None,
+  }
+  let ciba_opts : @jwt.CibaVerifyOptions = {
+    oidc: oidc_opts,
+    expected_auth_req_id: Some("auth-req-1"),
+    refresh_token: Some("refresh-token"),
+  }
+  let dpop_opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 60L,
+    clock_skew_sec: 0L,
+    http_method: "GET",
+    http_uri: "https://resource.example/path",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  let self_issued_opts : @jwt.SelfIssuedVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_aud: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  for input in (@quickcheck.samples(120) : Array[String]) {
+    let _ = try? @jwt.verify_oidc_id_token(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      oidc_opts,
+    )
+    let _ = try? @jwt.verify_logout_token(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      logout_opts,
+    )
+    let _ = try? @jwt.verify_userinfo_jws(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      userinfo_opts,
+    )
+    let _ = try? @jwt.verify_request_object(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      request_opts,
+    )
+    let _ = try? @jwt.verify_jarm(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      jarm_opts,
+    )
+    let _ = try? @jwt.verify_entity_statement(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      entity_opts,
+    )
+    let _ = try? @jwt.verify_ciba_id_token(
+      input,
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      ciba_opts,
+    )
+    let _ = try? @jwt.verify_dpop_proof(input, dpop_opts)
+    let _ = try? @jwt.verify_self_issued_id_token(input, self_issued_opts)
+    let _ = try? @jwt.verify_oidc_id_token_encrypted(
+      input,
+      @jwe.DecryptionKey::DecDir(cek=secret),
+      @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
+      oidc_opts,
+    )
+    let _ = try? @jwt.parse_provider_metadata(input)
+  }
+}
+
+///|
+test "fuzz oidc: nonce and token hashes bind to generated ID tokens" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-fuzz-secret"
+  for raw in (@quickcheck.samples(60) : Array[Bytes]) {
+    let subject = fuzz_oidc_subject(raw)
+    let nonce = "nonce-" + fuzz_safe_kid(raw)
+    let access_token = "access-" + fuzz_safe_kid(raw)
+    let code = "code-" + fuzz_safe_kid(raw)
+    let extra : Map[String, Json] = Map([])
+    extra["nonce"] = Json::string(nonce)
+    extra["at_hash"] = Json::string(
+      @jwt.compute_x_hash(@jwt.Algorithm::HS256, access_token),
+    )
+    extra["c_hash"] = Json::string(
+      @jwt.compute_x_hash(@jwt.Algorithm::HS256, code),
+    )
+    let token = @jwt.sign(
+      fuzz_oidc_claims(now, subject, extra),
+      @jwt.Key::Hs256(secret~),
+    )
+    let opts : @jwt.OidcIdTokenVerifyOptions = {
+      now,
+      clock_skew_sec: 0L,
+      issuer: "https://issuer.example/",
+      client_id: "client-abc",
+      expected_nonce: Some(nonce),
+      access_token: Some(access_token),
+      authorization_code: Some(code),
+      max_age_sec: None,
+      expected_acr: None,
+      allowed_algorithms: None,
+    }
+    let id = @jwt.verify_oidc_id_token(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+    @debug.assert_eq(id.sub, subject)
+    @debug.assert_eq(id.nonce, Some(nonce))
+
+    let bad_opts : @jwt.OidcIdTokenVerifyOptions = {
+      ..opts,
+      expected_nonce: Some(nonce + "-wrong"),
+    }
+    let rejected = try {
+      let _ = @jwt.verify_oidc_id_token(
+        token,
+        @jwt.VerifyKey::Hs256(secret~),
+        bad_opts,
+      )
+      false
+    } catch {
+      NonceMismatch => true
+      _ => false
+    }
+    assert_true(rejected)
+  }
+}
+
+///|
+test "fuzz oidc logout: subject tokens verify and nonce-bearing tokens reject" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-fuzz-secret"
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://issuer.example/", "client-abc",
+  )
+  for raw in (@quickcheck.samples(60) : Array[Bytes]) {
+    let subject = fuzz_oidc_subject(raw)
+    let ok_token = @jwt.sign(
+      fuzz_logout_claims(now, subject, false),
+      @jwt.Key::Hs256(secret~),
+      typ="logout+jwt",
+    )
+    let logout = @jwt.verify_logout_token(
+      ok_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+    @debug.assert_eq(logout.sub, Some(subject))
+
+    let nonce_token = @jwt.sign(
+      fuzz_logout_claims(now, subject, true),
+      @jwt.Key::Hs256(secret~),
+      typ="logout+jwt",
+    )
+    let rejected = try {
+      let _ = @jwt.verify_logout_token(
+        nonce_token,
+        @jwt.VerifyKey::Hs256(secret~),
+        opts,
+      )
+      false
+    } catch {
+      LogoutTokenForbiddenNonce => true
+      _ => false
+    }
+    assert_true(rejected)
+  }
+}
+
+///|
+test "fuzz oidc userinfo request and jarm bindings reject substitution" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-binding-fuzz"
+  for raw in (@quickcheck.samples(50) : Array[Bytes]) {
+    let subject = fuzz_oidc_subject(raw)
+    let userinfo = @jwt.sign(
+      fuzz_oidc_claims(now, subject, Map([])),
+      @jwt.Key::Hs256(secret~),
+    )
+    let userinfo_opts : @jwt.UserInfoVerifyOptions = {
+      now,
+      clock_skew_sec: 0L,
+      issuer: "https://issuer.example/",
+      client_id: "client-abc",
+      expected_sub: subject,
+      allowed_algorithms: None,
+    }
+    let u = @jwt.verify_userinfo_jws(
+      userinfo,
+      @jwt.VerifyKey::Hs256(secret~),
+      userinfo_opts,
+    )
+    @debug.assert_eq(u.sub, subject)
+    let bad_userinfo_opts : @jwt.UserInfoVerifyOptions = {
+      ..userinfo_opts,
+      expected_sub: subject + "-wrong",
+    }
+    let userinfo_rejected = try {
+      let _ = @jwt.verify_userinfo_jws(
+        userinfo,
+        @jwt.VerifyKey::Hs256(secret~),
+        bad_userinfo_opts,
+      )
+      false
+    } catch {
+      UserInfoSubMismatch => true
+      _ => false
+    }
+    assert_true(userinfo_rejected)
+
+    let jar_claims : Map[String, Json] = Map([])
+    jar_claims["iss"] = Json::string("client-abc")
+    jar_claims["aud"] = Json::string("https://issuer.example/")
+    jar_claims["client_id"] = Json::string("client-abc")
+    jar_claims["response_type"] = Json::string("code")
+    jar_claims["redirect_uri"] = Json::string("https://rp.example/cb")
+    let jar = @jwt.sign(Json::object(jar_claims), @jwt.Key::Hs256(secret~))
+    let request_opts : @jwt.RequestObjectVerifyOptions = {
+      now,
+      clock_skew_sec: 0L,
+      expected_client_id: "client-abc",
+      expected_aud: "https://issuer.example/",
+      allowed_algorithms: None,
+    }
+    let req = @jwt.verify_request_object(
+      jar,
+      @jwt.VerifyKey::Hs256(secret~),
+      request_opts,
+    )
+    @debug.assert_eq(req.client_id, "client-abc")
+    let bad_request_opts : @jwt.RequestObjectVerifyOptions = {
+      ..request_opts,
+      expected_client_id: "attacker-client",
+    }
+    let jar_rejected = try {
+      let _ = @jwt.verify_request_object(
+        jar,
+        @jwt.VerifyKey::Hs256(secret~),
+        bad_request_opts,
+      )
+      false
+    } catch {
+      InvalidIssuer => true
+      ClientIdMismatch => true
+      _ => false
+    }
+    assert_true(jar_rejected)
+
+    let state = "state-" + fuzz_safe_kid(raw)
+    let jarm_claims : Map[String, Json] = Map([])
+    jarm_claims["iss"] = Json::string("https://issuer.example/")
+    jarm_claims["aud"] = Json::string("client-abc")
+    jarm_claims["exp"] = Json::number((now + 600L).to_double())
+    jarm_claims["iat"] = Json::number(now.to_double())
+    jarm_claims["state"] = Json::string(state)
+    jarm_claims["code"] = Json::string("code-" + fuzz_safe_kid(raw))
+    let jarm = @jwt.sign(Json::object(jarm_claims), @jwt.Key::Hs256(secret~))
+    let jarm_opts : @jwt.JarmVerifyOptions = {
+      now,
+      clock_skew_sec: 0L,
+      expected_issuer: "https://issuer.example/",
+      client_id: "client-abc",
+      expected_state: Some(state),
+      allowed_algorithms: None,
+    }
+    let r = @jwt.verify_jarm(jarm, @jwt.VerifyKey::Hs256(secret~), jarm_opts)
+    @debug.assert_eq(r.exp, now + 600L)
+    let bad_jarm_opts : @jwt.JarmVerifyOptions = {
+      ..jarm_opts,
+      expected_state: Some(state + "-wrong"),
+    }
+    let jarm_rejected = try {
+      let _ = @jwt.verify_jarm(
+        jarm,
+        @jwt.VerifyKey::Hs256(secret~),
+        bad_jarm_opts,
+      )
+      false
+    } catch {
+      ClaimsParseError(_) => true
+      _ => false
+    }
+    assert_true(jarm_rejected)
+  }
+}
+
+///|
+test "fuzz oidc federation and ciba bindings preserve expected subjects" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-federation-ciba-fuzz"
+  for raw in (@quickcheck.samples(50) : Array[Bytes]) {
+    let subject = "https://op.example/" + fuzz_safe_kid(raw)
+    let issuer = if raw.length() % 2 == 0 {
+      subject
+    } else {
+      "https://anchor.example/"
+    }
+    let kind = if issuer == subject {
+      @jwt.EntityStatementKind::Configuration
+    } else {
+      @jwt.EntityStatementKind::Subordinate
+    }
+    let entity = @jwt.sign(
+      fuzz_entity_statement_claims(now, issuer, subject),
+      @jwt.Key::Hs256(secret~),
+      typ="entity-statement+jwt",
+    )
+    let entity_opts : @jwt.EntityStatementVerifyOptions = {
+      now,
+      clock_skew_sec: 0L,
+      subject,
+      expected_issuer: Some(issuer),
+      expected_kind: Some(kind),
+      allowed_algorithms: None,
+    }
+    let es = @jwt.verify_entity_statement(
+      entity,
+      @jwt.VerifyKey::Hs256(secret~),
+      entity_opts,
+    )
+    @debug.assert_eq(es.kind, kind)
+    let bad_entity_opts : @jwt.EntityStatementVerifyOptions = {
+      ..entity_opts,
+      subject: subject + "/attacker",
+    }
+    let entity_rejected = try {
+      let _ = @jwt.verify_entity_statement(
+        entity,
+        @jwt.VerifyKey::Hs256(secret~),
+        bad_entity_opts,
+      )
+      false
+    } catch {
+      InvalidEntityStatement(_) => true
+      _ => false
+    }
+    assert_true(entity_rejected)
+
+    let refresh_token = "refresh-" + fuzz_safe_kid(raw)
+    let auth_req_id = "auth-" + fuzz_safe_kid(raw)
+    let extra : Map[String, Json] = Map([])
+    extra["urn:openid:params:jwt:claim:auth_req_id"] = Json::string(auth_req_id)
+    extra["urn:openid:params:jwt:claim:rt_hash"] = Json::string(
+      @jwt.compute_x_hash(@jwt.Algorithm::HS256, refresh_token),
+    )
+    let ciba_token = @jwt.sign(
+      fuzz_oidc_claims(now, fuzz_oidc_subject(raw), extra),
+      @jwt.Key::Hs256(secret~),
+    )
+    let ciba_opts : @jwt.CibaVerifyOptions = {
+      oidc: @jwt.OidcIdTokenVerifyOptions::default(
+        now, "https://issuer.example/", "client-abc",
+      ),
+      expected_auth_req_id: Some(auth_req_id),
+      refresh_token: Some(refresh_token),
+    }
+    let ciba = @jwt.verify_ciba_id_token(
+      ciba_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      ciba_opts,
+    )
+    @debug.assert_eq(ciba.auth_req_id, Some(auth_req_id))
+    let bad_ciba_opts : @jwt.CibaVerifyOptions = {
+      ..ciba_opts,
+      refresh_token: Some(refresh_token + "-wrong"),
+    }
+    let ciba_rejected = try {
+      let _ = @jwt.verify_ciba_id_token(
+        ciba_token,
+        @jwt.VerifyKey::Hs256(secret~),
+        bad_ciba_opts,
+      )
+      false
+    } catch {
+      RtHashMismatch => true
+      _ => false
+    }
+    assert_true(ciba_rejected)
+  }
+}
+
+///|
+test "fuzz oidc discovery: random and generated metadata stay total" {
+  for input in (@quickcheck.samples(100) : Array[String]) {
+    let _ = try? @jwt.parse_provider_metadata(input)
+  }
+  for raw in (@quickcheck.samples(60) : Array[Bytes]) {
+    let issuer = "https://issuer.example/" + fuzz_safe_kid(raw)
+    let doc : Map[String, Json] = Map([])
+    doc["issuer"] = Json::string(issuer)
+    doc["authorization_endpoint"] = Json::string(issuer + "/authorize")
+    doc["token_endpoint"] = Json::string(issuer + "/token")
+    doc["jwks_uri"] = Json::string(issuer + "/jwks.json")
+    doc["response_types_supported"] = Json::array([
+      Json::string("code"),
+      Json::string("id_token"),
+    ])
+    doc["subject_types_supported"] = Json::array([Json::string("public")])
+    doc["id_token_signing_alg_values_supported"] = Json::array([
+      Json::string("RS256"),
+      Json::string("EdDSA"),
+    ])
+    let parsed = @jwt.parse_provider_metadata(Json::object(doc).stringify())
+    @debug.assert_eq(parsed.issuer, issuer)
+    @debug.assert_eq(parsed.response_types_supported.length(), 2)
+    @debug.assert_eq(parsed.subject_types_supported, ["public"])
+  }
+}

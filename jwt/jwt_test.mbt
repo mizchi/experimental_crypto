@@ -2606,7 +2606,10 @@ test "discovery: parses Google-style provider metadata" {
     #|}
   let m = @jwt.parse_provider_metadata(doc)
   @debug.assert_eq(m.issuer, "https://accounts.google.com")
-  @debug.assert_eq(m.jwks_uri, Some("https://www.googleapis.com/oauth2/v3/certs"))
+  @debug.assert_eq(
+    m.jwks_uri,
+    Some("https://www.googleapis.com/oauth2/v3/certs"),
+  )
   @debug.assert_eq(m.id_token_signing_alg_values_supported, ["RS256"])
   match m.scopes_supported {
     Some(s) => @debug.assert_eq(s.length(), 3)
@@ -2729,11 +2732,9 @@ test "federation: wrong typ rejected" {
     expected_kind: None,
     allowed_algorithms: None,
   }
-  try @jwt.verify_entity_statement(
-    token,
-    @jwt.VerifyKey::Hs256(secret~),
-    opts,
-  ) catch {
+  try
+    @jwt.verify_entity_statement(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
     InvalidType(_) => ()
     e => abort("expected InvalidType, got " + @debug.to_string(e))
   } noraise {
@@ -2761,9 +2762,7 @@ test "ciba: auth_req_id round-trips and rt_hash binds to refresh token" {
   m["urn:openid:params:jwt:claim:rt_hash"] = Json::string(rt_hash_value)
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let oidc_opts = @jwt.OidcIdTokenVerifyOptions::default(
-    now,
-    "https://accounts.example.com/",
-    "client-abc",
+    now, "https://accounts.example.com/", "client-abc",
   )
   let opts : @jwt.CibaVerifyOptions = {
     oidc: oidc_opts,
@@ -2789,14 +2788,14 @@ test "ciba: auth_req_id mismatch rejected" {
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts : @jwt.CibaVerifyOptions = {
     oidc: @jwt.OidcIdTokenVerifyOptions::default(
-      now,
-      "https://accounts.example.com/",
-      "client-abc",
+      now, "https://accounts.example.com/", "client-abc",
     ),
     expected_auth_req_id: Some("real-id"),
     refresh_token: None,
   }
-  try @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+  try
+    @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
     AuthReqIdMismatch => ()
     e => abort("expected AuthReqIdMismatch, got " + @debug.to_string(e))
   } noraise {
@@ -2820,11 +2819,13 @@ test "fapi: HS256 token rejected by fapi_check_alg" {
   )
   let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
   let opts = @jwt.OidcIdTokenVerifyOptions::default(
-    now,
-    "https://accounts.example.com/",
-    "client-abc",
+    now, "https://accounts.example.com/", "client-abc",
   )
-  let id = @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  let id = @jwt.verify_oidc_id_token(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
   try @jwt.fapi_check_alg(id.jwt) catch {
     FapiPolicyViolation(_) => ()
     e => abort("expected FapiPolicyViolation, got " + @debug.to_string(e))
@@ -2849,11 +2850,174 @@ test "fapi: EdDSA token accepted; fapi_oidc_options pins alg" {
   )
   let token = @jwt.sign(payload, @jwt.Key::EdDsa(privkey=sk))
   let opts = @jwt.fapi_oidc_options(
+    now, "https://accounts.example.com/", "client-abc", "fapi-nonce",
+  )
+  let id = @jwt.verify_oidc_id_token(
+    token,
+    @jwt.VerifyKey::EdDsa(pubkey=pk),
+    opts,
+  )
+  @jwt.fapi_check_alg(id.jwt)
+}
+
+// -----------------------------------------------------------------------------
+// Privilege-escalation regression tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK typ-confusion: logout+jwt rejected when ID token expected" {
+  // An IdP signs both ID tokens and logout tokens with the same key.
+  // An attacker captures a logout token and replays it where the RP
+  // expects an ID token. The default OidcIdTokenVerifyOptions has
+  // typ_allowed=None; verify() must still refuse the specialised typ.
+  let now = 1_700_000_000L
+  let secret : Bytes = b"shared-idp-key"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://accounts.example.com/")
+  m["sub"] = Json::string("user-42")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let logout_token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
     now,
     "https://accounts.example.com/",
     "client-abc",
-    "fapi-nonce",
   )
-  let id = @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::EdDsa(pubkey=pk), opts)
-  @jwt.fapi_check_alg(id.jwt)
+  try @jwt.verify_oidc_id_token(logout_token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType (cross-class confusion), got Ok")
+  }
+}
+
+///|
+test "ATTACK typ-confusion: dpop+jwt rejected by generic verify default" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"any-key"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://accounts.example.com/")
+  m["sub"] = Json::string("u")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~), typ="dpop+jwt")
+  try @jwt.verify(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    @jwt.VerifyOptions::default(now),
+  ) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType (cross-class confusion), got Ok")
+  }
+}
+
+///|
+test "ATTACK typ-confusion: at+jwt rejected by RFC 9068 negative case" {
+  // Even the RFC 9068 path should not be tricked into accepting a JWT
+  // labelled "logout+jwt" instead of "at+jwt".
+  let now = 1_700_000_000L
+  let secret : Bytes = b"shared-as-key"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="logout+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now, "https://as.example.com/", "https://rs.example.com/",
+  )
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType (cross-class confusion), got Ok")
+  }
+}
+
+///|
+test "ATTACK use=enc: JWKS encryption key rejected for verify" {
+  let jwks =
+    #|{ "keys": [
+    #|  { "kty": "oct", "kid": "k1", "alg": "HS256", "use": "enc",
+    #|    "k": "c2VjcmV0" }
+    #|] }
+  let set = @jwk.parse_set(jwks)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["kid"] = Json::string("k1")
+  try @jwt.select_verify_key(set, header) catch {
+    NoMatchingKey => ()
+    e => abort("expected NoMatchingKey for use=enc, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected NoMatchingKey for use=enc, got Ok")
+  }
+}
+
+///|
+test "logout-token default: max_iat_age_sec=300 closes long replay window" {
+  // An IdP-emitted logout token with iat > 5 min in the past must be
+  // refused under the new default. Without max_iat_age_sec the token
+  // would have been accepted indefinitely (no exp claim in logout tokens).
+  let secret : Bytes = b"logout-replay-default"
+  let payload = logout_token_claims(1_700_000_000L, sub=Some("u"))
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="logout+jwt")
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    1_700_001_000L,  // 1000 s after iat — well past the 300 s default window
+    "https://as.example.com/",
+    "client-abc",
+  )
+  try @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    IssuedInFuture => ()  // we reuse IssuedInFuture for "iat too old"
+    e => abort("expected iat-too-old, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected iat-too-old rejection, got Ok")
+  }
+}
+
+///|
+test "ATTACK encrypted ID token: missing cty rejected" {
+  // Hand-craft a compact JWE with no cty header, valid 5 segments, dummy
+  // payload — the outer-header check must fire before decryption work.
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("dir")
+  header["enc"] = Json::string("A256GCM")
+  // intentionally no `cty`
+  let b64u = fn(b : Bytes) -> String {
+    let s = @base64.encode(b[:], padding=false)
+    let buf = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      buf.write_char(c2)
+    }
+    buf.to_string()
+  }
+  let header_b64 = b64u(@utf8.encode(Json::object(header).stringify()[:]))
+  // Five segments: header.encrypted_key.iv.ciphertext.tag — values
+  // don't have to decrypt; verify_oidc_id_token_encrypted must reject
+  // on the missing cty BEFORE calling @jwe.decrypt.
+  let bogus = header_b64 + ".AA.AA.AA.AA"
+  // Build a dummy decryption key shape via @jwe (`dir` flow needs the
+  // 32-byte CEK). Using all-zeros — we only need a typed value.
+  let cek = Bytes::makei(32, fn(_) { b'\x00' })
+  let dec_key : @jwe.DecryptionKey = @jwe.DecryptionKey::DecDir(cek~)
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    1_700_000_000L,
+    "https://accounts.example.com/",
+    "client-abc",
+  )
+  let any_vk = @jwt.VerifyKey::Hs256(secret=b"unused")
+  try @jwt.verify_oidc_id_token_encrypted(bogus, dec_key, any_vk, opts) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType for missing cty, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType for missing cty, got Ok")
+  }
 }

@@ -616,7 +616,43 @@ pub fn verify(
         raise InvalidType("typ '" + actual + "' not in allow-list")
       }
     }
-    None => ()
+    None =>
+      // Defence in depth: when the caller hasn't pinned a typ allow-list,
+      // still reject typ values that name a *different* JWS class. An IdP
+      // that signs ID tokens and (say) DPoP proofs with the same key
+      // would otherwise let an attacker present a DPoP proof to a code
+      // path expecting an ID token — same signature, different
+      // authorisation semantics. The denylist below names every typ this
+      // module knows about; callers who genuinely want one of them must
+      // pass `typ_allowed=Some([...])` to opt in.
+      match get_string(header, "typ") {
+        Some(t) => {
+          let denied = [
+            "at+jwt",
+            "application/at+jwt",
+            "logout+jwt",
+            "application/logout+jwt",
+            "dpop+jwt",
+            "application/dpop+jwt",
+            "entity-statement+jwt",
+            "application/entity-statement+jwt",
+            "secevent+jwt",
+            "application/secevent+jwt",
+            "ciba+jwt",
+            "application/ciba+jwt",
+          ]
+          for d in denied {
+            if t == d {
+              raise InvalidType(
+                "specialised typ '" +
+                t +
+                "' rejected by default; pass typ_allowed to opt in",
+              )
+            }
+          }
+        }
+        None => ()
+      }
   }
 
   // ---- signature ----
@@ -836,6 +872,21 @@ pub fn select_verify_key(
     raise NoMatchingKey
   }
   let entry = candidates[0]
+  // RFC 7517 §4.2 — `use` declares the JWK's intended purpose. For
+  // signature verification only "sig" or an absent field is valid;
+  // a key tagged `use="enc"` is for encryption and MUST NOT be
+  // accepted as a verification key. This blocks a JWKS-poisoning
+  // attack where an attacker substitutes an encryption key under
+  // the kid of a signing key (the alg-mismatch check above stops
+  // most of these, but `use` adds defence in depth when the JWKS
+  // entry's `alg` field is absent).
+  match entry.use_ {
+    Some(u) =>
+      if u != "sig" {
+        raise NoMatchingKey
+      }
+    None => ()
+  }
   match entry.alg {
     Some(s) => {
       let entry_alg = alg_from_str(s) catch {
@@ -1729,13 +1780,17 @@ pub fn verify_dpop_proof(
   let jwk = parse_inline_jwk(jwk_obj, alg)
   let jkt = jwk_thumbprint_base64url(jwk_obj)
   let vk = jwk_to_verify_key(jwk, alg)
+  // Pass typ_allowed=Some(["dpop+jwt"]) explicitly so verify()'s
+  // default typ-denylist (which rejects specialised classes when no
+  // allow-list is given) lets the proof through. The typ check above
+  // already ruled out anything else.
   let base : VerifyOptions = {
     now: opts.now,
     clock_skew_sec: opts.clock_skew_sec,
     require_exp: false,
     issuer: None,
     audience: None,
-    typ_allowed: None,
+    typ_allowed: Some(["dpop+jwt"]),
   }
   let v = verify(token, vk, base) catch {
     _ => raise InvalidDpopProof("signature verify failed")
@@ -1883,12 +1938,17 @@ pub fn LogoutTokenVerifyOptions::default(
   issuer : String,
   client_id : String,
 ) -> LogoutTokenVerifyOptions {
+  // OIDC Back-Channel Logout 1.0 §2.7 — logout tokens carry no exp
+  // claim, so without an iat freshness gate a captured logout token
+  // can be replayed indefinitely. Default to a 5-minute window so the
+  // RP gets a useful baseline; callers that need a different
+  // tolerance (or jti tracking in lieu) override the field.
   {
     now,
     clock_skew_sec: 0L,
     issuer,
     client_id,
-    max_iat_age_sec: None,
+    max_iat_age_sec: Some(300L),
     allowed_algorithms: None,
   }
 }
@@ -2381,6 +2441,33 @@ pub fn verify_oidc_id_token_encrypted(
   verify_key : VerifyKey,
   opts : OidcIdTokenVerifyOptions,
 ) -> OidcIdToken raise JwtError {
+  // RFC 7519 §11.2: a Nested JWT (JWE encapsulating a JWS) MUST have the
+  // outer JWE's `cty` header set to "JWT" or "application/jwt" so the
+  // recipient is told to verify the decrypted bytes as a JWS, not parse
+  // them as something else. We pre-peek the outer header before
+  // decrypting; the `cty` value is integrity-protected by the JWE AEAD,
+  // so an attacker can't substitute it. (Pre-decryption read here is for
+  // shape validation only — we do not act on any other header value
+  // before verification.)
+  let outer_parts = jwe_token.split(".").to_array()
+  if outer_parts.length() != 5 {
+    raise InvalidToken("encrypted ID token is not a compact JWE")
+  }
+  let outer_header_bytes = base64url_decode(outer_parts[0].to_owned())
+  let outer_header_str = @utf8.decode(outer_header_bytes[:]) catch {
+    _ => raise InvalidHeader("JWE header not UTF-8")
+  }
+  let outer_header = parse_json_object(outer_header_str)
+  match get_string(outer_header, "cty") {
+    Some(s) =>
+      if s != "JWT" && s != "application/jwt" {
+        raise InvalidType(
+          "JWE cty must be 'JWT' for a nested ID token, got '" + s + "'",
+        )
+      }
+    None =>
+      raise InvalidType("JWE missing cty='JWT' header for nested ID token")
+  }
   let inner_bytes = @jwe.decrypt(jwe_token, decryption_key) catch {
     e => raise InvalidToken("JWE decrypt failed: " + @debug.to_string(e))
   }
@@ -2510,7 +2597,9 @@ pub(all) struct ProviderMetadata {
 }
 
 ///|
-pub fn parse_provider_metadata(json : String) -> ProviderMetadata raise JwtError {
+pub fn parse_provider_metadata(
+  json : String,
+) -> ProviderMetadata raise JwtError {
   let m = parse_json_object(json)
   let issuer = match get_string(m, "issuer") {
     Some(s) => s
@@ -2525,8 +2614,7 @@ pub fn parse_provider_metadata(json : String) -> ProviderMetadata raise JwtError
     raise MissingRequiredClaim("subject_types_supported")
   }
   let alg_values = string_array_or_empty(
-    m,
-    "id_token_signing_alg_values_supported",
+    m, "id_token_signing_alg_values_supported",
   )
   if alg_values.length() == 0 {
     raise MissingRequiredClaim("id_token_signing_alg_values_supported")
@@ -2542,23 +2630,19 @@ pub fn parse_provider_metadata(json : String) -> ProviderMetadata raise JwtError
     introspection_endpoint: get_string(m, "introspection_endpoint"),
     revocation_endpoint: get_string(m, "revocation_endpoint"),
     device_authorization_endpoint: get_string(
-      m,
-      "device_authorization_endpoint",
+      m, "device_authorization_endpoint",
     ),
     backchannel_authentication_endpoint: get_string(
-      m,
-      "backchannel_authentication_endpoint",
+      m, "backchannel_authentication_endpoint",
     ),
     pushed_authorization_request_endpoint: get_string(
-      m,
-      "pushed_authorization_request_endpoint",
+      m, "pushed_authorization_request_endpoint",
     ),
     response_types_supported: resp_types,
     subject_types_supported: subject_types,
     id_token_signing_alg_values_supported: alg_values,
     token_endpoint_auth_methods_supported: extract_string_array(
-      m,
-      "token_endpoint_auth_methods_supported",
+      m, "token_endpoint_auth_methods_supported",
     ),
     scopes_supported: extract_string_array(m, "scopes_supported"),
     claims_supported: extract_string_array(m, "claims_supported"),
@@ -2567,10 +2651,7 @@ pub fn parse_provider_metadata(json : String) -> ProviderMetadata raise JwtError
 }
 
 ///|
-fn string_array_or_empty(
-  m : Map[String, Json],
-  key : String,
-) -> Array[String] {
+fn string_array_or_empty(m : Map[String, Json], key : String) -> Array[String] {
   match extract_string_array(m, key) {
     Some(a) => a
     None => []
@@ -2792,10 +2873,7 @@ pub fn verify_ciba_id_token(
       }
     None => ()
   }
-  let rt_hash = get_string(
-    id.jwt.claims,
-    "urn:openid:params:jwt:claim:rt_hash",
-  )
+  let rt_hash = get_string(id.jwt.claims, "urn:openid:params:jwt:claim:rt_hash")
   match opts.refresh_token {
     Some(rt) => {
       let expected = compute_x_hash(id.jwt.alg, rt)
