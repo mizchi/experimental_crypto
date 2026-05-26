@@ -673,3 +673,29 @@ test "JWT ES384 sign + verify roundtrip" {
   let v = @jwt.verify(token, @jwt.VerifyKey::Es384(pubkey=sk.public_key()), opts)
   assert_eq(v.alg, @jwt.Algorithm::ES384)
 }
+
+// -----------------------------------------------------------------------------
+// Header-level RFC compliance attacks
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK RFC 7515 §4.1.11: token with `crit` header must be rejected" {
+  // {"alg":"HS256","typ":"JWT","crit":["enc"]}.{"sub":"x"}.AAAA
+  let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImNyaXQiOlsiZW5jIl19.eyJzdWIiOiJ4In0.AAAA"
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=b"k"), opts)) {
+    Err(InvalidHeader(_)) => ()
+    other => abort("crit header NOT rejected: \{other}")
+  }
+}
+
+///|
+test "ATTACK RFC 7797: token with `b64=false` must be rejected" {
+  // {"alg":"HS256","b64":false}.payload.AAAA
+  let token = "eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2V9.cGF5bG9hZA.AAAA"
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=b"k"), opts)) {
+    Err(InvalidHeader(_)) => ()
+    other => abort("b64=false header NOT rejected: \{other}")
+  }
+}

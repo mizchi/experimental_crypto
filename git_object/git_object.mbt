@@ -47,6 +47,7 @@ pub fn parse_signed_commit(
   let gpgsig_lines : Array[String] = []
   let kept : Array[String] = []
   let mut in_sig_header = false
+  let mut seen_gpgsig = false
   let mut byte_index = 0
   for raw in lines {
     let logical_end = byte_index + raw.length()
@@ -66,9 +67,22 @@ pub fn parse_signed_commit(
       }
     }
     // Are we inside the headers? If the line starts a gpgsig header, capture.
-    if logical_end <= header_end {
+    // Use the line's START position (byte_index) rather than its END
+    // (logical_end) — a header line whose terminating '\n' sits exactly
+    // at header_end is still a header (header_end is the position of
+    // the first '\n' of the blank-line separator pair, so the LAST
+    // header line ends AT header_end).
+    if byte_index <= header_end {
       if header_name_matches(raw, "gpgsig") ||
         header_name_matches(raw, "gpgsig-sha256") {
+        // Reject multiple gpgsig headers in a single commit: git itself
+        // emits exactly one, so anything more is either a malformed
+        // commit object or an attempt to confuse the downstream armor
+        // parser (which would otherwise see concatenated armors).
+        if seen_gpgsig {
+          raise Malformed("multiple gpgsig headers")
+        }
+        seen_gpgsig = true
         // First gpgsig line: "gpgsig -----BEGIN SSH SIGNATURE-----"
         let after_name = skip_header_name(raw)
         if after_name != "" {

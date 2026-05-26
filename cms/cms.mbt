@@ -347,6 +347,7 @@ pub fn verify_detached(
   ) catch { _ => raise NoSignerCertificate }
   verify_signature(
     sd.signer.signature_alg,
+    sd.signer.digest_alg,
     issuer_pubkey,
     to_verify,
     sd.signer.signature,
@@ -356,6 +357,7 @@ pub fn verify_detached(
 ///|
 fn verify_signature(
   sig_alg : @asn1.ObjectIdentifier,
+  digest_alg : @asn1.ObjectIdentifier,
   pubkey : @pkix_verify.PublicKey,
   message : Bytes,
   signature : Bytes,
@@ -364,16 +366,37 @@ fn verify_signature(
     sig_alg == id_sha384_with_rsa() ||
     sig_alg == id_sha512_with_rsa() ||
     sig_alg == id_rsa_encryption() {
-    let hash_alg = if sig_alg == id_sha256_with_rsa() ||
-      sig_alg == id_rsa_encryption() {
-      // openssl cms -md sha256 with rsaEncryption sometimes appears as
-      // bare id-rsaEncryption + the chosen digest comes from
-      // digestAlgorithm. We pick SHA-256 as a sensible default.
+    // Pick the hash from `signature_alg` when it encodes one (the
+    // sha*WithRSAEncryption OIDs); fall back to `digest_alg` for the
+    // bare id-rsaEncryption case. Cross-check the two when both are
+    // explicit so a signer can't put SHA-1-with-RSA in the signature OID
+    // while telling the verifier it's SHA-256.
+    let hash_alg = if sig_alg == id_sha256_with_rsa() {
+      if digest_alg != id_sha256() {
+        raise UnsupportedSignatureAlgorithm(sig_alg)
+      }
       @rsa.HashAlg::Sha256
     } else if sig_alg == id_sha384_with_rsa() {
+      if digest_alg != id_sha384() {
+        raise UnsupportedSignatureAlgorithm(sig_alg)
+      }
       @rsa.HashAlg::Sha384
-    } else {
+    } else if sig_alg == id_sha512_with_rsa() {
+      if digest_alg != id_sha512() {
+        raise UnsupportedSignatureAlgorithm(sig_alg)
+      }
       @rsa.HashAlg::Sha512
+    } else {
+      // Bare id-rsaEncryption: take the hash from digestAlgorithm.
+      if digest_alg == id_sha256() {
+        @rsa.HashAlg::Sha256
+      } else if digest_alg == id_sha384() {
+        @rsa.HashAlg::Sha384
+      } else if digest_alg == id_sha512() {
+        @rsa.HashAlg::Sha512
+      } else {
+        raise UnsupportedDigestAlgorithm(digest_alg)
+      }
     }
     match pubkey {
       Rsa(pk) => pk.verify(message, signature, hash_alg) catch { e => raise Rsa(e) }

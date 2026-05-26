@@ -68,7 +68,23 @@ pub struct ObjectIdentifier {
 } derive(Eq, Show, Hash)
 
 ///|
+/// Construct an OID from its arc sequence. Validates that the first two
+/// arcs follow X.660 §3.5 (arcs[0] ∈ {0, 1, 2}, and if arcs[0] < 2 then
+/// arcs[1] < 40). Without this check, `from_arcs([5, 10])` would DER-
+/// encode to the same single byte (`40*5+10 = 210`, but the encoder also
+/// happens to drop the first arc's upper bits) as `from_arcs([2, 130])`,
+/// while `derive(Eq)` would say the two values differ — yielding two
+/// distinct OIDs in MoonBit that round-trip to the same DER on the wire.
 pub fn ObjectIdentifier::from_arcs(arcs : Array[UInt]) -> ObjectIdentifier {
+  if arcs.length() < 2 {
+    abort("OID must have at least 2 arcs")
+  }
+  if arcs[0] > 2U {
+    abort("OID arcs[0] must be 0, 1, or 2")
+  }
+  if arcs[0] < 2U && arcs[1] >= 40U {
+    abort("OID arcs[1] must be < 40 when arcs[0] is 0 or 1")
+  }
   { arcs, }
 }
 

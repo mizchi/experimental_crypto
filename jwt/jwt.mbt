@@ -343,6 +343,23 @@ pub fn verify(
   if alg != verify_key_alg(key) {
     raise KeyAlgorithmMismatch
   }
+  // RFC 7515 §4.1.11: a verifier MUST reject any JWS whose `crit` header
+  // names extensions the verifier does not recognise. We recognise none,
+  // so the presence of a non-empty `crit` array is itself a refusal
+  // signal. This blocks all "smuggle a critical extension that we
+  // silently ignore" attacks.
+  match header.get("crit") {
+    Some(_) =>
+      raise InvalidHeader("crit header is present but no extensions are supported")
+    None => ()
+  }
+  // RFC 7797: `"b64":false` changes the signing-input construction;
+  // we sign over the literal base64 segments, never the raw payload.
+  // Reject so an attacker can't bypass our integrity check.
+  match header.get("b64") {
+    Some(_) => raise InvalidHeader("b64 header is not supported")
+    None => ()
+  }
 
   // ---- signature ----
   let signing_input = header_b64 + "." + payload_b64

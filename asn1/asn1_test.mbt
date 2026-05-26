@@ -885,3 +885,16 @@ test "ATTACK: BIT STRING with unused_bits > 7 must reject" {
   }
   assert_true(raised)
 }
+
+///|
+test "asn1: from_arcs accepts well-formed OIDs" {
+  // Smoke-check that the OIDs we use across the workspace still parse via
+  // from_arcs. The bad-arc abort path (arcs[0] >= 3, or arcs[1] >= 40 with
+  // arcs[0] < 2) isn't catchable from MoonBit, so we can't exercise it
+  // here; the security property (no aliasing between [5,10] and [2,130])
+  // is enforced by abort() at the constructor edge.
+  let ok = @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 3, 1, 7])
+  assert_eq(ok.arcs[0], 1U)
+  let ok2 = @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19]) // basicConstraints
+  assert_eq(ok2.arcs.length(), 4)
+}

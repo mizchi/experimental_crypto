@@ -414,6 +414,56 @@ fn ascii_lower(s : String) -> String {
 ///|
 // Check that `dns` is permitted (matches a permittedSubtree if any) and not
 // excluded (matches no excludedSubtree).
+// Intersect two DNS name-constraint sets. Used to walk the chain of
+// nameConstraints extensions per RFC 5280 §6.1.4(g): a sub-CA cannot
+// widen its parent's constraints, only narrow them.
+//
+// - excluded: union of the two excluded sets (any new excluded entry
+//   blocks names previously permitted).
+// - permitted: if either side is empty, take the other; if both are
+//   non-empty, keep each child entry that lies WITHIN at least one
+//   parent entry. Names that the child wanted to allow but the parent
+//   already forbade are dropped — meaning subsequent SANs that match
+//   those orphaned subtrees will fail the permitted-check below.
+fn intersect_dns_constraints(
+  parent : DnsNameConstraints,
+  child : DnsNameConstraints,
+) -> DnsNameConstraints {
+  let new_excluded : Array[String] = []
+  for e in parent.excluded {
+    new_excluded.push(e)
+  }
+  for e in child.excluded {
+    new_excluded.push(e)
+  }
+  let new_permitted : Array[String] = if parent.permitted.length() == 0 {
+    let copy : Array[String] = []
+    for p in child.permitted {
+      copy.push(p)
+    }
+    copy
+  } else if child.permitted.length() == 0 {
+    let copy : Array[String] = []
+    for p in parent.permitted {
+      copy.push(p)
+    }
+    copy
+  } else {
+    let out : Array[String] = []
+    for c in child.permitted {
+      for p in parent.permitted {
+        if dns_name_in_subtree(c, p) {
+          out.push(c)
+          break
+        }
+      }
+    }
+    out
+  }
+  { permitted: new_permitted, excluded: new_excluded }
+}
+
+///|
 fn dns_within_constraints(
   dns : String,
   cons : DnsNameConstraints,
@@ -878,13 +928,16 @@ pub fn verify_chain_with_options(
         raise IssuerSubjectMismatch
       }
     }
-    // If THIS cert carries nameConstraints, narrow the active set. We do
-    // not intersect — a child CA's nameConstraints REPLACES the parent's
-    // for everything below (RFC 5280 §6.1.4(g) is more subtle in full
-    // generality; this is a defensible simplification for the DNS-only
-    // subset since narrowing is what real chains do in practice).
+    // RFC 5280 §6.1.4(g): intersect the new constraints with whatever is
+    // already active. A sub-CA cannot widen the constraint set inherited
+    // from its parent — only narrow it. Excluded subtrees accumulate by
+    // union; permitted subtrees by set intersection.
     match find_dns_name_constraints(inter) {
-      Some(c) => active_constraints = Some(c)
+      Some(c) =>
+        active_constraints = match active_constraints {
+          None => Some(c)
+          Some(parent_cons) => Some(intersect_dns_constraints(parent_cons, c))
+        }
       None => ()
     }
     current_pubkey = extract_public_key(inter.tbs.subject_public_key_info)

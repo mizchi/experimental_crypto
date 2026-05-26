@@ -138,3 +138,13 @@ fn contains(s : String, needle : String) -> Bool {
   }
   false
 }
+
+///|
+test "ATTACK: commit object with two gpgsig headers must be rejected" {
+  // Two gpgsig lines (one truncated) in a single commit.
+  let bad : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\ngpgsig first\ngpgsig second\n\nhi\n"
+  match (try? @git_object.parse_signed_commit(bad)) {
+    Err(Malformed(_)) => ()
+    other => abort("multi-gpgsig NOT rejected: \{other}")
+  }
+}
