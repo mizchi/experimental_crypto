@@ -13,6 +13,10 @@ name = "mizchi/pem"
 
 version = "0.1.0"
 
+import {
+  "mizchi/pem/wrap@0.1.0",
+}
+
 readme = "README.mbt.md"
 
 repository = ""

@@ -41,13 +41,21 @@ constant-time sign-side operations.
 CSPRNG bridge. Platform backends: `crypto.getRandomValues` on JS,
 `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native.
 
-### `mizchi/proofs`
-**Tests**: 14. **Proof goals**: 5 discharged via `moon prove` + Why3 + Z3.
+### `mizchi/proofs`, `mizchi/pem/wrap`
+**Tests**: 14 (proofs) + 0 (pem/wrap). **Proof goals**: 5 + 1 = 6
+discharged via `moon prove` + Why3 + Z3.
 
-Proof-carrying versions of small leaf primitives that other modules rely
-on. Verifies concrete arithmetic / range invariants — not cryptographic
-theorems. See `proofs/README.md` for setup and the explicit list of
-proven properties.
+Proof-carrying leaf functions. Two homes:
+
+* `proofs/` for cross-cutting primitives with no single caller (`abs`,
+  `mod_pos`, `hex_value`, `ct_select`, `reduce_once`).
+* `<lib>/<name>/` for library-specific invariants. Currently `pem/wrap/`
+  with `pem_next_chunk_len` (RFC 7468 §3 line cap).
+
+Per-library is the default — `moon prove` lowers the whole package to
+Why3, so any package using `Array` / complex sums / `BigInt` in public
+types can only host proofs in a leaf sub-package next to it. See
+`proofs/README.md` for the full pattern.
 
 ```moonbit
 @proofs.abs(x)                // |x|
@@ -134,6 +142,12 @@ STRING tail padding.
 RFC 7468 strict + lax. Lax decode enforces a 8 KiB per-line cap on top
 of the existing 16 MiB total cap. Labels are validated on decode and encode to
 avoid ambiguous or injection-shaped armor.
+
+The `encode` wrap loop calls `@mizchi/pem/wrap.pem_next_chunk_len`,
+which is a proof-carrying sub-package: the RFC 7468 §3 line-cap
+invariant ("no emitted line exceeds 64 chars" and "the loop makes
+progress as long as `cap > 0`") is discharged in `moon prove`. See
+`proofs/README.md` for the "per-library proof sub-package" pattern.
 
 ## Signature primitives
 

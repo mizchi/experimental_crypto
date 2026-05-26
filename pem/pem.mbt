@@ -50,6 +50,12 @@ pub let pem_max_input_size : Int = 16 * 1024 * 1024 // 16 MiB
 pub let pem_max_line_length : Int = 8 * 1024 // 8 KiB
 
 ///|
+/// RFC 7468 §3 strict-mode line cap: every base64 body line in the output
+/// of `encode` is at most this many characters before the LF. The matching
+/// proof of "no emitted line exceeds the cap" lives in `mizchi/pem/wrap`.
+pub let pem_strict_line_max : Int = @wrap.pem_strict_line_max
+
+///|
 /// RFC 7468 §3 strict mode. Requires:
 ///   - base64 padding (lines end with `=` if needed)
 ///   - base64 lines no longer than 64 characters (RFC 7468 §3 line wrap)
@@ -270,7 +276,10 @@ pub fn encode(block : PemBlock) -> String {
   let b64 = @base64.encode(block.data[:])
   let mut pos = 0
   while pos < b64.length() {
-    let take = if pos + 64 <= b64.length() { 64 } else { b64.length() - pos }
+    let take = @wrap.pem_next_chunk_len(
+      b64.length() - pos,
+      pem_strict_line_max,
+    )
     buf.write_string(slice_string(b64, pos, pos + take))
     buf.write_char('\n')
     pos = pos + take

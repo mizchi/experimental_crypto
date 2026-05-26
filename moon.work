@@ -35,4 +35,5 @@ members = [
   "./hpke",
   "./totp",
   "./proofs",
+  "./pem/wrap",
 ]
