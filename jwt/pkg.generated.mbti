@@ -3,15 +3,19 @@ package "mizchi/jwt"
 
 import {
   "mizchi/ed25519",
+  "mizchi/jwe",
   "mizchi/jwk",
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/rsa",
+  "mizchi/secp256k1",
   "moonbitlang/core/debug",
 }
 
 // Values
 pub fn compute_x_hash(Algorithm, String) -> String
+
+pub fn extract_aggregated_distributed_claims(Map[String, Json]) -> AggregatedDistributedClaims?
 
 pub fn peek_header(String) -> Map[String, Json] raise JwtError
 
@@ -25,13 +29,31 @@ pub fn verify_client_assertion(String, VerifyKey, ClientAssertionVerifyOptions) 
 
 pub fn verify_client_assertion_jwks(String, Array[@jwk.JwkSetEntry], ClientAssertionVerifyOptions) -> ClientAssertion raise JwtError
 
+pub fn verify_dpop_proof(String, DpopVerifyOptions) -> VerifiedDpop raise JwtError
+
+pub fn verify_jarm(String, VerifyKey, JarmVerifyOptions) -> JarmResponse raise JwtError
+
+pub fn verify_logout_token(String, VerifyKey, LogoutTokenVerifyOptions) -> LogoutToken raise JwtError
+
+pub fn verify_logout_token_jwks(String, Array[@jwk.JwkSetEntry], LogoutTokenVerifyOptions) -> LogoutToken raise JwtError
+
 pub fn verify_oidc_id_token(String, VerifyKey, OidcIdTokenVerifyOptions) -> OidcIdToken raise JwtError
 
+pub fn verify_oidc_id_token_encrypted(String, @jwe.DecryptionKey, VerifyKey, OidcIdTokenVerifyOptions) -> OidcIdToken raise JwtError
+
 pub fn verify_oidc_id_token_jwks(String, Array[@jwk.JwkSetEntry], OidcIdTokenVerifyOptions) -> OidcIdToken raise JwtError
+
+pub fn verify_request_object(String, VerifyKey, RequestObjectVerifyOptions) -> RequestObject raise JwtError
 
 pub fn verify_rfc9068(String, VerifyKey, Rfc9068VerifyOptions) -> Rfc9068Token raise JwtError
 
 pub fn verify_rfc9068_jwks(String, Array[@jwk.JwkSetEntry], Rfc9068VerifyOptions) -> Rfc9068Token raise JwtError
+
+pub fn verify_self_issued_id_token(String, SelfIssuedVerifyOptions) -> SelfIssuedToken raise JwtError
+
+pub fn verify_userinfo_jws(String, VerifyKey, UserInfoVerifyOptions) -> UserInfo raise JwtError
+
+pub fn verify_userinfo_jws_jwks(String, Array[@jwk.JwkSetEntry], UserInfoVerifyOptions) -> UserInfo raise JwtError
 
 // Errors
 pub suberror JwtError {
@@ -59,9 +81,21 @@ pub suberror JwtError {
   AuthTimeTooOld
   AcrMismatch
   SubjectMismatch
+  InvalidDpopProof(String)
+  CnfJktMismatch
+  LogoutTokenForbiddenNonce
+  MissingLogoutEvent
+  LogoutSubAndSidMissing
+  UserInfoSubMismatch
+  SelfIssuedSubMismatch
 } derive(@debug.Debug)
 
 // Types and methods
+pub(all) struct AggregatedDistributedClaims {
+  sources : Map[String, ClaimSource]
+  names : Map[String, String]
+}
+
 pub(all) enum Algorithm {
   HS256
   HS384
@@ -72,11 +106,17 @@ pub(all) enum Algorithm {
   ES256
   ES384
   ES512
+  ES256K
   PS256
   PS384
   PS512
   EdDSA
 } derive(Eq, @debug.Debug)
+
+pub(all) enum ClaimSource {
+  Aggregated(jwt~ : String)
+  Distributed(endpoint~ : String, access_token~ : String?)
+}
 
 pub(all) struct ClientAssertion {
   client_id : String
@@ -96,6 +136,41 @@ pub(all) struct ClientAssertionVerifyOptions {
 } derive(Eq, @debug.Debug)
 pub fn ClientAssertionVerifyOptions::default(Int64, String, String) -> Self
 
+pub(all) struct Cnf {
+  jwk : Map[String, Json]?
+  jkt : String?
+  x5t_s256 : String?
+} derive(@debug.Debug)
+
+pub(all) struct DpopVerifyOptions {
+  now : Int64
+  max_iat_age_sec : Int64
+  clock_skew_sec : Int64
+  http_method : String
+  http_uri : String
+  bound_access_token : String?
+  expected_jkt : String?
+  expected_nonce : String?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct JarmResponse {
+  iss : String
+  aud : Array[String]
+  exp : Int64
+  params : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+pub(all) struct JarmVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  expected_issuer : String
+  client_id : String
+  expected_state : String?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
   Hs384(secret~ : Bytes)
@@ -106,10 +181,31 @@ pub(all) enum Key {
   Rs512(privkey~ : @rsa.RsaPrivateKey)
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
+  Es256k(privkey~ : @secp256k1.PrivateKey)
   Ps256(privkey~ : @rsa.RsaPrivateKey)
   Ps384(privkey~ : @rsa.RsaPrivateKey)
   Ps512(privkey~ : @rsa.RsaPrivateKey)
 }
+
+pub(all) struct LogoutToken {
+  iss : String
+  aud : Array[String]
+  iat : Int64
+  jti : String
+  sub : String?
+  sid : String?
+  jwt : VerifiedJwt
+}
+
+pub(all) struct LogoutTokenVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  client_id : String
+  max_iat_age_sec : Int64?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+pub fn LogoutTokenVerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) struct OidcIdToken {
   iss : String
@@ -128,6 +224,7 @@ pub(all) struct OidcIdToken {
   email_verified : Bool?
   name : String?
   preferred_username : String?
+  cnf : Cnf?
   jwt : VerifiedJwt
 }
 
@@ -145,6 +242,22 @@ pub(all) struct OidcIdTokenVerifyOptions {
 }
 pub fn OidcIdTokenVerifyOptions::default(Int64, String, String) -> Self
 
+pub(all) struct RequestObject {
+  client_id : String
+  iss : String
+  aud : Array[String]
+  params : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+pub(all) struct RequestObjectVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  expected_client_id : String
+  expected_aud : String
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+
 pub(all) struct Rfc9068Token {
   iss : String
   sub : String
@@ -158,6 +271,7 @@ pub(all) struct Rfc9068Token {
   acr : String?
   amr : Array[String]?
   scope : Array[String]?
+  cnf : Cnf?
   jwt : VerifiedJwt
 }
 
@@ -171,6 +285,58 @@ pub(all) struct Rfc9068VerifyOptions {
   allowed_algorithms : Array[Algorithm]?
 } derive(Eq, @debug.Debug)
 pub fn Rfc9068VerifyOptions::default(Int64, String, String) -> Self
+
+pub(all) struct SelfIssuedToken {
+  iss : String
+  sub : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64
+  nonce : String?
+  sub_jwk : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+pub(all) struct SelfIssuedVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  expected_aud : String?
+  expected_nonce : String?
+  allowed_algorithms : Array[Algorithm]?
+}
+
+pub(all) struct UserInfo {
+  sub : String
+  iss : String
+  aud : Array[String]
+  email : String?
+  email_verified : Bool?
+  name : String?
+  preferred_username : String?
+  claims : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+pub(all) struct UserInfoVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  client_id : String
+  expected_sub : String
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct VerifiedDpop {
+  htm : String
+  htu : String
+  iat : Int64
+  jti : String
+  ath : String?
+  nonce : String?
+  jwk : Map[String, Json]
+  jkt : String
+  jwt : VerifiedJwt
+}
 
 pub(all) struct VerifiedJwt {
   header : Map[String, Json]
@@ -189,6 +355,7 @@ pub(all) enum VerifyKey {
   Rs512(pubkey~ : @rsa.RsaPublicKey)
   Es256(pubkey~ : @p256.PublicKey)
   Es384(pubkey~ : @p384.PublicKey)
+  Es256k(pubkey~ : @secp256k1.PublicKey)
   Ps256(pubkey~ : @rsa.RsaPublicKey)
   Ps384(pubkey~ : @rsa.RsaPublicKey)
   Ps512(pubkey~ : @rsa.RsaPublicKey)

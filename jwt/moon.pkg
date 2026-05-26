@@ -6,6 +6,7 @@ import {
   "mizchi/secp256k1",
   "mizchi/hash",
   "mizchi/jwk",
+  "mizchi/jwe",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/debug",

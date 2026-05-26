@@ -23,7 +23,7 @@ pub suberror JweError {
   InvalidIvSize(String)
   Aead(@aead.AeadError)
   RsaOaepError(String)
-}
+} derive(@debug.Debug)
 pub impl Show for JweError
 
 // Types and methods

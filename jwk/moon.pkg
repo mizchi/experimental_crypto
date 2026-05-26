@@ -10,3 +10,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/debug",
 }
+
+import {
+  "moonbitlang/core/quickcheck",
+} for "test"

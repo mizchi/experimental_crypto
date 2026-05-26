@@ -85,7 +85,7 @@ pub suberror JweError {
   // into AuthenticationFailed; this variant is reserved for cases we
   // genuinely want to distinguish (e.g. RSA ciphertext > n).
   RsaOaepError(String)
-}
+} derive(Debug)
 
 ///|
 pub impl Show for JweError with fn output(self, logger) {

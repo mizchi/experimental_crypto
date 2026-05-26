@@ -2218,3 +2218,367 @@ test "dpop: HMAC alg in proof rejected" {
     _ => abort("expected InvalidDpopProof, got Ok")
   }
 }
+
+// -----------------------------------------------------------------------------
+// OIDC Back-Channel Logout 1.0 — Logout Token
+// -----------------------------------------------------------------------------
+
+///|
+fn logout_token_claims(
+  now : Int64,
+  sub? : String? = None,
+  sid? : String? = None,
+) -> Json {
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("logout-jti-1")
+  let events : Map[String, Json] = Map([])
+  events["http://schemas.openid.net/event/backchannel-logout"] = Json::object(
+    Map([]),
+  )
+  m["events"] = Json::object(events)
+  match sub {
+    Some(s) => m["sub"] = Json::string(s)
+    None => ()
+  }
+  match sid {
+    Some(s) => m["sid"] = Json::string(s)
+    None => ()
+  }
+  Json::object(m)
+}
+
+///|
+test "logout-token: happy path with sub" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-test-secret"
+  let payload = logout_token_claims(now, sub=Some("user-42"))
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="logout+jwt")
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+  let l = @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  @debug.assert_eq(l.sub, Some("user-42"))
+  @debug.assert_eq(l.jti, "logout-jti-1")
+}
+
+///|
+test "logout-token: nonce present rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-with-nonce"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("j")
+  m["sub"] = Json::string("u")
+  m["nonce"] = Json::string("definitely-not-allowed-here")
+  let events : Map[String, Json] = Map([])
+  events["http://schemas.openid.net/event/backchannel-logout"] = Json::object(
+    Map([]),
+  )
+  m["events"] = Json::object(events)
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    LogoutTokenForbiddenNonce => ()
+    e => abort("expected LogoutTokenForbiddenNonce, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected LogoutTokenForbiddenNonce, got Ok")
+  }
+}
+
+///|
+test "logout-token: missing events claim rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-no-events"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("j")
+  m["sub"] = Json::string("u")
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    MissingLogoutEvent => ()
+    e => abort("expected MissingLogoutEvent, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingLogoutEvent, got Ok")
+  }
+}
+
+///|
+test "logout-token: both sub and sid missing rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-no-subject"
+  let payload = logout_token_claims(now) // sub=None, sid=None
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="logout+jwt")
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    LogoutSubAndSidMissing => ()
+    e => abort("expected LogoutSubAndSidMissing, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected LogoutSubAndSidMissing, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC UserInfo signed-JWT response (Core §5.3.2)
+// -----------------------------------------------------------------------------
+
+///|
+test "userinfo-jws: sub mismatch rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"userinfo-test"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["sub"] = Json::string("attacker-substituted-sub")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.UserInfoVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_sub: "real-user-from-id-token",
+    allowed_algorithms: None,
+  }
+  try
+    @jwt.verify_userinfo_jws(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    UserInfoSubMismatch => ()
+    e => abort("expected UserInfoSubMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected UserInfoSubMismatch, got Ok")
+  }
+}
+
+///|
+test "userinfo-jws: matching sub verifies and surfaces profile claims" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"userinfo-ok"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["sub"] = Json::string("user-42")
+  m["email"] = Json::string("u@example.com")
+  m["email_verified"] = Json::boolean(true)
+  m["name"] = Json::string("User 42")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.UserInfoVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_sub: "user-42",
+    allowed_algorithms: None,
+  }
+  let u = @jwt.verify_userinfo_jws(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  @debug.assert_eq(u.email, Some("u@example.com"))
+  @debug.assert_eq(u.email_verified, Some(true))
+  @debug.assert_eq(u.name, Some("User 42"))
+}
+
+// -----------------------------------------------------------------------------
+// RFC 9101 JAR — Request Object
+// -----------------------------------------------------------------------------
+
+///|
+test "JAR: request object verifies and exposes params" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jar-test"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("client-abc")
+  m["aud"] = Json::string("https://as.example.com/")
+  m["response_type"] = Json::string("code")
+  m["client_id"] = Json::string("client-abc")
+  m["redirect_uri"] = Json::string("https://rp.example.com/cb")
+  m["scope"] = Json::string("openid profile")
+  m["state"] = Json::string("state-xyz")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.RequestObjectVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id: "client-abc",
+    expected_aud: "https://as.example.com/",
+    allowed_algorithms: None,
+  }
+  let r = @jwt.verify_request_object(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
+  @debug.assert_eq(r.client_id, "client-abc")
+  match r.params.get("response_type") {
+    Some(String(s)) => @debug.assert_eq(s, "code")
+    _ => abort("missing response_type")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JARM
+// -----------------------------------------------------------------------------
+
+///|
+test "JARM: authorization response verifies + state round-trip" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jarm-test"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["code"] = Json::string("auth-code-xyz")
+  m["state"] = Json::string("rp-state-xyz")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.JarmVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_state: Some("rp-state-xyz"),
+    allowed_algorithms: None,
+  }
+  let r = @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  match r.params.get("code") {
+    Some(String(c)) => @debug.assert_eq(c, "auth-code-xyz")
+    _ => abort("missing code")
+  }
+}
+
+///|
+test "JARM: state mismatch rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jarm-state-mismatch"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["state"] = Json::string("wrong-state")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.JarmVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_state: Some("expected-state"),
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected ClaimsParseError, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Self-Issued OP v2
+// -----------------------------------------------------------------------------
+
+///|
+test "siop-v2: sub == thumbprint(sub_jwk) verifies" {
+  let now = 1_700_000_000L
+  let seed = Bytes::makei(32, fn(i) { (i + 99).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk = sk.public_key()
+  // Build sub_jwk for the holder's Ed25519 pubkey.
+  let pk_bytes = pk.to_bytes()
+  let b64u = fn(b : Bytes) -> String {
+    let s = @base64.encode(b[:], padding=false)
+    let buf = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      buf.write_char(c2)
+    }
+    buf.to_string()
+  }
+  let sub_jwk : Map[String, Json] = Map([])
+  sub_jwk["kty"] = Json::string("OKP")
+  sub_jwk["crv"] = Json::string("Ed25519")
+  sub_jwk["x"] = Json::string(b64u(pk_bytes))
+  // Compute the canonical thumbprint via @jwk.
+  let parsed = @jwk.parse_public(Json::object(sub_jwk).stringify())
+  let thumb = @jwk.thumbprint_base64url(parsed)
+  let claims : Map[String, Json] = Map([])
+  claims["iss"] = Json::string("https://self-issued.me/v2")
+  claims["sub"] = Json::string(thumb)
+  claims["sub_jwk"] = Json::object(sub_jwk)
+  claims["aud"] = Json::string("rp-redirect-uri")
+  claims["exp"] = Json::number((now + 300L).to_double())
+  claims["iat"] = Json::number(now.to_double())
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::EdDsa(privkey=sk))
+  let opts : @jwt.SelfIssuedVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_aud: Some("rp-redirect-uri"),
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  let s = @jwt.verify_self_issued_id_token(token, opts)
+  @debug.assert_eq(s.sub, thumb)
+  @debug.assert_eq(s.iss, "https://self-issued.me/v2")
+}
+
+// -----------------------------------------------------------------------------
+// Aggregated / Distributed claims
+// -----------------------------------------------------------------------------
+
+///|
+test "aggregated-distributed: parser extracts sources and names" {
+  let claims : Map[String, Json] = Map([])
+  let sources : Map[String, Json] = Map([])
+  let src1 : Map[String, Json] = Map([])
+  src1["JWT"] = Json::string("aggregated.jwt.here")
+  sources["src1"] = Json::object(src1)
+  let src2 : Map[String, Json] = Map([])
+  src2["endpoint"] = Json::string("https://claims.example.com/age")
+  src2["access_token"] = Json::string("ksj3n1v")
+  sources["src2"] = Json::object(src2)
+  claims["_claim_sources"] = Json::object(sources)
+  let names : Map[String, Json] = Map([])
+  names["address"] = Json::string("src1")
+  names["birthdate"] = Json::string("src2")
+  claims["_claim_names"] = Json::object(names)
+  let ad = @jwt.extract_aggregated_distributed_claims(claims)
+  match ad {
+    Some(a) => {
+      @debug.assert_eq(a.names.get("address"), Some("src1"))
+      @debug.assert_eq(a.names.get("birthdate"), Some("src2"))
+      match a.sources.get("src1") {
+        Some(Aggregated(jwt~)) => @debug.assert_eq(jwt, "aggregated.jwt.here")
+        _ => abort("expected Aggregated for src1")
+      }
+      match a.sources.get("src2") {
+        Some(Distributed(endpoint~, access_token~)) => {
+          @debug.assert_eq(endpoint, "https://claims.example.com/age")
+          @debug.assert_eq(access_token, Some("ksj3n1v"))
+        }
+        _ => abort("expected Distributed for src2")
+      }
+    }
+    None => abort("expected aggregated/distributed metadata")
+  }
+}

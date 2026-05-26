@@ -148,6 +148,25 @@ pub suberror JwtError {
   // of the DPoP proof's embedded jwk. Separated from InvalidDpopProof
   // so callers can branch on token-binding failure specifically.
   CnfJktMismatch
+  // OIDC Back-Channel Logout 1.0 §2.4 — `nonce` MUST NOT appear in a
+  // logout token. Returning it would imply the IdP confused an ID
+  // token with a logout assertion; reject so the RP doesn't replay
+  // login-context nonces into a logout pipeline.
+  LogoutTokenForbiddenNonce
+  // OIDC Back-Channel Logout §2.4 — `events` must contain the
+  // back-channel-logout schema URL as a JSON-object member.
+  MissingLogoutEvent
+  // OIDC Back-Channel Logout §2.4 — at least one of `sub` or `sid`
+  // MUST be present so the RP knows whose session to terminate.
+  LogoutSubAndSidMissing
+  // OIDC Core §5.3.2 — when the UserInfo response is signed, `sub`
+  // MUST equal the `sub` from the paired ID token. Mismatch implies
+  // a substituted identity.
+  UserInfoSubMismatch
+  // OIDC Self-Issued OP v2 — `sub` MUST equal the SHA-256 thumbprint
+  // of the inline `sub_jwk`; if they disagree the holder is asserting
+  // an identity that doesn't bind to the key they signed with.
+  SelfIssuedSubMismatch
 } derive(Debug)
 
 ///|
@@ -1814,4 +1833,629 @@ fn jwk_thumbprint_base64url(
 fn sha256_base64url(s : String) -> String {
   let h = @hash.sha256(@utf8.encode(s[:]))
   base64url_encode(h)
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Back-Channel Logout 1.0 — Logout Token
+// -----------------------------------------------------------------------------
+//
+// Logout tokens are a separate JWT class an IdP pushes to RPs to tell
+// them to terminate a session. Per §2.4 the token MUST have:
+//   typ      = "logout+jwt"
+//   events   = { "http://schemas.openid.net/event/backchannel-logout": {} }
+//   iss, aud, iat, jti
+//   at least one of sub, sid
+//   MUST NOT contain a nonce claim (it's not an ID token)
+//   MUST NOT contain exp (a recipient SHOULD reject exp if present —
+//                        we permit it but don't require it)
+
+///|
+pub(all) struct LogoutTokenVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  client_id : String
+  // If `Some(s)`, reject logout tokens whose `iat` is more than `s`
+  // seconds in the past. OIDC §2.7 recommends short windows because
+  // logout tokens are unauthenticated by exp.
+  max_iat_age_sec : Int64?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub fn LogoutTokenVerifyOptions::default(
+  now : Int64,
+  issuer : String,
+  client_id : String,
+) -> LogoutTokenVerifyOptions {
+  {
+    now,
+    clock_skew_sec: 0L,
+    issuer,
+    client_id,
+    max_iat_age_sec: None,
+    allowed_algorithms: None,
+  }
+}
+
+///|
+pub(all) struct LogoutToken {
+  iss : String
+  aud : Array[String]
+  iat : Int64
+  jti : String
+  // OIDC §2.4 — at least one of sub, sid is REQUIRED. Verification
+  // already enforced at least one is Some; both can be Some.
+  sub : String?
+  sid : String?
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_logout_token(
+  token : String,
+  key : VerifyKey,
+  opts : LogoutTokenVerifyOptions,
+) -> LogoutToken raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: false,
+    issuer: Some(opts.issuer),
+    audience: Some(opts.client_id),
+    typ_allowed: Some(["logout+jwt"]),
+  }
+  let v = verify(token, key, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  // OIDC §2.4: nonce MUST NOT be present (logout token != ID token).
+  match v.claims.get("nonce") {
+    Some(_) => raise LogoutTokenForbiddenNonce
+    None => ()
+  }
+  // events MUST be an object containing the backchannel-logout member.
+  match v.claims.get("events") {
+    Some(Object(m)) =>
+      match m.get("http://schemas.openid.net/event/backchannel-logout") {
+        Some(_) => ()
+        None => raise MissingLogoutEvent
+      }
+    _ => raise MissingLogoutEvent
+  }
+  let iss = require_string_claim(v.claims, "iss")
+  let aud = extract_aud(v.claims)
+  let iat = require_numeric_claim(v.claims, "iat")
+  match opts.max_iat_age_sec {
+    Some(max) =>
+      if iat + max + opts.clock_skew_sec < opts.now {
+        raise IssuedInFuture // semantically "iat too old"; reuse code
+      }
+    None => ()
+  }
+  let jti = require_string_claim(v.claims, "jti")
+  let sub = get_string(v.claims, "sub")
+  let sid = get_string(v.claims, "sid")
+  if sub is None && sid is None {
+    raise LogoutSubAndSidMissing
+  }
+  { iss, aud, iat, jti, sub, sid, jwt: v }
+}
+
+///|
+pub fn verify_logout_token_jwks(
+  token : String,
+  set : Array[@jwk.JwkSetEntry],
+  opts : LogoutTokenVerifyOptions,
+) -> LogoutToken raise JwtError {
+  let header = peek_header(token)
+  let key = select_verify_key(set, header)
+  verify_logout_token(token, key, opts)
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Core §5.3.2 — UserInfo signed-JWT response
+// -----------------------------------------------------------------------------
+
+///|
+pub(all) struct UserInfoVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  client_id : String
+  // The `sub` value from the paired ID token. UserInfo's `sub` MUST
+  // equal this; otherwise the response was substituted between the
+  // /userinfo endpoint and the relying party.
+  expected_sub : String
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct UserInfo {
+  sub : String
+  iss : String
+  aud : Array[String]
+  email : String?
+  email_verified : Bool?
+  name : String?
+  preferred_username : String?
+  // Anything else the IdP put in.
+  claims : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_userinfo_jws(
+  token : String,
+  key : VerifyKey,
+  opts : UserInfoVerifyOptions,
+) -> UserInfo raise JwtError {
+  // OIDC §5.3.2: when signed, the UserInfo response MUST include `iss`
+  // and `aud`. exp is not required.
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: false,
+    issuer: Some(opts.issuer),
+    audience: Some(opts.client_id),
+    typ_allowed: None,
+  }
+  let v = verify(token, key, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  let sub = require_string_claim(v.claims, "sub")
+  if sub != opts.expected_sub {
+    raise UserInfoSubMismatch
+  }
+  let iss = require_string_claim(v.claims, "iss")
+  let aud = extract_aud(v.claims)
+  {
+    sub,
+    iss,
+    aud,
+    email: get_string(v.claims, "email"),
+    email_verified: get_bool(v.claims, "email_verified"),
+    name: get_string(v.claims, "name"),
+    preferred_username: get_string(v.claims, "preferred_username"),
+    claims: v.claims,
+    jwt: v,
+  }
+}
+
+///|
+pub fn verify_userinfo_jws_jwks(
+  token : String,
+  set : Array[@jwk.JwkSetEntry],
+  opts : UserInfoVerifyOptions,
+) -> UserInfo raise JwtError {
+  let header = peek_header(token)
+  let key = select_verify_key(set, header)
+  verify_userinfo_jws(token, key, opts)
+}
+
+// -----------------------------------------------------------------------------
+// RFC 9101 — JWT-Secured Authorization Request (JAR)
+// -----------------------------------------------------------------------------
+//
+// A JAR is the client's authorization request encoded as a JWT, presented
+// to the AS via the `request` parameter. The AS validates it and pulls
+// the OAuth parameters out of the claims.
+
+///|
+pub(all) struct RequestObjectVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  expected_client_id : String
+  // The AS's own issuer URL (also its `aud` in client-issued JARs).
+  expected_aud : String
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct RequestObject {
+  client_id : String
+  iss : String
+  aud : Array[String]
+  // OAuth authorization parameters extracted from the claims.
+  // Common keys: response_type, redirect_uri, scope, state, nonce,
+  // code_challenge, code_challenge_method, prompt, etc.
+  params : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_request_object(
+  token : String,
+  key : VerifyKey,
+  opts : RequestObjectVerifyOptions,
+) -> RequestObject raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: false,
+    issuer: Some(opts.expected_client_id),
+    audience: Some(opts.expected_aud),
+    typ_allowed: None,
+  }
+  let v = verify(token, key, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  // RFC 9101 §10.2.4: client_id in the request object MUST equal the
+  // client_id parameter (which we pinned via opts).
+  let client_id_claim = get_string(v.claims, "client_id")
+  match client_id_claim {
+    Some(s) => if s != opts.expected_client_id { raise ClientIdMismatch }
+    None => ()
+  }
+  {
+    client_id: opts.expected_client_id,
+    iss: opts.expected_client_id,
+    aud: extract_aud(v.claims),
+    params: v.claims,
+    jwt: v,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JARM — JWT-Secured Authorization Response Mode (OAuth + OIDC)
+// -----------------------------------------------------------------------------
+//
+// The AS returns the authorization response (code, state, etc.) wrapped
+// in a signed JWT instead of plain query parameters. The RP verifies it.
+
+///|
+pub(all) struct JarmVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  // The AS's expected issuer URL.
+  expected_issuer : String
+  // The RP's client_id (the JARM `aud`).
+  client_id : String
+  // If `Some(s)`, the JARM `state` claim must equal this. The RP must
+  // remember the `state` it sent and confirm it round-trips.
+  expected_state : String?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct JarmResponse {
+  iss : String
+  aud : Array[String]
+  exp : Int64
+  // Authorization response params: code, state, id_token, access_token,
+  // token_type, expires_in, scope, iss (again), error, etc.
+  params : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_jarm(
+  token : String,
+  key : VerifyKey,
+  opts : JarmVerifyOptions,
+) -> JarmResponse raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: true,
+    issuer: Some(opts.expected_issuer),
+    audience: Some(opts.client_id),
+    typ_allowed: None,
+  }
+  let v = verify(token, key, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  match opts.expected_state {
+    Some(want) =>
+      match get_string(v.claims, "state") {
+        Some(got) =>
+          if want != got {
+            raise ClaimsParseError("JARM state does not round-trip")
+          }
+        None => raise MissingRequiredClaim("state")
+      }
+    None => ()
+  }
+  {
+    iss: require_string_claim(v.claims, "iss"),
+    aud: extract_aud(v.claims),
+    exp: require_numeric_claim(v.claims, "exp"),
+    params: v.claims,
+    jwt: v,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Self-Issued OP v2
+// -----------------------------------------------------------------------------
+//
+// Self-Issued OPs let a holder mint their own ID token. The signature
+// key comes from the token itself (sub_jwk claim) and the subject is
+// the SHA-256 thumbprint of that key. Used in DID and decentralised
+// identity flows.
+
+///|
+pub(all) struct SelfIssuedVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  // RP's redirect URI; the SIOP v2 spec uses this in place of client_id
+  // for unregistered relying parties. Optional — when None we accept
+  // any `aud`.
+  expected_aud : String?
+  // Expected nonce from the authorization request.
+  expected_nonce : String?
+  allowed_algorithms : Array[Algorithm]?
+}
+
+///|
+pub(all) struct SelfIssuedToken {
+  iss : String
+  sub : String // SHA-256 thumbprint of sub_jwk
+  aud : Array[String]
+  exp : Int64
+  iat : Int64
+  nonce : String?
+  // The holder's self-asserted JWK, base for the signature.
+  sub_jwk : Map[String, Json]
+  jwt : VerifiedJwt
+}
+
+///|
+/// Verify a Self-Issued OP v2 ID token. The verifying key is extracted
+/// from the token's own `sub_jwk` claim, and `sub` MUST equal the
+/// thumbprint of that key. Use only for SIOP v2 flows; the issuer
+/// constraint differs from regular OIDC.
+pub fn verify_self_issued_id_token(
+  token : String,
+  opts : SelfIssuedVerifyOptions,
+) -> SelfIssuedToken raise JwtError {
+  // Pre-parse the payload so we can grab sub_jwk before signature work.
+  let parts = token.split(".").to_array()
+  if parts.length() != 3 {
+    raise InvalidToken("expected 3 segments")
+  }
+  let payload_bytes = base64url_decode(parts[1].to_owned())
+  let payload_str = @utf8.decode(payload_bytes[:]) catch {
+    _ => raise ClaimsParseError("payload not UTF-8")
+  }
+  let claims = parse_json_object(payload_str)
+  let sub_jwk_obj = match claims.get("sub_jwk") {
+    Some(Object(m)) => m
+    _ => raise MissingRequiredClaim("sub_jwk")
+  }
+  // Derive VerifyKey from sub_jwk.
+  let alg = match get_string(claims, "iss") {
+    Some(s) =>
+      if s != "https://self-issued.me/v2" {
+        raise InvalidIssuer
+      } else {
+        // alg comes from the header, but we need it for the kty/alg
+        // pairing. Read the header to extract alg.
+        let header_bytes = base64url_decode(parts[0].to_owned())
+        let header_str = @utf8.decode(header_bytes[:]) catch {
+          _ => raise InvalidHeader("not UTF-8")
+        }
+        let header = parse_json_object(header_str)
+        let alg_str = match get_string(header, "alg") {
+          Some(s) => s
+          None => raise InvalidHeader("missing alg")
+        }
+        alg_from_str(alg_str)
+      }
+    None => raise MissingRequiredClaim("iss")
+  }
+  let jwk = parse_inline_jwk(sub_jwk_obj, alg)
+  let vk = jwk_to_verify_key(jwk, alg)
+  // sub MUST equal the SHA-256 thumbprint of sub_jwk.
+  let expected_sub = jwk_thumbprint_base64url(sub_jwk_obj)
+  let sub = require_string_claim(claims, "sub")
+  if sub != expected_sub {
+    raise SelfIssuedSubMismatch
+  }
+  // Now do the standard verify pipeline.
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: true,
+    issuer: Some("https://self-issued.me/v2"),
+    audience: opts.expected_aud,
+    typ_allowed: None,
+  }
+  let v = verify(token, vk, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  let nonce = get_string(v.claims, "nonce")
+  match opts.expected_nonce {
+    Some(want) =>
+      match nonce {
+        Some(got) => if want != got { raise NonceMismatch }
+        None => raise NonceMismatch
+      }
+    None => ()
+  }
+  {
+    iss: require_string_claim(v.claims, "iss"),
+    sub,
+    aud: extract_aud(v.claims),
+    exp: require_numeric_claim(v.claims, "exp"),
+    iat: require_numeric_claim(v.claims, "iat"),
+    nonce,
+    sub_jwk: sub_jwk_obj,
+    jwt: v,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Core §10.2 — Encrypted ID Tokens (nested JWE-wrapping-JWS)
+// -----------------------------------------------------------------------------
+
+///|
+/// Verify an encrypted OIDC ID token: decrypt the outer JWE with
+/// `decryption_key`, then run the standard ID-token verify on the
+/// inner JWS using `verify_key` and `opts`. The decryption key and
+/// verify key come from different IdP material in general — the JWE
+/// is typically encrypted to the RP, and the inner JWS is signed by
+/// the IdP.
+pub fn verify_oidc_id_token_encrypted(
+  jwe_token : String,
+  decryption_key : @jwe.DecryptionKey,
+  verify_key : VerifyKey,
+  opts : OidcIdTokenVerifyOptions,
+) -> OidcIdToken raise JwtError {
+  let inner_bytes = @jwe.decrypt(jwe_token, decryption_key) catch {
+    e => raise InvalidToken("JWE decrypt failed: " + @debug.to_string(e))
+  }
+  let inner = @utf8.decode(inner_bytes[:]) catch {
+    _ => raise InvalidToken("inner ID token not UTF-8")
+  }
+  verify_oidc_id_token(inner, verify_key, opts)
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Core §5.6.2 — Aggregated / Distributed Claims
+// -----------------------------------------------------------------------------
+//
+// An ID token may delegate some claims to external sources via
+// `_claim_sources` and `_claim_names`. The library exposes the
+// parsed structure; following the URLs / verifying embedded JWTs is
+// the caller's job.
+
+///|
+pub(all) enum ClaimSource {
+  // Aggregated: the claim value is itself a signed JWT embedded inline.
+  Aggregated(jwt~ : String)
+  // Distributed: the caller must fetch the claim from `endpoint`,
+  // optionally bearing `access_token`.
+  Distributed(endpoint~ : String, access_token~ : String?)
+}
+
+///|
+pub(all) struct AggregatedDistributedClaims {
+  // Map from source id (an arbitrary string) → claim source descriptor.
+  sources : Map[String, ClaimSource]
+  // Map from claim name → source id, telling the RP where to look up
+  // each individual claim value.
+  names : Map[String, String]
+}
+
+///|
+/// Extract the aggregated / distributed claim metadata from a parsed
+/// claim set. Returns None if neither `_claim_sources` nor
+/// `_claim_names` is present.
+pub fn extract_aggregated_distributed_claims(
+  claims : Map[String, Json],
+) -> AggregatedDistributedClaims? {
+  let sources_obj = match claims.get("_claim_sources") {
+    Some(Object(m)) => Some(m)
+    _ => None
+  }
+  let names_obj = match claims.get("_claim_names") {
+    Some(Object(m)) => Some(m)
+    _ => None
+  }
+  if sources_obj is None && names_obj is None {
+    return None
+  }
+  let sources : Map[String, ClaimSource] = Map([])
+  match sources_obj {
+    Some(m) =>
+      for k, v in m {
+        match v {
+          Object(inner) =>
+            match (inner.get("JWT"), inner.get("endpoint")) {
+              (Some(String(jwt_str)), _) =>
+                sources[k] = ClaimSource::Aggregated(jwt=jwt_str)
+              (None, Some(String(ep))) => {
+                let at = match inner.get("access_token") {
+                  Some(String(s)) => Some(s)
+                  _ => None
+                }
+                sources[k] = ClaimSource::Distributed(
+                  endpoint=ep,
+                  access_token=at,
+                )
+              }
+              _ => () // ignore malformed entries
+            }
+          _ => ()
+        }
+      }
+    None => ()
+  }
+  let names : Map[String, String] = Map([])
+  match names_obj {
+    Some(m) =>
+      for k, v in m {
+        match v {
+          String(src) => names[k] = src
+          _ => ()
+        }
+      }
+    None => ()
+  }
+  Some({ sources, names })
 }
