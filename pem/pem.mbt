@@ -43,6 +43,13 @@ pub fn decode(input : String) -> PemBlock raise PemError {
 pub let pem_max_input_size : Int = 16 * 1024 * 1024 // 16 MiB
 
 ///|
+/// Maximum length of any single base64 body line. RFC 7468 §3 caps lines
+/// at 64 chars for strict mode; lax mode is more permissive but we still
+/// refuse pathological single-line payloads (which would force a single
+/// allocation up to pem_max_input_size).
+pub let pem_max_line_length : Int = 8 * 1024 // 8 KiB
+
+///|
 /// RFC 7468 §3 strict mode. Requires:
 ///   - base64 padding (lines end with `=` if needed)
 ///   - base64 lines no longer than 64 characters (RFC 7468 §3 line wrap)
@@ -205,7 +212,16 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
           end_label = Some(l)
           break
         }
-        None => b64.write_string(line2)
+        None => {
+          if line2.length() > pem_max_line_length {
+            raise InvalidFormat(
+              "base64 line exceeds pem_max_line_length (" +
+              pem_max_line_length.to_string() +
+              ")",
+            )
+          }
+          b64.write_string(line2)
+        }
       }
     }
     match end_label {

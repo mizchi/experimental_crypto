@@ -89,6 +89,25 @@ pub fn ObjectIdentifier::from_arcs(arcs : Array[UInt]) -> ObjectIdentifier {
 }
 
 ///|
+/// Same as `from_arcs` but raises `Asn1Error::InvalidEncoding` on the
+/// validation failures instead of aborting the process. Use this when
+/// the arcs come from untrusted input that you'd rather not crash on.
+pub fn ObjectIdentifier::from_arcs_checked(
+  arcs : Array[UInt],
+) -> ObjectIdentifier raise Asn1Error {
+  if arcs.length() < 2 {
+    raise InvalidEncoding("OID must have at least 2 arcs")
+  }
+  if arcs[0] > 2U {
+    raise InvalidEncoding("OID arcs[0] must be 0, 1, or 2")
+  }
+  if arcs[0] < 2U && arcs[1] >= 40U {
+    raise InvalidEncoding("OID arcs[1] must be < 40 when arcs[0] is 0 or 1")
+  }
+  { arcs, }
+}
+
+///|
 pub fn ObjectIdentifier::from_string(
   s : String,
 ) -> ObjectIdentifier raise Asn1Error {

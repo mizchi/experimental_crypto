@@ -711,21 +711,46 @@ pub fn verify_signature(
 //
 // RFC 5280 §4.1.2.5: UTCTime is YYMMDDHHMMSSZ with YY < 50 ⇒ 20YY else 19YY.
 // We normalize to YYYYMMDDHHMMSSZ which is lexicographic = chronological.
-fn normalize_time(s : String) -> String {
-  // GeneralizedTime is already YYYYMMDDHHMMSSZ.
-  if s.length() >= 15 {
+fn normalize_time(s : String) -> String raise PkixVerifyError {
+  // RFC 5280 §4.1.2.5 mandates two specific formats:
+  //   - UTCTime:         YYMMDDHHMMSSZ  (length 13, trailing 'Z')
+  //   - GeneralizedTime: YYYYMMDDHHMMSSZ  (length 15, trailing 'Z')
+  // Anything else (fractional seconds, time-zone offsets, missing 'Z') is
+  // rejected to avoid silent lexicographic mis-ordering of inputs like
+  // "20260526120000.0Z" vs "20260526120000Z".
+  if s.length() == 15 {
+    if s.get_char(14).unwrap() != 'Z' {
+      raise MalformedExtension("validity: GeneralizedTime must end with Z")
+    }
+    for i = 0; i < 14; i = i + 1 {
+      let c = s.get_char(i).unwrap()
+      if c < '0' || c > '9' {
+        raise MalformedExtension("validity: GeneralizedTime non-digit")
+      }
+    }
     return s
   }
-  // UTCTime: YYMMDDHHMMSSZ, length 13.
-  if s.length() < 2 {
-    return s
+  if s.length() == 13 {
+    if s.get_char(12).unwrap() != 'Z' {
+      raise MalformedExtension("validity: UTCTime must end with Z")
+    }
+    for i = 0; i < 12; i = i + 1 {
+      let c = s.get_char(i).unwrap()
+      if c < '0' || c > '9' {
+        raise MalformedExtension("validity: UTCTime non-digit")
+      }
+    }
+    let zero = '0'.to_int()
+    let yy_hi = s.code_unit_at(0).to_int() - zero
+    let yy_lo = s.code_unit_at(1).to_int() - zero
+    let yy = yy_hi * 10 + yy_lo
+    let century = if yy < 50 { "20" } else { "19" }
+    return century + s
   }
-  let zero = '0'.to_int()
-  let yy_hi = s.code_unit_at(0).to_int() - zero
-  let yy_lo = s.code_unit_at(1).to_int() - zero
-  let yy = yy_hi * 10 + yy_lo
-  let century = if yy < 50 { "20" } else { "19" }
-  century + s
+  raise MalformedExtension(
+    "validity: expected UTCTime (13) or GeneralizedTime (15), got length " +
+    s.length().to_string(),
+  )
 }
 
 ///|
@@ -753,6 +778,13 @@ pub fn verify_certificate(
   now : String,
 ) -> Unit raise PkixVerifyError {
   check_validity(cert.tbs.validity, now)
+  // RFC 5280 §4.1.1.2 / §4.1.2.3: the outer signatureAlgorithm MUST
+  // match the inner tbsCertificate.signature. A mismatch lets a
+  // signer claim "this is signed with ECDSA-SHA256" outside while the
+  // TBS says "this is RSA-SHA1" — we should refuse.
+  if cert.signature_algorithm.algorithm != cert.tbs.signature.algorithm {
+    raise UnsupportedSignatureAlgorithm(cert.signature_algorithm.algorithm)
+  }
   // RFC 5280 §4.2: reject any certificate that carries a critical
   // extension we do not recognise. Runs before signature verification so
   // we don't spend a (potentially expensive) RSA modexp on a cert we'd

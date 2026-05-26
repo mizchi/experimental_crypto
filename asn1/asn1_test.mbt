@@ -898,3 +898,27 @@ test "asn1: from_arcs accepts well-formed OIDs" {
   let ok2 = @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19]) // basicConstraints
   assert_eq(ok2.arcs.length(), 4)
 }
+
+///|
+test "asn1: from_arcs_checked raises on bad arc[0]" {
+  match (try? @asn1.ObjectIdentifier::from_arcs_checked([5U, 10U])) {
+    Err(InvalidEncoding(_)) => ()
+    other => abort("expected InvalidEncoding, got \{other}")
+  }
+}
+
+///|
+test "asn1: from_arcs_checked raises on arc[1] >= 40 with small arc[0]" {
+  match (try? @asn1.ObjectIdentifier::from_arcs_checked([1U, 40U])) {
+    Err(InvalidEncoding(_)) => ()
+    other => abort("expected InvalidEncoding, got \{other}")
+  }
+}
+
+///|
+test "asn1: from_arcs_checked accepts valid OIDs" {
+  let ok = @asn1.ObjectIdentifier::from_arcs_checked([
+    1U, 2, 840, 113549, 1, 1, 11,
+  ])
+  assert_eq(ok.arcs[0], 1U)
+}

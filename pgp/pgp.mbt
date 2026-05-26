@@ -233,10 +233,17 @@ pub(all) enum PgpPrivateKey {
 ///
 /// `hash_algo`: 8=sha256, 9=sha384, 10=sha512 (OpenPGP IDs, RFC 4880 §9.4).
 /// Ignored for Ed25519/ECDSA where the hash is dictated by the curve.
+///
+/// `creation_time`: signature-creation timestamp (UNIX seconds), emitted
+/// as the first hashed subpacket. Defaults to a fixed reference value
+/// (2023-11-14, 1700000000) for reproducibility; pass the current time
+/// when producing real signatures so verifiers that enforce "signed
+/// within the last N hours" policies don't reject them.
 pub fn sign_armor(
   privkey : PgpPrivateKey,
   message : Bytes,
   hash_algo? : Int = 0,
+  creation_time? : UInt = 1700000000U,
 ) -> String raise PgpError {
   let chosen_hash = if hash_algo == 0 {
     match privkey {
@@ -257,7 +264,6 @@ pub fn sign_armor(
   // Build hashed subpackets: just a creation_time (subpacket type 2) +
   // issuer_fingerprint omitted for simplicity. Even a near-empty hashed
   // area is RFC-valid.
-  let creation_time : UInt = 1700000000U // arbitrary fixed timestamp
   let hashed_sub = build_creation_time_subpacket(creation_time)
   let hashed_sub_len = hashed_sub.length()
   // hashed_subpackets_raw = version + sig_type + pubkey_algo + hash_algo
