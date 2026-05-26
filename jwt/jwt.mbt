@@ -628,18 +628,9 @@ pub fn verify(
       match get_string(header, "typ") {
         Some(t) => {
           let denied = [
-            "at+jwt",
-            "application/at+jwt",
-            "logout+jwt",
-            "application/logout+jwt",
-            "dpop+jwt",
-            "application/dpop+jwt",
-            "entity-statement+jwt",
-            "application/entity-statement+jwt",
-            "secevent+jwt",
-            "application/secevent+jwt",
-            "ciba+jwt",
-            "application/ciba+jwt",
+            "at+jwt", "application/at+jwt", "logout+jwt", "application/logout+jwt",
+            "dpop+jwt", "application/dpop+jwt", "entity-statement+jwt", "application/entity-statement+jwt",
+            "secevent+jwt", "application/secevent+jwt", "ciba+jwt", "application/ciba+jwt",
           ]
           for d in denied {
             if t == d {
@@ -881,10 +872,7 @@ pub fn select_verify_key(
   // most of these, but `use` adds defence in depth when the JWKS
   // entry's `alg` field is absent).
   match entry.use_ {
-    Some(u) =>
-      if u != "sig" {
-        raise NoMatchingKey
-      }
+    Some(u) => if u != "sig" { raise NoMatchingKey }
     None => ()
   }
   match entry.alg {

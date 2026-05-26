@@ -181,6 +181,20 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
 
 ### Test coverage / robustness
 
+- [x] **JWT / OIDC coverage sweep**: deterministic security regression
+  tests now cover malformed `kid` / JOSE headers, OIDC ID Token JWKS
+  resolution and algorithm allow-lists, nonce / `at_hash` / `c_hash` /
+  `auth_time` / `acr` binding failures, RFC 7523 client assertion JWKS,
+  DPoP nonce / `ath` / `jkt` / alg policy failures, logout-token JWKS
+  and freshness, UserInfo/JAR/JARM, Self-Issued OP, nested encrypted ID
+  token, aggregated/distributed claims, Discovery, Federation, CIBA, and
+  FAPI RFC 9068 policy. Current coverage via
+  `moon coverage analyze -p mizchi/jwt -- -f summary`: `858/982`.
+- [ ] **JWT remaining coverage holes**: mostly unsupported or fixture-heavy
+  algorithm branches (`RS384`/`RS512`/`ES512`/`PS384`/`PS512` sign/verify
+  and JWKS mapping), malformed UTF-8 payload/header catch arms, and a few
+  DPoP malformed-header claim-shape branches. Add only when backed by
+  reference vectors or focused mutation fixtures.
 - **PGP gpg-binary interop**: `pgp_test.mbt` sign side is currently
   tautological (sign+verify with our own code). A CI step piping our
   armor into `gpg --verify` would catch sign-side drift.

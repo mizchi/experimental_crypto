@@ -1118,6 +1118,49 @@ test "ATTACK jwt: verified result never returns control-character kid" {
 }
 
 ///|
+test "ATTACK jwt: non-string kid rejected before surfaced to caller" {
+  let secret : Bytes = b"kid-type-secret"
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["typ"] = Json::string("JWT")
+  header["kid"] = Json::number(42.0)
+  let token = sign_hs256_token_with_header(
+    Json::object(header),
+    Json::object(Map([])),
+    secret,
+  )
+  try
+    @jwt.verify(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      @jwt.VerifyOptions::default(0L),
+    )
+  catch {
+    InvalidHeader(msg) => @debug.assert_eq(msg, "kid must be a string")
+    e => abort("expected InvalidHeader for non-string kid, got " + repr(e) + "")
+  } noraise {
+    _ => abort("expected non-string kid rejection, got Ok")
+  }
+}
+
+///|
+test "peek_header: malformed base64url and non-UTF8 headers are rejected" {
+  try @jwt.peek_header("!!!!.e30.sig") catch {
+    InvalidToken(_) => ()
+    e => abort("expected InvalidToken, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidToken, got Ok")
+  }
+  let non_utf8_header = b64u_encode(b"\xFF")
+  try @jwt.peek_header(non_utf8_header + ".e30.sig") catch {
+    InvalidHeader(_) => ()
+    e => abort("expected InvalidHeader, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidHeader, got Ok")
+  }
+}
+
+///|
 test "peek_header: returns the JOSE header without verifying" {
   let secret : Bytes = b"peek-test"
   let token = @jwt.sign(
@@ -1496,6 +1539,47 @@ test "oidc: happy path with single audience" {
 }
 
 ///|
+test "oidc: jwks path and algorithm allow-list" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-jwks-secret"
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    Map([]),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), kid="oidc-kid")
+  let jwks = "{ \"keys\": [ { \"kty\": \"oct\", \"kid\": \"oidc-kid\", \"alg\": \"HS256\", \"k\": \"" +
+    b64u_encode(secret) +
+    "\" } ] }"
+  let set = @jwk.parse_set(jwks)
+  let opts : @jwt.OidcIdTokenVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://accounts.example.com/",
+    client_id: "client-abc",
+    expected_nonce: None,
+    access_token: None,
+    authorization_code: None,
+    max_age_sec: None,
+    expected_acr: None,
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let id = @jwt.verify_oidc_id_token_jwks(token, set, opts)
+  @debug.assert_eq(id.sub, "user-42")
+  let bad_opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..opts,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try @jwt.verify_oidc_id_token_jwks(token, set, bad_opts) catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
+///|
 test "oidc: multi-aud requires azp == client_id" {
   let now = 1_700_000_000L
   let secret : Bytes = b"oidc-multi-aud"
@@ -1527,6 +1611,30 @@ test "oidc: multi-aud without azp rejected" {
     "https://accounts.example.com/",
     aud,
     Map([]),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    InvalidAudience => ()
+    e => abort("expected InvalidAudience, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidAudience, got Ok")
+  }
+}
+
+///|
+test "oidc: multi-aud with wrong azp rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-wrong-azp"
+  let aud = Json::array([Json::string("client-abc"), Json::string("other-rp")])
+  let extra : Map[String, Json] = Map([])
+  extra["azp"] = Json::string("other-rp")
+  let payload = oidc_id_token_claims(
+    now, "https://accounts.example.com/", aud, extra,
   )
   let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
   let opts = @jwt.OidcIdTokenVerifyOptions::default(
@@ -1725,6 +1833,117 @@ test "oidc: acr pin enforces context class" {
   }
 }
 
+///|
+test "oidc: missing nonce, hashes, auth_time, and acr reject when expected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-missing-bindings"
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    Map([]),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let base = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  let nonce_opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..base,
+    expected_nonce: Some("nonce-from-auth-request"),
+  }
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), nonce_opts)
+  catch {
+    NonceMismatch => ()
+    e => abort("expected NonceMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected NonceMismatch, got Ok")
+  }
+  let at_opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..base,
+    access_token: Some("access-token"),
+  }
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), at_opts)
+  catch {
+    AtHashMismatch => ()
+    e => abort("expected AtHashMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AtHashMismatch, got Ok")
+  }
+  let code_opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..base,
+    authorization_code: Some("auth-code"),
+  }
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), code_opts)
+  catch {
+    CHashMismatch => ()
+    e => abort("expected CHashMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected CHashMismatch, got Ok")
+  }
+  let max_age_opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..base,
+    max_age_sec: Some(60L),
+  }
+  try
+    @jwt.verify_oidc_id_token(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      max_age_opts,
+    )
+  catch {
+    AuthTimeTooOld => ()
+    e => abort("expected AuthTimeTooOld, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AuthTimeTooOld, got Ok")
+  }
+  let acr_opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..base,
+    expected_acr: Some("urn:example:loa:2"),
+  }
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), acr_opts)
+  catch {
+    AcrMismatch => ()
+    e => abort("expected AcrMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AcrMismatch, got Ok")
+  }
+}
+
+///|
+test "oidc: c_hash mismatch with wrong authorization code rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-c-hash"
+  let extra : Map[String, Json] = Map([])
+  extra["c_hash"] = Json::string(
+    @jwt.compute_x_hash(@jwt.Algorithm::HS256, "real-code"),
+  )
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    extra,
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts : @jwt.OidcIdTokenVerifyOptions = {
+    ..@jwt.OidcIdTokenVerifyOptions::default(
+      now, "https://accounts.example.com/", "client-abc",
+    ),
+    authorization_code: Some("substituted-code"),
+  }
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    CHashMismatch => ()
+    e => abort("expected CHashMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected CHashMismatch, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // RFC 7523 — JWT Profile for OAuth 2.0 Client Authentication
 // -----------------------------------------------------------------------------
@@ -1761,6 +1980,41 @@ test "rfc7523: happy path client_assertion verifies" {
   )
   @debug.assert_eq(a.client_id, "client-xyz")
   @debug.assert_eq(a.jti, Some("ja-id-1"))
+}
+
+///|
+test "rfc7523: jwks path verifies and alg policy is enforced" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"client-jwks-secret"
+  let payload = client_assertion_claims(
+    now,
+    "client-xyz",
+    Json::string("https://as.example.com/token"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), kid="client-kid")
+  let jwks = "{ \"keys\": [ { \"kty\": \"oct\", \"kid\": \"client-kid\", \"alg\": \"HS256\", \"k\": \"" +
+    b64u_encode(secret) +
+    "\" } ] }"
+  let set = @jwk.parse_set(jwks)
+  let opts : @jwt.ClientAssertionVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id: "client-xyz",
+    token_endpoint: "https://as.example.com/token",
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let a = @jwt.verify_client_assertion_jwks(token, set, opts)
+  @debug.assert_eq(a.client_id, "client-xyz")
+  let bad_opts : @jwt.ClientAssertionVerifyOptions = {
+    ..opts,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try @jwt.verify_client_assertion_jwks(token, set, bad_opts) catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
 }
 
 ///|
@@ -2032,6 +2286,73 @@ test "dpop: happy path verifies proof + htm/htu/iat" {
 }
 
 ///|
+test "dpop: nonce, ath, jkt, and alg policy bindings reject attacker proof" {
+  let seed = Bytes::makei(32, fn(i) { (i + 16).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let proof = make_ed25519_dpop_proof(
+    sk, "GET", "https://rs.example.com/resource", now,
+  )
+  let base_opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "GET",
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  let ok = @jwt.verify_dpop_proof(proof, base_opts)
+  @debug.assert_eq(ok.htm, "GET")
+
+  let nonce_opts : @jwt.DpopVerifyOptions = {
+    ..base_opts,
+    expected_nonce: Some("server-nonce"),
+  }
+  try @jwt.verify_dpop_proof(proof, nonce_opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
+
+  let ath_opts : @jwt.DpopVerifyOptions = {
+    ..base_opts,
+    bound_access_token: Some("access-token"),
+  }
+  try @jwt.verify_dpop_proof(proof, ath_opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
+
+  let jkt_opts : @jwt.DpopVerifyOptions = {
+    ..base_opts,
+    expected_jkt: Some("not-the-proof-key"),
+  }
+  try @jwt.verify_dpop_proof(proof, jkt_opts) catch {
+    CnfJktMismatch => ()
+    e => abort("expected CnfJktMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected CnfJktMismatch, got Ok")
+  }
+
+  let alg_opts : @jwt.DpopVerifyOptions = {
+    ..base_opts,
+    allowed_algorithms: Some([@jwt.Algorithm::ES256]),
+  }
+  try @jwt.verify_dpop_proof(proof, alg_opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
+}
+
+///|
 test "dpop: htm mismatch rejected" {
   let seed = Bytes::makei(32, fn(i) { (i + 12).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
@@ -2265,6 +2586,44 @@ test "logout-token: happy path with sub" {
 }
 
 ///|
+test "logout-token: jwks path verifies and stale iat rejects" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-jwks-secret"
+  let payload = logout_token_claims(now, sub=Some("user-42"))
+  let token = @jwt.sign(
+    payload,
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+    kid="logout-kid",
+  )
+  let jwks = "{ \"keys\": [ { \"kty\": \"oct\", \"kid\": \"logout-kid\", \"alg\": \"HS256\", \"k\": \"" +
+    b64u_encode(secret) +
+    "\" } ] }"
+  let set = @jwk.parse_set(jwks)
+  let opts : @jwt.LogoutTokenVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    max_iat_age_sec: Some(300L),
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let l = @jwt.verify_logout_token_jwks(token, set, opts)
+  @debug.assert_eq(l.sub, Some("user-42"))
+  let stale_opts : @jwt.LogoutTokenVerifyOptions = {
+    ..opts,
+    now: now + 120L,
+    max_iat_age_sec: Some(60L),
+  }
+  try @jwt.verify_logout_token_jwks(token, set, stale_opts) catch {
+    IssuedInFuture => ()
+    e => abort("expected stale iat rejection, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected stale iat rejection, got Ok")
+  }
+}
+
+///|
 test "logout-token: nonce present rejected" {
   let now = 1_700_000_000L
   let secret : Bytes = b"logout-with-nonce"
@@ -2308,6 +2667,37 @@ test "logout-token: missing events claim rejected" {
   m["iat"] = Json::number(now.to_double())
   m["jti"] = Json::string("j")
   m["sub"] = Json::string("u")
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    MissingLogoutEvent => ()
+    e => abort("expected MissingLogoutEvent, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingLogoutEvent, got Ok")
+  }
+}
+
+///|
+test "logout-token: events object without logout member rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-wrong-event"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("j")
+  m["sub"] = Json::string("u")
+  let events : Map[String, Json] = Map([])
+  events["https://example.com/not-logout"] = Json::object(Map([]))
+  m["events"] = Json::object(events)
   let token = @jwt.sign(
     Json::object(m),
     @jwt.Key::Hs256(secret~),
@@ -2402,6 +2792,45 @@ test "userinfo-jws: matching sub verifies and surfaces profile claims" {
   @debug.assert_eq(u.name, Some("User 42"))
 }
 
+///|
+test "userinfo-jws: jwks path and algorithm allow-list" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"userinfo-jwks-secret"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["sub"] = Json::string("user-42")
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    kid="userinfo-kid",
+  )
+  let jwks = "{ \"keys\": [ { \"kty\": \"oct\", \"kid\": \"userinfo-kid\", \"alg\": \"HS256\", \"k\": \"" +
+    b64u_encode(secret) +
+    "\" } ] }"
+  let set = @jwk.parse_set(jwks)
+  let opts : @jwt.UserInfoVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_sub: "user-42",
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let u = @jwt.verify_userinfo_jws_jwks(token, set, opts)
+  @debug.assert_eq(u.sub, "user-42")
+  let bad_opts : @jwt.UserInfoVerifyOptions = {
+    ..opts,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try @jwt.verify_userinfo_jws_jwks(token, set, bad_opts) catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // RFC 9101 JAR — Request Object
 // -----------------------------------------------------------------------------
@@ -2435,6 +2864,42 @@ test "JAR: request object verifies and exposes params" {
   match r.params.get("response_type") {
     Some(String(s)) => @debug.assert_eq(s, "code")
     _ => abort("missing response_type")
+  }
+}
+
+///|
+test "JAR: missing client_id claim is allowed but alg policy is enforced" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jar-no-client-id"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("client-abc")
+  m["aud"] = Json::string("https://as.example.com/")
+  m["response_type"] = Json::string("code")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.RequestObjectVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id: "client-abc",
+    expected_aud: "https://as.example.com/",
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let r = @jwt.verify_request_object(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
+  @debug.assert_eq(r.client_id, "client-abc")
+  let bad_opts : @jwt.RequestObjectVerifyOptions = {
+    ..opts,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try
+    @jwt.verify_request_object(token, @jwt.VerifyKey::Hs256(secret~), bad_opts)
+  catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
   }
 }
 
@@ -2494,9 +2959,96 @@ test "JARM: state mismatch rejected" {
   }
 }
 
+///|
+test "JARM: expected state absent rejects, optional state accepts" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jarm-missing-state"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["code"] = Json::string("auth-code")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let optional_opts : @jwt.JarmVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_state: None,
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let r = @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), optional_opts)
+  match r.params.get("code") {
+    Some(String(c)) => @debug.assert_eq(c, "auth-code")
+    _ => abort("missing code")
+  }
+  let required_opts : @jwt.JarmVerifyOptions = {
+    ..optional_opts,
+    expected_state: Some("rp-state"),
+  }
+  try
+    @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), required_opts)
+  catch {
+    MissingRequiredClaim(c) => @debug.assert_eq(c, "state")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+  let bad_alg_opts : @jwt.JarmVerifyOptions = {
+    ..optional_opts,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try
+    @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), bad_alg_opts)
+  catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // OIDC Self-Issued OP v2
 // -----------------------------------------------------------------------------
+
+///|
+fn self_issued_ed25519_fixture(
+  now : Int64,
+  sub_override? : String? = None,
+  nonce? : String? = None,
+  include_sub_jwk? : Bool = true,
+) -> (String, String) raise {
+  let seed = Bytes::makei(32, fn(i) { (i + 99).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_bytes = sk.public_key().to_bytes()
+  let sub_jwk : Map[String, Json] = Map([])
+  sub_jwk["kty"] = Json::string("OKP")
+  sub_jwk["crv"] = Json::string("Ed25519")
+  sub_jwk["x"] = Json::string(b64u_encode(pk_bytes))
+  let parsed = @jwk.parse_public(Json::object(sub_jwk).stringify())
+  let thumb = @jwk.thumbprint_base64url(parsed)
+  let claims : Map[String, Json] = Map([])
+  claims["iss"] = Json::string("https://self-issued.me/v2")
+  claims["sub"] = Json::string(
+    match sub_override {
+      Some(s) => s
+      None => thumb
+    },
+  )
+  if include_sub_jwk {
+    claims["sub_jwk"] = Json::object(sub_jwk)
+  }
+  claims["aud"] = Json::string("rp-redirect-uri")
+  claims["exp"] = Json::number((now + 300L).to_double())
+  claims["iat"] = Json::number(now.to_double())
+  match nonce {
+    Some(n) => claims["nonce"] = Json::string(n)
+    None => ()
+  }
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::EdDsa(privkey=sk))
+  (token, thumb)
+}
 
 ///|
 test "siop-v2: sub == thumbprint(sub_jwk) verifies" {
@@ -2542,6 +3094,115 @@ test "siop-v2: sub == thumbprint(sub_jwk) verifies" {
   @debug.assert_eq(s.iss, "https://self-issued.me/v2")
 }
 
+///|
+test "siop-v2: missing sub_jwk, sub mismatch, nonce mismatch, and alg policy reject" {
+  let now = 1_700_000_000L
+  let opts : @jwt.SelfIssuedVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_aud: Some("rp-redirect-uri"),
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  let (missing_sub_jwk, _) = self_issued_ed25519_fixture(
+    now,
+    include_sub_jwk=false,
+  )
+  try @jwt.verify_self_issued_id_token(missing_sub_jwk, opts) catch {
+    MissingRequiredClaim(c) => @debug.assert_eq(c, "sub_jwk")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+
+  let (bad_sub, _) = self_issued_ed25519_fixture(
+    now,
+    sub_override=Some("not-the-thumbprint"),
+  )
+  try @jwt.verify_self_issued_id_token(bad_sub, opts) catch {
+    SelfIssuedSubMismatch => ()
+    e => abort("expected SelfIssuedSubMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected SelfIssuedSubMismatch, got Ok")
+  }
+
+  let (nonce_token, _) = self_issued_ed25519_fixture(
+    now,
+    nonce=Some("token-nonce"),
+  )
+  let nonce_opts : @jwt.SelfIssuedVerifyOptions = {
+    ..opts,
+    expected_nonce: Some("request-nonce"),
+  }
+  try @jwt.verify_self_issued_id_token(nonce_token, nonce_opts) catch {
+    NonceMismatch => ()
+    e => abort("expected NonceMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected NonceMismatch, got Ok")
+  }
+
+  let (valid_token, _) = self_issued_ed25519_fixture(now)
+  let alg_opts : @jwt.SelfIssuedVerifyOptions = {
+    ..opts,
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  try @jwt.verify_self_issued_id_token(valid_token, alg_opts) catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
+///|
+test "oidc encrypted id token: nested JWE wraps signed ID token" {
+  let now = 1_700_000_000L
+  let sign_secret : Bytes = b"oidc-inner-id-token-secret"
+  let inner_payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    Map([]),
+  )
+  let inner = @jwt.sign(inner_payload, @jwt.Key::Hs256(secret=sign_secret))
+  let cek = Bytes::makei(32, fn(i) { (i + 1).to_byte() })
+  let iv = Bytes::makei(12, fn(i) { (i + 7).to_byte() })
+  let extra_header : Map[String, Json] = Map([])
+  extra_header["cty"] = Json::string("JWT")
+  let outer = @jwe.encrypt(
+    @utf8.encode(inner[:]),
+    @jwe.JweAlg::Dir,
+    @jwe.JweEnc::A256gcm,
+    @jwe.EncryptionKey::EncDir(cek~),
+    iv~,
+    extra_header~,
+  )
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  let id = @jwt.verify_oidc_id_token_encrypted(
+    outer,
+    @jwe.DecryptionKey::DecDir(cek~),
+    @jwt.VerifyKey::Hs256(secret=sign_secret),
+    opts,
+  )
+  @debug.assert_eq(id.sub, "user-42")
+  let wrong_cek = Bytes::makei(32, fn(i) { (i + 33).to_byte() })
+  try
+    @jwt.verify_oidc_id_token_encrypted(
+      outer,
+      @jwe.DecryptionKey::DecDir(cek=wrong_cek),
+      @jwt.VerifyKey::Hs256(secret=sign_secret),
+      opts,
+    )
+  catch {
+    InvalidToken(_) => ()
+    e => abort("expected InvalidToken, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidToken, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Aggregated / Distributed claims
 // -----------------------------------------------------------------------------
@@ -2577,6 +3238,53 @@ test "aggregated-distributed: parser extracts sources and names" {
           @debug.assert_eq(access_token, Some("ksj3n1v"))
         }
         _ => abort("expected Distributed for src2")
+      }
+    }
+    None => abort("expected aggregated/distributed metadata")
+  }
+}
+
+///|
+test "aggregated-distributed: absent and malformed metadata are handled" {
+  let empty : Map[String, Json] = Map([])
+  match @jwt.extract_aggregated_distributed_claims(empty) {
+    None => ()
+    Some(_) => abort("expected no aggregated/distributed metadata")
+  }
+
+  let claims : Map[String, Json] = Map([])
+  let sources : Map[String, Json] = Map([])
+  sources["scalar"] = Json::string("not-an-object")
+  let malformed : Map[String, Json] = Map([])
+  malformed["unexpected"] = Json::string("ignored")
+  sources["malformed"] = Json::object(malformed)
+  let dist : Map[String, Json] = Map([])
+  dist["endpoint"] = Json::string("https://claims.example.com/email")
+  sources["dist"] = Json::object(dist)
+  claims["_claim_sources"] = Json::object(sources)
+  let names : Map[String, Json] = Map([])
+  names["email"] = Json::string("dist")
+  names["ignored"] = Json::number(1.0)
+  claims["_claim_names"] = Json::object(names)
+  let ad = @jwt.extract_aggregated_distributed_claims(claims)
+  match ad {
+    Some(a) => {
+      @debug.assert_eq(a.names.get("email"), Some("dist"))
+      @debug.assert_eq(a.names.get("ignored"), None)
+      match a.sources.get("dist") {
+        Some(Distributed(endpoint~, access_token~)) => {
+          @debug.assert_eq(endpoint, "https://claims.example.com/email")
+          @debug.assert_eq(access_token, None)
+        }
+        _ => abort("expected Distributed without access token")
+      }
+      match a.sources.get("scalar") {
+        None => ()
+        Some(_) => abort("expected scalar source to be ignored")
+      }
+      match a.sources.get("malformed") {
+        None => ()
+        Some(_) => abort("expected malformed source to be ignored")
       }
     }
     None => abort("expected aggregated/distributed metadata")
@@ -2633,9 +3341,91 @@ test "discovery: missing issuer rejected" {
   }
 }
 
+///|
+test "discovery: required metadata arrays are enforced" {
+  let missing_response_types =
+    #|{
+    #|  "issuer": "https://accounts.example.com",
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(missing_response_types) catch {
+    MissingRequiredClaim(c) => @debug.assert_eq(c, "response_types_supported")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+
+  let missing_subject_types =
+    #|{
+    #|  "issuer": "https://accounts.example.com",
+    #|  "response_types_supported": ["code"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(missing_subject_types) catch {
+    MissingRequiredClaim(c) => @debug.assert_eq(c, "subject_types_supported")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+
+  let missing_alg_values =
+    #|{
+    #|  "issuer": "https://accounts.example.com",
+    #|  "response_types_supported": ["code"],
+    #|  "subject_types_supported": ["public"]
+    #|}
+  try @jwt.parse_provider_metadata(missing_alg_values) catch {
+    MissingRequiredClaim(c) =>
+      @debug.assert_eq(c, "id_token_signing_alg_values_supported")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // OIDC Federation 1.0 — Entity Statement verify
 // -----------------------------------------------------------------------------
+
+///|
+fn entity_statement_claims_for_coverage(
+  now : Int64,
+  issuer : String,
+  subject : String,
+  include_jwks? : Bool = true,
+  include_optional? : Bool = false,
+) -> Json {
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string(issuer)
+  m["sub"] = Json::string(subject)
+  m["exp"] = Json::number((now + 86400L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  if include_jwks {
+    let jwks : Map[String, Json] = Map([])
+    jwks["keys"] = Json::array([])
+    m["jwks"] = Json::object(jwks)
+  }
+  let metadata : Map[String, Json] = Map([])
+  let op : Map[String, Json] = Map([])
+  op["issuer"] = Json::string(subject)
+  metadata["openid_provider"] = Json::object(op)
+  m["metadata"] = Json::object(metadata)
+  if include_optional {
+    m["authority_hints"] = Json::array([Json::string("https://ta.example.org")])
+    m["source_endpoint"] = Json::string(
+      "https://op.example.com/federation/source",
+    )
+    m["trust_marks"] = Json::array([Json::string("trust-mark.jwt")])
+    let constraints : Map[String, Json] = Map([])
+    constraints["max_path_length"] = Json::number(3.0)
+    m["constraints"] = Json::object(constraints)
+    let policy : Map[String, Json] = Map([])
+    policy["openid_relying_party"] = Json::object(Map([]))
+    m["metadata_policy"] = Json::object(policy)
+  }
+  Json::object(m)
+}
 
 ///|
 test "federation: entity Configuration (iss == sub) verifies" {
@@ -2742,6 +3532,143 @@ test "federation: wrong typ rejected" {
   }
 }
 
+///|
+test "federation: optional trust metadata is surfaced and alg is pinned" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"federation-optional"
+  let payload = entity_statement_claims_for_coverage(
+    now,
+    "https://op.example.com",
+    "https://op.example.com",
+    include_optional=true,
+  )
+  let token = @jwt.sign(
+    payload,
+    @jwt.Key::Hs256(secret~),
+    typ="entity-statement+jwt",
+  )
+  let opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example.com",
+    expected_issuer: Some("https://op.example.com"),
+    expected_kind: Some(@jwt.EntityStatementKind::Configuration),
+    allowed_algorithms: Some([@jwt.Algorithm::HS256]),
+  }
+  let es = @jwt.verify_entity_statement(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
+  @debug.assert_eq(es.authority_hints, Some(["https://ta.example.org"]))
+  @debug.assert_eq(
+    es.source_endpoint,
+    Some("https://op.example.com/federation/source"),
+  )
+  match es.trust_marks {
+    Some(items) => @debug.assert_eq(items.length(), 1)
+    None => abort("missing trust_marks")
+  }
+  match es.constraints {
+    Some(c) =>
+      match c.get("max_path_length") {
+        Some(Number(n, ..)) => @debug.assert_eq(n, 3.0)
+        _ => abort("missing constraints.max_path_length")
+      }
+    None => abort("missing constraints")
+  }
+  match es.policy {
+    Some(p) =>
+      match p.get("openid_relying_party") {
+        Some(Object(_)) => ()
+        _ => abort("missing metadata_policy.openid_relying_party")
+      }
+    None => abort("missing metadata_policy")
+  }
+  let bad_opts : @jwt.EntityStatementVerifyOptions = {
+    ..opts,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try
+    @jwt.verify_entity_statement(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      bad_opts,
+    )
+  catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
+///|
+test "federation: kind mismatch and missing jwks reject" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"federation-negative"
+  let subordinate_payload = entity_statement_claims_for_coverage(
+    now, "https://anchor.example.org", "https://op.example.com",
+  )
+  let subordinate_token = @jwt.sign(
+    subordinate_payload,
+    @jwt.Key::Hs256(secret~),
+    typ="entity-statement+jwt",
+  )
+  let kind_opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example.com",
+    expected_issuer: Some("https://anchor.example.org"),
+    expected_kind: Some(@jwt.EntityStatementKind::Configuration),
+    allowed_algorithms: None,
+  }
+  try
+    @jwt.verify_entity_statement(
+      subordinate_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      kind_opts,
+    )
+  catch {
+    InvalidEntityStatement(_) => ()
+    e => abort("expected InvalidEntityStatement, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidEntityStatement, got Ok")
+  }
+
+  let no_jwks_payload = entity_statement_claims_for_coverage(
+    now,
+    "https://op.example.com",
+    "https://op.example.com",
+    include_jwks=false,
+  )
+  let no_jwks_token = @jwt.sign(
+    no_jwks_payload,
+    @jwt.Key::Hs256(secret~),
+    typ="entity-statement+jwt",
+  )
+  let no_jwks_opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example.com",
+    expected_issuer: Some("https://op.example.com"),
+    expected_kind: Some(@jwt.EntityStatementKind::Configuration),
+    allowed_algorithms: None,
+  }
+  try
+    @jwt.verify_entity_statement(
+      no_jwks_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      no_jwks_opts,
+    )
+  catch {
+    InvalidEntityStatement(_) => ()
+    e => abort("expected InvalidEntityStatement, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidEntityStatement, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // OIDC CIBA — auth_req_id + rt_hash binding
 // -----------------------------------------------------------------------------
@@ -2803,6 +3730,49 @@ test "ciba: auth_req_id mismatch rejected" {
   }
 }
 
+///|
+test "ciba: missing auth_req_id and rt_hash reject when bound" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"ciba-missing-bindings"
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    Map([]),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let oidc = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  let auth_opts : @jwt.CibaVerifyOptions = {
+    oidc,
+    expected_auth_req_id: Some("auth-req-1"),
+    refresh_token: None,
+  }
+  try
+    @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), auth_opts)
+  catch {
+    AuthReqIdMismatch => ()
+    e => abort("expected AuthReqIdMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AuthReqIdMismatch, got Ok")
+  }
+
+  let rt_opts : @jwt.CibaVerifyOptions = {
+    oidc,
+    expected_auth_req_id: None,
+    refresh_token: Some("refresh-token"),
+  }
+  try
+    @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), rt_opts)
+  catch {
+    RtHashMismatch => ()
+    e => abort("expected RtHashMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected RtHashMismatch, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // FAPI 2.0 profile guard
 // -----------------------------------------------------------------------------
@@ -2860,6 +3830,27 @@ test "fapi: EdDSA token accepted; fapi_oidc_options pins alg" {
   @jwt.fapi_check_alg(id.jwt)
 }
 
+///|
+test "fapi: rfc9068 options pin access-token alg and client_id" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"fapi-rfc9068-hmac"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.fapi_rfc9068_options(
+    now, "https://as.example.com/", "https://rs.example.com/", "s6BhdRkqt3",
+  )
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Privilege-escalation regression tests
 // -----------------------------------------------------------------------------
@@ -2884,11 +3875,15 @@ test "ATTACK typ-confusion: logout+jwt rejected when ID token expected" {
     typ="logout+jwt",
   )
   let opts = @jwt.OidcIdTokenVerifyOptions::default(
-    now,
-    "https://accounts.example.com/",
-    "client-abc",
+    now, "https://accounts.example.com/", "client-abc",
   )
-  try @jwt.verify_oidc_id_token(logout_token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+  try
+    @jwt.verify_oidc_id_token(
+      logout_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+  catch {
     InvalidType(_) => ()
     e => abort("expected InvalidType, got " + @debug.to_string(e))
   } noraise {
@@ -2906,12 +3901,18 @@ test "ATTACK typ-confusion: dpop+jwt rejected by generic verify default" {
   m["aud"] = Json::string("client-abc")
   m["exp"] = Json::number((now + 600L).to_double())
   m["iat"] = Json::number(now.to_double())
-  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~), typ="dpop+jwt")
-  try @jwt.verify(
-    token,
-    @jwt.VerifyKey::Hs256(secret~),
-    @jwt.VerifyOptions::default(now),
-  ) catch {
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="dpop+jwt",
+  )
+  try
+    @jwt.verify(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      @jwt.VerifyOptions::default(now),
+    )
+  catch {
     InvalidType(_) => ()
     e => abort("expected InvalidType, got " + @debug.to_string(e))
   } noraise {
@@ -2970,12 +3971,13 @@ test "logout-token default: max_iat_age_sec=300 closes long replay window" {
   let payload = logout_token_claims(1_700_000_000L, sub=Some("u"))
   let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="logout+jwt")
   let opts = @jwt.LogoutTokenVerifyOptions::default(
-    1_700_001_000L,  // 1000 s after iat — well past the 300 s default window
-    "https://as.example.com/",
-    "client-abc",
+    1_700_001_000L, // 1000 s after iat — well past the 300 s default window
+     "https://as.example.com/", "client-abc",
   )
-  try @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
-    IssuedInFuture => ()  // we reuse IssuedInFuture for "iat too old"
+  try
+    @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    IssuedInFuture => () // we reuse IssuedInFuture for "iat too old"
     e => abort("expected iat-too-old, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected iat-too-old rejection, got Ok")
@@ -3009,14 +4011,13 @@ test "ATTACK encrypted ID token: missing cty rejected" {
   let cek = Bytes::makei(32, fn(_) { b'\x00' })
   let dec_key : @jwe.DecryptionKey = @jwe.DecryptionKey::DecDir(cek~)
   let opts = @jwt.OidcIdTokenVerifyOptions::default(
-    1_700_000_000L,
-    "https://accounts.example.com/",
-    "client-abc",
+    1_700_000_000L, "https://accounts.example.com/", "client-abc",
   )
   let any_vk = @jwt.VerifyKey::Hs256(secret=b"unused")
   try @jwt.verify_oidc_id_token_encrypted(bogus, dec_key, any_vk, opts) catch {
     InvalidType(_) => ()
-    e => abort("expected InvalidType for missing cty, got " + @debug.to_string(e))
+    e =>
+      abort("expected InvalidType for missing cty, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected InvalidType for missing cty, got Ok")
   }
