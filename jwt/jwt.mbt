@@ -39,6 +39,9 @@ pub(all) enum VerifyKey {
   // RS256 verify only: we hold an RSA public key but never any private
   // material, mirroring the verify-only scope of `mizchi/rsa`.
   Rs256(pubkey~ : @rsa.RsaPublicKey)
+  // ES256 (ECDSA with P-256 + SHA-256, RFC 7518 §3.4). Signature is the JOSE
+  // raw form r||s (64 bytes); verify-only for now.
+  Es256(pubkey~ : @p256.PublicKey)
 }
 
 ///|
@@ -192,6 +195,7 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     Hs256(..) => HS256
     EdDsa(..) => EdDSA
     Rs256(..) => RS256
+    Es256(..) => ES256
   }
 }
 
@@ -338,6 +342,11 @@ pub fn verify(
       // signals a wrong key); fold that into our InvalidSignature so
       // the verify boundary stays simple for callers.
       pubkey.verify(signing_bytes, provided_sig, @rsa.HashAlg::Sha256) catch {
+        _ => raise InvalidSignature
+      }
+    (ES256, Es256(pubkey~)) =>
+      // RFC 7515 §3.4: the JWS signature is r||s, 64 bytes total.
+      @p256.verify(pubkey, signing_bytes, provided_sig, @p256.SignatureFormat::Raw) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>

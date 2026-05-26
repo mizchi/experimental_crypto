@@ -433,3 +433,74 @@ test "RS256: KeyAlgorithmMismatch when alg=HS256 but key is Rs256" {
     other => abort("expected KeyAlgorithmMismatch, got \{other}")
   }
 }
+
+// -----------------------------------------------------------------------------
+// ES256: RFC 7515 §A.3 verify
+// -----------------------------------------------------------------------------
+
+///|
+fn rfc7515_a3_pubkey() -> @p256.PublicKey raise {
+  // From RFC 7515 §A.3.1: P-256 JWK with x / y base64url-encoded. We embed
+  // them as hex to keep the test self-contained.
+  let x = hex_to_bytes(
+    "7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445",
+  )
+  let y = hex_to_bytes(
+    "c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad",
+  )
+  let bytes = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i < 33 {
+      x[i - 1]
+    } else {
+      y[i - 33]
+    }
+  })
+  @p256.PublicKey::from_uncompressed(bytes)
+}
+
+///|
+test "ES256: RFC 7515 §A.3 token verifies" {
+  let token = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
+  let pk = rfc7515_a3_pubkey()
+  let opts : @jwt.VerifyOptions = {
+    now: 1300819300L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+  }
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)
+  assert_eq(v.alg, @jwt.Algorithm::ES256)
+  match v.claims.get("iss") {
+    Some(String(s)) => assert_eq(s, "joe")
+    _ => abort("missing iss")
+  }
+}
+
+///|
+test "ES256: tampered signature fails" {
+  // Flip one base64url char in the signature segment.
+  let bad = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.AtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
+  let pk = rfc7515_a3_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(bad, @jwt.VerifyKey::Es256(pubkey=pk), opts)) {
+    Err(InvalidSignature) => ()
+    other => abort("expected InvalidSignature, got \{other}")
+  }
+}
+
+///|
+test "ES256: KeyAlgorithmMismatch when alg=HS256 but key is Es256" {
+  let secret : Bytes = b"k"
+  let m : Map[String, Json] = Map::new()
+  m["sub"] = Json::string("x")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let pk = rfc7515_a3_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)) {
+    Err(KeyAlgorithmMismatch) => ()
+    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  }
+}

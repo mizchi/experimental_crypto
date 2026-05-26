@@ -16,6 +16,7 @@ version = "0.1.0"
 import {
   "mizchi/ed25519@0.1.0",
   "mizchi/rsa@0.1.0",
+  "mizchi/p256@0.1.0",
 }
 
 readme = "README.mbt.md"

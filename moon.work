@@ -16,4 +16,5 @@ members = [
   "./naclbox",
   "./rsa",
   "./pkix_verify",
+  "./p256",
 ]
