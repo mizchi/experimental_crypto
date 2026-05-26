@@ -122,6 +122,37 @@ test "ssh: encode_sshsig_armor roundtrips through decode" {
   @debug.assert_eq(original_blob, rebuilt_blob)
 }
 
+///|
+test "ATTACK: trust verification rejects SSHSIG armor with surrounding whitespace" {
+  let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
+  let pk = @ssh.parse_ed25519_pubkey(parsed.blob)
+  let padded = " " + armored_signature + "\n"
+  @debug.assert_eq(
+    @ssh.decode_sshsig_armor(padded),
+    @ssh.decode_sshsig_armor(armored_signature),
+  )
+  let accepted = @ssh.verify_armor(padded, fixture_message(), pk) catch {
+    InvalidEncoding(_) => false
+    _ => false
+  }
+  assert_false(accepted)
+}
+
+///|
+test "ATTACK: allowed_signers verification rejects lax SSHSIG armor" {
+  let padded = "\n" + armored_signature
+  let accepted = @ssh.verify_with_allowed_signers(
+    allowed_signers_text,
+    "mizchi@misc-test",
+    padded,
+    fixture_message(),
+  ) catch {
+    InvalidEncoding(_) => false
+    _ => false
+  }
+  assert_false(accepted)
+}
+
 // -----------------------------------------------------------------------------
 // allowed_signers parser + verify integration
 // -----------------------------------------------------------------------------

@@ -117,6 +117,14 @@ pub suberror JwtError {
   AlgorithmNotAllowed(String)
   ClientIdMismatch
   MissingScopes(Array[String])
+  // OIDC Core 1.0 §3.1.3.7 — ID Token validation. Each surface is its own
+  // error so callers can branch on policy violations (replay, code/token
+  // binding, fresh-auth requirement, etc.).
+  NonceMismatch
+  AtHashMismatch
+  CHashMismatch
+  AuthTimeTooOld
+  AcrMismatch
 } derive(Debug)
 
 ///|
@@ -316,6 +324,10 @@ pub fn sign(
   // type (e.g., RFC 9068 access tokens use `"at+jwt"`). Default stays
   // "JWT" so existing callers keep working.
   let alg = key_alg(key)
+  match kid {
+    Some(k) => validate_kid(k)
+    None => ()
+  }
   let header = build_header_json(alg, kid, typ)
   let header_b64 = base64url_encode(
     @utf8.encode(json_to_compact_string(header)[:]),
@@ -399,6 +411,37 @@ fn get_string(m : Map[String, Json], key : String) -> String? {
   match m.get(key) {
     Some(String(s)) => Some(s)
     _ => None
+  }
+}
+
+///|
+let max_kid_len : Int = 256
+
+///|
+fn validate_kid(kid : String) -> Unit raise JwtError {
+  if kid.length() == 0 {
+    raise InvalidHeader("kid must not be empty")
+  }
+  if kid.length() > max_kid_len {
+    raise InvalidHeader("kid too long")
+  }
+  for c in kid {
+    let v = c.to_int()
+    if v < 0x21 || v > 0x7e {
+      raise InvalidHeader("kid must be printable ASCII without whitespace")
+    }
+  }
+}
+
+///|
+fn get_header_kid(header : Map[String, Json]) -> String? raise JwtError {
+  match header.get("kid") {
+    Some(String(k)) => {
+      validate_kid(k)
+      Some(k)
+    }
+    Some(_) => raise InvalidHeader("kid must be a string")
+    None => None
   }
 }
 
@@ -617,7 +660,10 @@ pub fn verify(
   // token can't be replayed once the clock catches up. iat is optional
   // (RFC 7519 §4.1.6), so missing iat is fine.
   match get_numeric_date(claims, "iat") {
-    Some(iat) => if iat > opts.now + opts.clock_skew_sec { raise IssuedInFuture }
+    Some(iat) =>
+      if iat > opts.now + opts.clock_skew_sec {
+        raise IssuedInFuture
+      }
     None => ()
   }
   let exp = get_numeric_date(claims, "exp")
@@ -648,7 +694,7 @@ pub fn verify(
       }
     None => ()
   }
-  let kid = get_string(header, "kid")
+  let kid = get_header_kid(header)
   { header, claims, alg, kid }
 }
 
@@ -667,9 +713,12 @@ pub fn verify(
 ///
 /// Selection rules:
 /// - If the header has a `kid`, only JWKS entries whose `kid` matches are
-///   considered. If none match, `NoMatchingKey` is raised.
+///   considered. If none or more than one match, `NoMatchingKey` is raised
+///   so duplicate `kid` entries cannot become first-match-wins.
 /// - If the header has no `kid` and the set has exactly one entry, that
 ///   one is used. Otherwise `NoMatchingKey` is raised (ambiguous).
+/// - `kid` must be non-empty printable ASCII without whitespace; this keeps
+///   the returned / logged identifier from carrying control data.
 /// - If the JWKS entry has its own `alg` and it does not equal the JWT
 ///   header's `alg`, `AlgorithmMismatchInJwks` is raised. This prevents
 ///   an attacker from picking an HS256 key off a JWKS that the IdP
@@ -684,7 +733,7 @@ pub fn select_verify_key(
     Some(s) => alg_from_str(s)
     None => raise InvalidHeader("missing alg")
   }
-  let header_kid = get_string(header, "kid")
+  let header_kid = get_header_kid(header)
   let candidates : Array[@jwk.JwkSetEntry] = match header_kid {
     Some(want) => {
       let out : Array[@jwk.JwkSetEntry] = []
@@ -696,19 +745,11 @@ pub fn select_verify_key(
       }
       out
     }
-    None =>
-      if set.length() == 1 {
-        [set[0]]
-      } else {
-        raise NoMatchingKey
-      }
+    None => if set.length() == 1 { [set[0]] } else { raise NoMatchingKey }
   }
-  if candidates.length() == 0 {
+  if candidates.length() != 1 {
     raise NoMatchingKey
   }
-  // Use the first candidate. RFC 7517 §4.5 allows multiple JWKs to share a
-  // kid (rare); we don't try to disambiguate by alg in that case — first
-  // match wins, and the alg-mismatch check below catches type confusion.
   let entry = candidates[0]
   match entry.alg {
     Some(s) => {
@@ -1008,10 +1049,7 @@ fn extract_aud(m : Map[String, Json]) -> Array[String] raise JwtError {
 }
 
 ///|
-fn extract_string_array(
-  m : Map[String, Json],
-  key : String,
-) -> Array[String]? {
+fn extract_string_array(m : Map[String, Json], key : String) -> Array[String]? {
   match m.get(key) {
     Some(Array(items)) => {
       let out : Array[String] = []
@@ -1051,4 +1089,279 @@ fn split_space(s : String) -> Array[String] {
     out.push(buf.to_string())
   }
   out
+}
+
+// -----------------------------------------------------------------------------
+// OpenID Connect Core 1.0 §3.1.3.7 — ID Token validation
+// -----------------------------------------------------------------------------
+//
+// ID tokens differ from RFC 9068 access tokens in a few important ways:
+//   * `typ` is usually omitted (no allow-list).
+//   * `aud` MUST contain the relying party's `client_id`. If multiple
+//     audiences are listed, the `azp` claim MUST equal `client_id`.
+//   * `nonce` (if the auth request carried one) MUST match exactly.
+//   * `at_hash` and `c_hash` (RFC 7515 §3.1.3.6 / §3.3.2.11) bind the ID
+//     token to a specific access token / authorization code by hashing
+//     the value with the JWS alg's digest and taking the left half.
+//   * `auth_time` may be required under `max_age`.
+
+///|
+/// Verification policy for `verify_oidc_id_token`. Bind each optional
+/// field iff the deployment expects that check to apply:
+///
+/// - `expected_nonce`: set to the `nonce` value the relying party sent
+///   in the authorization request. Replay-defence is meaningless if you
+///   forget this in interactive flows.
+/// - `access_token` / `authorization_code`: triggers the matching
+///   `at_hash` / `c_hash` binding check (hybrid + implicit flows).
+/// - `max_age_sec`: if the auth request asked for `max_age`, the IdP
+///   MUST emit `auth_time`, and `auth_time + max_age + clock_skew_sec`
+///   must be >= `now`.
+/// - `expected_acr`: pin the authentication-context class.
+/// - `allowed_algorithms`: pin the JWS alg (OIDC §16.18: e.g., reject
+///   HS-based ID tokens when the relying party expects RS-only).
+pub(all) struct OidcIdTokenVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  client_id : String
+  expected_nonce : String?
+  access_token : String?
+  authorization_code : String?
+  max_age_sec : Int64?
+  expected_acr : String?
+  allowed_algorithms : Array[Algorithm]?
+}
+
+///|
+pub fn OidcIdTokenVerifyOptions::default(
+  now : Int64,
+  issuer : String,
+  client_id : String,
+) -> OidcIdTokenVerifyOptions {
+  {
+    now,
+    clock_skew_sec: 0L,
+    issuer,
+    client_id,
+    expected_nonce: None,
+    access_token: None,
+    authorization_code: None,
+    max_age_sec: None,
+    expected_acr: None,
+    allowed_algorithms: None,
+  }
+}
+
+///|
+/// Structured ID token. Required OIDC claims are hoisted to top-level
+/// fields; optional standard claims (auth_time, acr, amr, nonce, at_hash,
+/// c_hash, azp, plus the OIDC §5.1 profile shorthand for email / name /
+/// preferred_username) are exposed as `Option`. The full verified JWS
+/// (header, claims, alg, kid) remains accessible via `jwt`.
+pub(all) struct OidcIdToken {
+  iss : String
+  sub : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64
+  azp : String?
+  auth_time : Int64?
+  nonce : String?
+  acr : String?
+  amr : Array[String]?
+  at_hash : String?
+  c_hash : String?
+  email : String?
+  email_verified : Bool?
+  name : String?
+  preferred_username : String?
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_oidc_id_token(
+  token : String,
+  key : VerifyKey,
+  opts : OidcIdTokenVerifyOptions,
+) -> OidcIdToken raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: true,
+    issuer: Some(opts.issuer),
+    audience: Some(opts.client_id),
+    typ_allowed: None,
+  }
+  let v = verify(token, key, base)
+  finalise_oidc_id_token(v, opts)
+}
+
+///|
+pub fn verify_oidc_id_token_jwks(
+  token : String,
+  set : Array[@jwk.JwkSetEntry],
+  opts : OidcIdTokenVerifyOptions,
+) -> OidcIdToken raise JwtError {
+  let header = peek_header(token)
+  let key = select_verify_key(set, header)
+  verify_oidc_id_token(token, key, opts)
+}
+
+///|
+fn finalise_oidc_id_token(
+  v : VerifiedJwt,
+  opts : OidcIdTokenVerifyOptions,
+) -> OidcIdToken raise JwtError {
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  let iss = require_string_claim(v.claims, "iss")
+  let sub = require_string_claim(v.claims, "sub")
+  let aud = extract_aud(v.claims)
+  let exp = require_numeric_claim(v.claims, "exp")
+  let iat = require_numeric_claim(v.claims, "iat")
+  // OIDC §3.1.3.7 step 4–5: if aud has multiple entries, azp MUST be
+  // present and equal the relying party's client_id.
+  let azp = get_string(v.claims, "azp")
+  if aud.length() > 1 {
+    match azp {
+      Some(s) => if s != opts.client_id { raise InvalidAudience }
+      None => raise InvalidAudience
+    }
+  } else {
+    match azp {
+      Some(s) => if s != opts.client_id { raise InvalidAudience }
+      None => ()
+    }
+  }
+  // OIDC §3.1.3.7 step 11: nonce replay defence.
+  let nonce = get_string(v.claims, "nonce")
+  match opts.expected_nonce {
+    Some(want) =>
+      match nonce {
+        Some(got) => if want != got { raise NonceMismatch }
+        None => raise NonceMismatch
+      }
+    None => ()
+  }
+  // OIDC §3.1.3.6 / §3.3.2.11: at_hash / c_hash bind the ID token to a
+  // specific access_token / authorization_code.
+  let at_hash = get_string(v.claims, "at_hash")
+  match opts.access_token {
+    Some(at) =>
+      match at_hash {
+        Some(claimed) => {
+          let expected = compute_x_hash(v.alg, at)
+          if claimed != expected {
+            raise AtHashMismatch
+          }
+        }
+        None => raise AtHashMismatch
+      }
+    None => ()
+  }
+  let c_hash = get_string(v.claims, "c_hash")
+  match opts.authorization_code {
+    Some(code) =>
+      match c_hash {
+        Some(claimed) => {
+          let expected = compute_x_hash(v.alg, code)
+          if claimed != expected {
+            raise CHashMismatch
+          }
+        }
+        None => raise CHashMismatch
+      }
+    None => ()
+  }
+  // OIDC §3.1.2.1 / §3.1.3.7 step 13: max_age requires auth_time and
+  // bounds its age.
+  let auth_time = get_numeric_date(v.claims, "auth_time")
+  match opts.max_age_sec {
+    Some(max) =>
+      match auth_time {
+        Some(at) =>
+          if at + max + opts.clock_skew_sec < opts.now {
+            raise AuthTimeTooOld
+          }
+        None => raise AuthTimeTooOld
+      }
+    None => ()
+  }
+  let acr = get_string(v.claims, "acr")
+  match opts.expected_acr {
+    Some(want) =>
+      match acr {
+        Some(got) => if got != want { raise AcrMismatch }
+        None => raise AcrMismatch
+      }
+    None => ()
+  }
+  {
+    iss,
+    sub,
+    aud,
+    exp,
+    iat,
+    azp,
+    auth_time,
+    nonce,
+    acr,
+    amr: extract_string_array(v.claims, "amr"),
+    at_hash,
+    c_hash,
+    email: get_string(v.claims, "email"),
+    email_verified: get_bool(v.claims, "email_verified"),
+    name: get_string(v.claims, "name"),
+    preferred_username: get_string(v.claims, "preferred_username"),
+    jwt: v,
+  }
+}
+
+///|
+fn get_bool(m : Map[String, Json], key : String) -> Bool? {
+  match m.get(key) {
+    Some(True) => Some(true)
+    Some(False) => Some(false)
+    _ => None
+  }
+}
+
+///|
+/// Compute the OIDC `at_hash` / `c_hash` value: hash the input UTF-8
+/// bytes with the digest matching the JWS alg (§3.1.3.6), take the
+/// left half, base64url-encode (no padding).
+///
+/// Per OIDC §3.1.3.6 the hash function follows the JWS alg's family:
+///   RS256/ES256/HS256/PS256 → SHA-256
+///   RS384/ES384/HS384/PS384 → SHA-384
+///   RS512/ES512/HS512/PS512 → SHA-512
+///   EdDSA                   → SHA-512 (matches Ed25519's internal hash)
+///
+/// Exposed for issuers that need to embed `at_hash` / `c_hash` in the
+/// ID token they emit, and for callers that want to compare a hash
+/// without round-tripping through `verify_oidc_id_token`.
+pub fn compute_x_hash(alg : Algorithm, value : String) -> String {
+  let bytes = @utf8.encode(value[:])
+  let h = match alg {
+    HS256 | RS256 | ES256 | PS256 => @hash.sha256(bytes)
+    HS384 | RS384 | ES384 | PS384 => @hash.sha384(bytes)
+    HS512 | RS512 | ES512 | PS512 | EdDSA => @hash.sha512(bytes)
+  }
+  let half = h.length() / 2
+  let left = Bytes::makei(half, fn(i) { h[i] })
+  base64url_encode(left)
 }

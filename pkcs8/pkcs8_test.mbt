@@ -11,6 +11,26 @@ fn pbes2_oid() -> @asn1.ObjectIdentifier raise {
 }
 
 ///|
+fn rsa_encryption_oid() -> @asn1.ObjectIdentifier raise {
+  @asn1.ObjectIdentifier::from_string("1.2.840.113549.1.1.1")
+}
+
+///|
+fn ec_public_key_oid() -> @asn1.ObjectIdentifier raise {
+  @asn1.ObjectIdentifier::from_string("1.2.840.10045.2.1")
+}
+
+///|
+fn secp256r1_oid() -> @asn1.ObjectIdentifier raise {
+  @asn1.ObjectIdentifier::from_string("1.2.840.10045.3.1.7")
+}
+
+///|
+fn oid_param(oid : @asn1.ObjectIdentifier) -> Bytes {
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_oid, Oid(oid)))
+}
+
+///|
 fn sample_ed25519_key() -> @pkcs8.PrivateKeyInfo raise {
   // RFC 8410 §10.3 sample Ed25519 private key contents:
   //   privateKey OCTET STRING containing inner CurvePrivateKey OCTET STRING.
@@ -26,6 +46,22 @@ fn sample_ed25519_key() -> @pkcs8.PrivateKeyInfo raise {
     attributes: [],
     public_key: None,
   }
+}
+
+///|
+fn sample_ed25519_public_key_bytes() -> Bytes {
+  b"\x19\xBF\x44\x09\x69\x84\xCD\xFE\x85\x41\xBA\xC1\x67\xDC\x3B\x96\xC8\x50\x86\xAA\x30\xB6\xB6\xCB\x0C\x5C\x38\xAD\x70\x31\x66\xE1"
+}
+
+///|
+fn sample_ed25519_public_key_context() -> @asn1.Element {
+  let pk = sample_ed25519_public_key_bytes()
+  @asn1.Element::new(
+    @asn1.Tag::context(1U),
+    Unknown(
+      Bytes::makei(33, fn(i) { if i == 0 { b'\x00' } else { pk[i - 1] } }),
+    ),
+  )
 }
 
 ///|
@@ -61,7 +97,7 @@ test "pkcs8: serialize/parse Ed25519 PrivateKeyInfo roundtrip" {
 test "pkcs8: Ed25519 v2 with public_key roundtrip" {
   let v1 = sample_ed25519_key()
   let pubkey_bs : @asn1.BitString = {
-    bytes: b"\x19\xBF\x44\x09\x69\x84\xCD\xFE\x85\x41\xBA\xC1\x67\xDC\x3B\x96\xC8\x50\x86\xAA\x30\xB6\xB6\xCB\x0C\x5C\x38\xAD\x70\x31\x66\xE1",
+    bytes: sample_ed25519_public_key_bytes(),
     unused_bits: 0,
   }
   let v2_key : @pkcs8.PrivateKeyInfo = {
@@ -198,8 +234,8 @@ test "pkcs8: PrivateKeyInfo with attributes (Set OF) roundtrips" {
 ///|
 test "ATTACK pkcs8: duplicate publicKey fields reject" {
   let items = pkcs8_base_items(version=b"\x01")
-  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x01")))
-  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x02")))
+  items.push(sample_ed25519_public_key_context())
+  items.push(sample_ed25519_public_key_context())
   try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
     @pkcs8.UnexpectedStructure(_) => ()
     other =>
@@ -221,6 +257,66 @@ test "ATTACK pkcs8: publicKey BIT STRING tail padding is checked" {
   } noraise {
     other =>
       abort("expected BIT STRING padding rejection, got " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK pkcs8: Ed25519 v2 publicKey must have the RFC 8410 shape" {
+  let items = pkcs8_base_items(version=b"\x01")
+  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x01")))
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort(
+        "expected Ed25519 publicKey shape rejection, got " + repr(other) + "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "expected Ed25519 publicKey shape rejection, got " + repr(other) + "",
+      )
+  }
+}
+
+///|
+test "ATTACK pkcs8: RSA v2 publicKey must be RSAPublicKey DER" {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+    @pkix.algorithm_identifier_to_element({
+      algorithm: rsa_encryption_oid(),
+      parameters: None,
+    }),
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+    @asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x04\x00")),
+  ]
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected RSA publicKey shape rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected RSA publicKey shape rejection, got " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK pkcs8: known EC v2 publicKey must be uncompressed point shape" {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+    @pkix.algorithm_identifier_to_element({
+      algorithm: ec_public_key_oid(),
+      parameters: Some(oid_param(secp256r1_oid())),
+    }),
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+    @asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x02\x01\x02")),
+  ]
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected EC publicKey shape rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected EC publicKey shape rejection, got " + repr(other) + "")
   }
 }
 

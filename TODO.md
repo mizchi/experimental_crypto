@@ -142,7 +142,7 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
 
 ### SSH follow-up still open
 
-- [ ] Strict SSHSIG armor decoder for trust decisions. Current decoder is
+- [x] Strict SSHSIG armor decoder for trust decisions. Current decoder is
   intentionally lax about surrounding whitespace.
 - [ ] Explicit SSH certificate support before accepting `cert-authority`.
 - [ ] Time-aware allowed_signers API before accepting
@@ -155,10 +155,12 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
   (p256/p384/secp256k1/rsa). Fix needs constant-time scalar mult +
   modexp, which in turn needs `crypto_bigint` rewritten as a real
   limb-based implementation.
-- **JWT `kid` not sanitised**: returned verbatim; caller responsibility.
-- **PKCS#8 v2 publicKey consistency**: a v2 record with a `[1]` field
+- [x] **JWT `kid` not sanitised**: verification and JWKS selection now reject
+  empty, non-printable, whitespace, and overlong `kid` values before returning
+  or matching them.
+- [x] **PKCS#8 v2 publicKey consistency**: a v2 record with a `[1]` field
   whose contents don't match the algorithm OID's public-key shape is
-  accepted (caller's problem on use).
+  rejected at parse time for known RSA / EC / RFC 8410 key shapes.
 - **PSS RNG-backed sign in JWT**: PS256/384/512 currently uses
   deterministic PSS (sLen = 0) since the workspace has no vetted RNG
   at the JWT layer. RFC 7518 mandates sLen = hLen; callers needing

@@ -14,6 +14,8 @@ pub fn compute_signed_data(String, String, Bytes) -> Bytes raise SshError
 
 pub fn decode_sshsig_armor(String) -> Bytes raise SshError
 
+pub fn decode_sshsig_armor_strict(String) -> Bytes raise SshError
+
 pub fn decode_sshsig_blob(Bytes) -> SshSignature raise SshError
 
 pub let ecdsa_p256_algo : String

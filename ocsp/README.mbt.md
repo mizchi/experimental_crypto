@@ -7,7 +7,7 @@
 
 OCSP (RFC 6960) response parsing + verification.
 
-```moonbit
+```moonbit nocheck
 @ocsp.parse_response(der) -> OcspResponse raise OcspError
 @ocsp.verify(der, cert, issuer_cert, now) -> CertStatus raise OcspError
 // CertStatus = Good | Revoked(time, reason) | Unknown

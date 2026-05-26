@@ -3,6 +3,7 @@ package "mizchi/jwt"
 
 import {
   "mizchi/ed25519",
+  "mizchi/jwk",
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/rsa",
@@ -10,9 +11,21 @@ import {
 }
 
 // Values
-pub fn sign(Json, Key, kid? : String) -> String raise JwtError
+pub fn peek_header(String) -> Map[String, Json] raise JwtError
+
+pub fn select_verify_key(Array[@jwk.JwkSetEntry], Map[String, Json]) -> VerifyKey raise JwtError
+
+pub fn sign(Json, Key, kid? : String, typ? : String) -> String raise JwtError
 
 pub fn verify(String, VerifyKey, VerifyOptions) -> VerifiedJwt raise JwtError
+
+pub fn verify_oidc_id_token(String, VerifyKey, OidcIdTokenVerifyOptions) -> OidcIdToken raise JwtError
+
+pub fn verify_oidc_id_token_jwks(String, Array[@jwk.JwkSetEntry], OidcIdTokenVerifyOptions) -> OidcIdToken raise JwtError
+
+pub fn verify_rfc9068(String, VerifyKey, Rfc9068VerifyOptions) -> Rfc9068Token raise JwtError
+
+pub fn verify_rfc9068_jwks(String, Array[@jwk.JwkSetEntry], Rfc9068VerifyOptions) -> Rfc9068Token raise JwtError
 
 // Errors
 pub suberror JwtError {
@@ -26,6 +39,19 @@ pub suberror JwtError {
   InvalidAudience
   InvalidIssuer
   ClaimsParseError(String)
+  InvalidType(String)
+  IssuedInFuture
+  NoMatchingKey
+  AlgorithmMismatchInJwks(String)
+  MissingRequiredClaim(String)
+  AlgorithmNotAllowed(String)
+  ClientIdMismatch
+  MissingScopes(Array[String])
+  NonceMismatch
+  AtHashMismatch
+  CHashMismatch
+  AuthTimeTooOld
+  AcrMismatch
 } derive(@debug.Debug)
 
 // Types and methods
@@ -47,14 +73,79 @@ pub(all) enum Algorithm {
 
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
+  Hs384(secret~ : Bytes)
+  Hs512(secret~ : Bytes)
   EdDsa(privkey~ : @ed25519.PrivateKey)
   Rs256(privkey~ : @rsa.RsaPrivateKey)
+  Rs384(privkey~ : @rsa.RsaPrivateKey)
+  Rs512(privkey~ : @rsa.RsaPrivateKey)
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
   Ps256(privkey~ : @rsa.RsaPrivateKey)
   Ps384(privkey~ : @rsa.RsaPrivateKey)
   Ps512(privkey~ : @rsa.RsaPrivateKey)
 }
+
+pub(all) struct OidcIdToken {
+  iss : String
+  sub : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64
+  azp : String?
+  auth_time : Int64?
+  nonce : String?
+  acr : String?
+  amr : Array[String]?
+  at_hash : String?
+  c_hash : String?
+  email : String?
+  email_verified : Bool?
+  name : String?
+  preferred_username : String?
+  jwt : VerifiedJwt
+}
+
+pub(all) struct OidcIdTokenVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  client_id : String
+  expected_nonce : String?
+  access_token : String?
+  authorization_code : String?
+  max_age_sec : Int64?
+  expected_acr : String?
+  allowed_algorithms : Array[Algorithm]?
+}
+pub fn OidcIdTokenVerifyOptions::default(Int64, String, String) -> Self
+
+pub(all) struct Rfc9068Token {
+  iss : String
+  sub : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64
+  jti : String
+  client_id : String
+  nbf : Int64?
+  auth_time : Int64?
+  acr : String?
+  amr : Array[String]?
+  scope : Array[String]?
+  jwt : VerifiedJwt
+}
+
+pub(all) struct Rfc9068VerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  issuer : String
+  audience : String
+  expected_client_id : String?
+  required_scopes : Array[String]?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+pub fn Rfc9068VerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) struct VerifiedJwt {
   header : Map[String, Json]
@@ -65,8 +156,12 @@ pub(all) struct VerifiedJwt {
 
 pub(all) enum VerifyKey {
   Hs256(secret~ : Bytes)
+  Hs384(secret~ : Bytes)
+  Hs512(secret~ : Bytes)
   EdDsa(pubkey~ : @ed25519.PublicKey)
   Rs256(pubkey~ : @rsa.RsaPublicKey)
+  Rs384(pubkey~ : @rsa.RsaPublicKey)
+  Rs512(pubkey~ : @rsa.RsaPublicKey)
   Es256(pubkey~ : @p256.PublicKey)
   Es384(pubkey~ : @p384.PublicKey)
   Ps256(pubkey~ : @rsa.RsaPublicKey)
@@ -80,6 +175,7 @@ pub(all) struct VerifyOptions {
   require_exp : Bool
   issuer : String?
   audience : String?
+  typ_allowed : Array[String]?
 } derive(Eq, @debug.Debug)
 pub fn VerifyOptions::default(Int64) -> Self
 

@@ -17,6 +17,8 @@ pub fn parse_private(String) -> Jwk raise JwkError
 
 pub fn parse_public(String) -> Jwk raise JwkError
 
+pub fn parse_set(String) -> Array[JwkSetEntry] raise JwkError
+
 pub fn serialise_private(Jwk) -> String raise JwkError
 
 pub fn serialise_public(Jwk) -> String
@@ -45,6 +47,13 @@ pub(all) enum Jwk {
   EcSecp256k1(pubkey~ : @secp256k1.PublicKey, privkey~ : @secp256k1.PrivateKey?)
   OkpEd25519(pubkey~ : @ed25519.PublicKey, privkey~ : @ed25519.PrivateKey?)
   Hmac(secret~ : Bytes)
+}
+
+pub(all) struct JwkSetEntry {
+  jwk : Jwk
+  kid : String?
+  alg : String?
+  use_ : String?
 }
 
 // Type aliases

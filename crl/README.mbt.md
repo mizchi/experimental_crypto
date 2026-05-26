@@ -7,7 +7,7 @@
 
 X.509 Certificate Revocation List (CRL) parse + verify per RFC 5280 §5.
 
-```moonbit
+```moonbit nocheck
 @crl.parse(der) -> Crl raise CrlError
 @crl.verify(der, issuer_cert, now) -> Crl raise CrlError
 @crl.is_revoked(crl, serial) -> Bool

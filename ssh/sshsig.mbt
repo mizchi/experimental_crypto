@@ -192,6 +192,53 @@ pub fn decode_sshsig_armor(input : String) -> Bytes raise SshError {
 }
 
 ///|
+// Strict variant for verification / trust decisions. It accepts only the
+// canonical SSHSIG armor emitted by `encode_sshsig_armor`: exact boundary
+// lines, no surrounding whitespace, base64-only body lines, and no data after
+// the end marker (apart from the single final newline).
+pub fn decode_sshsig_armor_strict(input : String) -> Bytes raise SshError {
+  let lines = split_lines(input)
+  if lines.length() < 3 || lines[0] != sshsig_begin {
+    raise InvalidEncoding("missing -----BEGIN SSH SIGNATURE-----")
+  }
+  let b64 = StringBuilder::new()
+  let mut i = 1
+  let mut found_end = false
+  while i < lines.length() {
+    let line = lines[i]
+    if line == sshsig_end {
+      found_end = true
+      i = i + 1
+      break
+    }
+    if line == "" {
+      raise InvalidEncoding("empty line in sshsig base64 body")
+    }
+    if line.length() > 70 {
+      raise InvalidEncoding("sshsig base64 line too long")
+    }
+    for j = 0; j < line.length(); j = j + 1 {
+      if !is_base64_armor_char(line.get_char(j).unwrap()) {
+        raise InvalidEncoding("sshsig base64 body")
+      }
+    }
+    b64.write_string(line)
+    i = i + 1
+  }
+  if !found_end {
+    raise InvalidEncoding("missing -----END SSH SIGNATURE-----")
+  }
+  if i < lines.length() {
+    if !(i + 1 == lines.length() && lines[i] == "") {
+      raise InvalidEncoding("trailing data after -----END SSH SIGNATURE-----")
+    }
+  }
+  @base64.decode(b64.to_string()) catch {
+    _ => raise InvalidEncoding("sshsig base64 body")
+  }
+}
+
+///|
 pub fn encode_sshsig_armor(blob : Bytes) -> String {
   let b64 = @base64.encode(blob[:])
   let sb = StringBuilder::new()
@@ -232,4 +279,15 @@ fn split_lines(s : String) -> Array[String] {
   }
   out.push(buf.to_string())
   out
+}
+
+///|
+fn is_base64_armor_char(c : Char) -> Bool {
+  let v = c.to_int()
+  (v >= 0x41 && v <= 0x5a) ||
+  (v >= 0x61 && v <= 0x7a) ||
+  (v >= 0x30 && v <= 0x39) ||
+  c == '+' ||
+  c == '/' ||
+  c == '='
 }

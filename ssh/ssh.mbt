@@ -22,7 +22,7 @@ pub fn verify_armor_anonymous(
   sig_namespace? : String = "git",
 ) -> (SshPublicKey, String) raise SshError {
   validate_namespace(sig_namespace)
-  let blob = decode_sshsig_armor(armor)
+  let blob = decode_sshsig_armor_strict(armor)
   let sig = decode_sshsig_blob(blob)
   if sig.sig_namespace != sig_namespace {
     raise InvalidSignature
@@ -50,7 +50,7 @@ pub fn verify_armor(
   sig_namespace? : String = "git",
 ) -> Bool raise SshError {
   validate_namespace(sig_namespace)
-  let blob = decode_sshsig_armor(armor)
+  let blob = decode_sshsig_armor_strict(armor)
   let sig = decode_sshsig_blob(blob)
   if sig.sig_namespace != sig_namespace {
     return false
@@ -81,7 +81,7 @@ pub fn verify_armor_with(
   sig_namespace? : String = "git",
 ) -> Bool raise SshError {
   validate_namespace(sig_namespace)
-  let blob = decode_sshsig_armor(armor)
+  let blob = decode_sshsig_armor_strict(armor)
   let sig = decode_sshsig_blob(blob)
   if sig.sig_namespace != sig_namespace {
     return false

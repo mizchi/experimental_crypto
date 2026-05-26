@@ -272,6 +272,140 @@ fn wrap_context_implicit_bit_string(
   @asn1.Element::new(@asn1.Tag::context(number), Unknown(buf.to_bytes()))
 }
 
+///|
+fn validate_public_key_shape(
+  algorithm : @pkix.AlgorithmIdentifier,
+  public_key : @asn1.BitString?,
+) -> Unit raise Pkcs8Error {
+  match public_key {
+    None => ()
+    Some(bs) => {
+      let alg = algorithm.algorithm.to_string()
+      if alg == "1.2.840.113549.1.1.1" {
+        validate_rsa_public_key_shape(bs)
+      } else if alg == "1.2.840.10045.2.1" {
+        validate_ec_public_key_shape(algorithm, bs)
+      } else if alg == "1.3.101.110" || alg == "1.3.101.112" {
+        require_raw_public_key_shape(bs, 32, alg)
+      } else if alg == "1.3.101.111" {
+        require_raw_public_key_shape(bs, 56, alg)
+      } else if alg == "1.3.101.113" {
+        require_raw_public_key_shape(bs, 57, alg)
+      }
+    }
+  }
+}
+
+///|
+fn require_raw_public_key_shape(
+  bs : @asn1.BitString,
+  len : Int,
+  alg : String,
+) -> Unit raise Pkcs8Error {
+  if bs.unused_bits != 0 {
+    raise UnexpectedStructure("publicKey unused_bits must be zero for " + alg)
+  }
+  if bs.bytes.length() != len {
+    raise UnexpectedStructure(
+      "publicKey length mismatch for " +
+      alg +
+      ": expected " +
+      len.to_string() +
+      ", got " +
+      bs.bytes.length().to_string(),
+    )
+  }
+}
+
+///|
+fn validate_rsa_public_key_shape(bs : @asn1.BitString) -> Unit raise Pkcs8Error {
+  if bs.unused_bits != 0 {
+    raise UnexpectedStructure("RSA publicKey unused_bits must be zero")
+  }
+  let elem = decode_der(bs.bytes)
+  let items = expect_sequence(elem)
+  if items.length() != 2 {
+    raise UnexpectedStructure("RSA publicKey must be RSAPublicKey SEQUENCE")
+  }
+  expect_positive_integer(items[0], "RSA modulus")
+  expect_positive_integer(items[1], "RSA publicExponent")
+}
+
+///|
+fn expect_positive_integer(
+  elem : @asn1.Element,
+  name : String,
+) -> Unit raise Pkcs8Error {
+  match elem.value {
+    Integer(bytes) => {
+      if bytes.length() == 0 {
+        raise UnexpectedStructure(name + " INTEGER is empty")
+      }
+      if (bytes[0].to_int() & 0x80) != 0 {
+        raise UnexpectedStructure(name + " INTEGER is negative")
+      }
+    }
+    _ => raise UnexpectedStructure(name + " must be INTEGER")
+  }
+}
+
+///|
+fn validate_ec_public_key_shape(
+  algorithm : @pkix.AlgorithmIdentifier,
+  bs : @asn1.BitString,
+) -> Unit raise Pkcs8Error {
+  match algorithm_parameter_oid_string(algorithm) {
+    Some("1.2.840.10045.3.1.7") =>
+      require_uncompressed_ec_public_key(bs, 32, "secp256r1")
+    Some("1.3.132.0.34") =>
+      require_uncompressed_ec_public_key(bs, 48, "secp384r1")
+    Some("1.3.132.0.10") =>
+      require_uncompressed_ec_public_key(bs, 32, "secp256k1")
+    _ => ()
+  }
+}
+
+///|
+fn algorithm_parameter_oid_string(
+  algorithm : @pkix.AlgorithmIdentifier,
+) -> String? raise Pkcs8Error {
+  match algorithm.parameters {
+    Some(param_bytes) => {
+      let elem = decode_der(param_bytes)
+      match elem.value {
+        Oid(o) => Some(o.to_string())
+        _ => None
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn require_uncompressed_ec_public_key(
+  bs : @asn1.BitString,
+  coordinate_len : Int,
+  curve : String,
+) -> Unit raise Pkcs8Error {
+  if bs.unused_bits != 0 {
+    raise UnexpectedStructure("EC publicKey unused_bits must be zero")
+  }
+  let expected_len = 1 + coordinate_len * 2
+  if bs.bytes.length() != expected_len {
+    raise UnexpectedStructure(
+      "EC publicKey length mismatch for " +
+      curve +
+      ": expected " +
+      expected_len.to_string() +
+      ", got " +
+      bs.bytes.length().to_string(),
+    )
+  }
+  if bs.bytes[0] != b'\x04' {
+    raise UnexpectedStructure("EC publicKey must be uncompressed for " + curve)
+  }
+}
+
 // ─── PrivateKeyInfo ──────────────────────────────────────────────────────
 
 ///|
@@ -322,6 +456,7 @@ pub fn parse_der(der : Bytes) -> PrivateKeyInfo raise Pkcs8Error {
     }
     raise UnexpectedStructure("unrecognized PrivateKeyInfo field")
   }
+  validate_public_key_shape(algorithm, public_key)
   { version, algorithm, private_key, attributes, public_key }
 }
 
