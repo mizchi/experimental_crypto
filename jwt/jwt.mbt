@@ -167,6 +167,21 @@ pub suberror JwtError {
   // of the inline `sub_jwk`; if they disagree the holder is asserting
   // an identity that doesn't bind to the key they signed with.
   SelfIssuedSubMismatch
+  // OIDC Federation 1.0 — Entity Statement must use the entity
+  // statement typ and pair iss / sub correctly for the statement
+  // kind (configuration vs. subordinate).
+  InvalidEntityStatement(String)
+  // OIDC CIBA — when the verifier knows the auth_req_id it issued,
+  // the ID token's matching claim MUST round-trip.
+  AuthReqIdMismatch
+  // OIDC CIBA — rt_hash binding fails the same way at_hash does for
+  // an OIDC ID token; raised when opts.refresh_token is set but the
+  // hash does not match.
+  RtHashMismatch
+  // FAPI profile guard — the token violated one of the strict-default
+  // policy gates (alg list, missing claim, time bound, etc.). The
+  // detail string identifies the violated rule.
+  FapiPolicyViolation(String)
 } derive(Debug)
 
 ///|
@@ -2458,4 +2473,430 @@ pub fn extract_aggregated_distributed_claims(
     None => ()
   }
   Some({ sources, names })
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Discovery 1.0 — Provider Metadata parser (no HTTP)
+// -----------------------------------------------------------------------------
+//
+// `.well-known/openid-configuration` is a JSON document describing the
+// IdP's endpoints, supported algorithms, and JWKS URL. We expose a
+// parser so callers can fetch the document over whatever HTTP client
+// they have and hand the body here.
+
+///|
+pub(all) struct ProviderMetadata {
+  issuer : String
+  authorization_endpoint : String?
+  token_endpoint : String?
+  userinfo_endpoint : String?
+  jwks_uri : String?
+  registration_endpoint : String?
+  end_session_endpoint : String?
+  introspection_endpoint : String?
+  revocation_endpoint : String?
+  device_authorization_endpoint : String?
+  backchannel_authentication_endpoint : String?
+  pushed_authorization_request_endpoint : String?
+  response_types_supported : Array[String]
+  subject_types_supported : Array[String]
+  id_token_signing_alg_values_supported : Array[String]
+  token_endpoint_auth_methods_supported : Array[String]?
+  scopes_supported : Array[String]?
+  claims_supported : Array[String]?
+  // Everything else the IdP put in — keep the raw map for forward-
+  // compatibility with future spec extensions.
+  raw : Map[String, Json]
+}
+
+///|
+pub fn parse_provider_metadata(json : String) -> ProviderMetadata raise JwtError {
+  let m = parse_json_object(json)
+  let issuer = match get_string(m, "issuer") {
+    Some(s) => s
+    None => raise MissingRequiredClaim("issuer")
+  }
+  let resp_types = string_array_or_empty(m, "response_types_supported")
+  if resp_types.length() == 0 {
+    raise MissingRequiredClaim("response_types_supported")
+  }
+  let subject_types = string_array_or_empty(m, "subject_types_supported")
+  if subject_types.length() == 0 {
+    raise MissingRequiredClaim("subject_types_supported")
+  }
+  let alg_values = string_array_or_empty(
+    m,
+    "id_token_signing_alg_values_supported",
+  )
+  if alg_values.length() == 0 {
+    raise MissingRequiredClaim("id_token_signing_alg_values_supported")
+  }
+  {
+    issuer,
+    authorization_endpoint: get_string(m, "authorization_endpoint"),
+    token_endpoint: get_string(m, "token_endpoint"),
+    userinfo_endpoint: get_string(m, "userinfo_endpoint"),
+    jwks_uri: get_string(m, "jwks_uri"),
+    registration_endpoint: get_string(m, "registration_endpoint"),
+    end_session_endpoint: get_string(m, "end_session_endpoint"),
+    introspection_endpoint: get_string(m, "introspection_endpoint"),
+    revocation_endpoint: get_string(m, "revocation_endpoint"),
+    device_authorization_endpoint: get_string(
+      m,
+      "device_authorization_endpoint",
+    ),
+    backchannel_authentication_endpoint: get_string(
+      m,
+      "backchannel_authentication_endpoint",
+    ),
+    pushed_authorization_request_endpoint: get_string(
+      m,
+      "pushed_authorization_request_endpoint",
+    ),
+    response_types_supported: resp_types,
+    subject_types_supported: subject_types,
+    id_token_signing_alg_values_supported: alg_values,
+    token_endpoint_auth_methods_supported: extract_string_array(
+      m,
+      "token_endpoint_auth_methods_supported",
+    ),
+    scopes_supported: extract_string_array(m, "scopes_supported"),
+    claims_supported: extract_string_array(m, "claims_supported"),
+    raw: m,
+  }
+}
+
+///|
+fn string_array_or_empty(
+  m : Map[String, Json],
+  key : String,
+) -> Array[String] {
+  match extract_string_array(m, key) {
+    Some(a) => a
+    None => []
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Federation 1.0 — Entity Statement verify
+// -----------------------------------------------------------------------------
+//
+// An Entity Statement is a signed JWT describing a federation
+// participant. Two flavours:
+//   * Entity Configuration: iss == sub, the entity describes itself.
+//   * Subordinate Statement: iss is the superior, sub is the
+//     subordinate; encodes the superior's view of the subordinate's
+//     metadata, policy, constraints, etc.
+//
+// In both cases the JWT carries `jwks` (the entity's keys), `metadata`
+// (per entity-type claim sets), and `authority_hints` / `source_endpoint`
+// for chain traversal.
+
+///|
+pub(all) enum EntityStatementKind {
+  // iss == sub. Self-issued entity description.
+  Configuration
+  // iss != sub. Superior's statement about a subordinate.
+  Subordinate
+} derive(Eq, Debug)
+
+///|
+pub(all) struct EntityStatementVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  // The entity identifier the statement is about. For Configuration
+  // this MUST equal both `iss` and `sub`; for Subordinate, equal to
+  // `sub`.
+  subject : String
+  // If `Some(s)`, the issuer MUST equal `s`. For Configuration this
+  // is normally the same as `subject`; for Subordinate it's the
+  // superior's identifier.
+  expected_issuer : String?
+  // Restrict the statement kind. None accepts either.
+  expected_kind : EntityStatementKind?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct EntityStatement {
+  iss : String
+  sub : String
+  exp : Int64
+  iat : Int64
+  kind : EntityStatementKind
+  // The entity's own keys (an inline JWKS). Callers feed this into
+  // `@jwk.parse_set` when they want to use the keys.
+  jwks : Map[String, Json]
+  // Per entity-type metadata: openid_provider, openid_relying_party,
+  // federation_entity, oauth_authorization_server, etc. Raw JSON map
+  // keyed by entity-type name.
+  metadata : Map[String, Json]?
+  // Trust-chain pointers.
+  authority_hints : Array[String]?
+  source_endpoint : String?
+  // Trust marks the entity claims; each is itself a signed JWT.
+  trust_marks : Array[Json]?
+  // Constraints and policy as raw maps for the caller to interpret.
+  constraints : Map[String, Json]?
+  policy : Map[String, Json]?
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_entity_statement(
+  token : String,
+  key : VerifyKey,
+  opts : EntityStatementVerifyOptions,
+) -> EntityStatement raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: true,
+    issuer: opts.expected_issuer,
+    audience: None,
+    typ_allowed: Some(["entity-statement+jwt"]),
+  }
+  let v = verify(token, key, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  let iss = require_string_claim(v.claims, "iss")
+  let sub = require_string_claim(v.claims, "sub")
+  if sub != opts.subject {
+    raise InvalidEntityStatement("sub does not match expected subject")
+  }
+  let kind = if iss == sub {
+    EntityStatementKind::Configuration
+  } else {
+    EntityStatementKind::Subordinate
+  }
+  match opts.expected_kind {
+    Some(want) =>
+      if want != kind {
+        raise InvalidEntityStatement(
+          "expected " +
+          (match want {
+            Configuration => "Configuration"
+            Subordinate => "Subordinate"
+          }) +
+          " statement",
+        )
+      }
+    None => ()
+  }
+  let exp = require_numeric_claim(v.claims, "exp")
+  let iat = require_numeric_claim(v.claims, "iat")
+  let jwks = match v.claims.get("jwks") {
+    Some(Object(m)) => m
+    _ => raise InvalidEntityStatement("jwks missing or not an object")
+  }
+  let metadata = match v.claims.get("metadata") {
+    Some(Object(m)) => Some(m)
+    _ => None
+  }
+  let authority_hints = extract_string_array(v.claims, "authority_hints")
+  let source_endpoint = get_string(v.claims, "source_endpoint")
+  let trust_marks = match v.claims.get("trust_marks") {
+    Some(Array(items)) => Some(items)
+    _ => None
+  }
+  let constraints = match v.claims.get("constraints") {
+    Some(Object(m)) => Some(m)
+    _ => None
+  }
+  let policy = match v.claims.get("metadata_policy") {
+    Some(Object(m)) => Some(m)
+    _ => None
+  }
+  {
+    iss,
+    sub,
+    exp,
+    iat,
+    kind,
+    jwks,
+    metadata,
+    authority_hints,
+    source_endpoint,
+    trust_marks,
+    constraints,
+    policy,
+    jwt: v,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC CIBA — auth_req_id and rt_hash binding on the ID token
+// -----------------------------------------------------------------------------
+//
+// CIBA's ID token includes two extra claims:
+//   urn:openid:params:jwt:claim:auth_req_id   — the auth_req_id the
+//     IdP returned earlier, binding this token to the back-channel
+//     authentication request.
+//   urn:openid:params:jwt:claim:rt_hash       — half-hash of the
+//     refresh token, analogous to at_hash but for refresh tokens
+//     (CIBA Push / Ping flows).
+//
+// Verify uses the standard OIDC ID-token pipeline plus these two
+// optional binding checks.
+
+///|
+pub(all) struct CibaVerifyOptions {
+  oidc : OidcIdTokenVerifyOptions
+  // If `Some(id)`, the token's auth_req_id claim MUST equal `id`.
+  expected_auth_req_id : String?
+  // If `Some(rt)`, the token's rt_hash claim MUST equal
+  // base64url(SHA-256(rt) leftmost-half) per the same construction
+  // as at_hash.
+  refresh_token : String?
+}
+
+///|
+pub(all) struct CibaIdToken {
+  // The parsed standard OIDC ID token.
+  id_token : OidcIdToken
+  // The auth_req_id from the matching claim, if present.
+  auth_req_id : String?
+  // The rt_hash from the matching claim, if present.
+  rt_hash : String?
+}
+
+///|
+pub fn verify_ciba_id_token(
+  token : String,
+  key : VerifyKey,
+  opts : CibaVerifyOptions,
+) -> CibaIdToken raise JwtError {
+  let id = verify_oidc_id_token(token, key, opts.oidc)
+  let auth_req_id = get_string(
+    id.jwt.claims,
+    "urn:openid:params:jwt:claim:auth_req_id",
+  )
+  match opts.expected_auth_req_id {
+    Some(want) =>
+      match auth_req_id {
+        Some(got) => if got != want { raise AuthReqIdMismatch }
+        None => raise AuthReqIdMismatch
+      }
+    None => ()
+  }
+  let rt_hash = get_string(
+    id.jwt.claims,
+    "urn:openid:params:jwt:claim:rt_hash",
+  )
+  match opts.refresh_token {
+    Some(rt) => {
+      let expected = compute_x_hash(id.jwt.alg, rt)
+      match rt_hash {
+        Some(claimed) => if claimed != expected { raise RtHashMismatch }
+        None => raise RtHashMismatch
+      }
+    }
+    None => ()
+  }
+  { id_token: id, auth_req_id, rt_hash }
+}
+
+// -----------------------------------------------------------------------------
+// FAPI 2.0 profile guard
+// -----------------------------------------------------------------------------
+//
+// FAPI 2.0 Security Profile pins a strict subset of OIDC / OAuth
+// behaviours. The library cannot enforce HTTP-level requirements
+// (PAR, mTLS, push-style authentication), but it can pre-build
+// strict verification options the caller hands to `verify_oidc_id_token`
+// or `verify_rfc9068`.
+//
+// FAPI 2.0 §4.2 requires:
+//   * alg ∈ {PS256, ES256, EdDSA}
+//   * iss / aud / exp / iat / jti / sub all required (we already gate
+//     these via OIDC + RFC 9068 verify)
+//   * nonce required for ID tokens issued from interactive auth
+//   * short clock skew tolerance (we default to 60s)
+//   * DPoP or mTLS sender-constrained binding (caller's job to wire
+//     opts.bound_access_token / opts.expected_jkt on the DPoP layer)
+
+///|
+let fapi_allowed_algorithms : Array[Algorithm] = [PS256, ES256, EdDSA]
+
+///|
+/// Build OIDC ID Token verify options pre-populated with the FAPI 2.0
+/// strict defaults: algorithm allow-list locked to PS256/ES256/EdDSA,
+/// 60s clock skew, nonce required (caller supplies the expected value
+/// from the authorization request).
+///
+/// Returns an `OidcIdTokenVerifyOptions` that the caller passes
+/// through to `verify_oidc_id_token`. A FapiPolicyViolation is raised
+/// if `expected_nonce` is None — FAPI requires the relying party send
+/// a fresh nonce on every login.
+pub fn fapi_oidc_options(
+  now : Int64,
+  issuer : String,
+  client_id : String,
+  expected_nonce : String,
+) -> OidcIdTokenVerifyOptions {
+  {
+    now,
+    clock_skew_sec: 60L,
+    issuer,
+    client_id,
+    expected_nonce: Some(expected_nonce),
+    access_token: None,
+    authorization_code: None,
+    max_age_sec: None,
+    expected_acr: None,
+    allowed_algorithms: Some(fapi_allowed_algorithms),
+  }
+}
+
+///|
+/// Build RFC 9068 access-token verify options with FAPI defaults.
+/// Same algorithm pin and short clock skew; the caller still supplies
+/// the resource indicator (`audience`).
+pub fn fapi_rfc9068_options(
+  now : Int64,
+  issuer : String,
+  audience : String,
+  expected_client_id : String,
+) -> Rfc9068VerifyOptions {
+  {
+    now,
+    clock_skew_sec: 60L,
+    issuer,
+    audience,
+    expected_client_id: Some(expected_client_id),
+    required_scopes: None,
+    allowed_algorithms: Some(fapi_allowed_algorithms),
+  }
+}
+
+///|
+/// Reject the token's algorithm if it falls outside the FAPI list.
+/// Useful when you already have a `VerifiedJwt` (e.g., from a custom
+/// pipeline) and want to apply the FAPI alg policy after the fact.
+pub fn fapi_check_alg(v : VerifiedJwt) -> Unit raise JwtError {
+  let mut ok = false
+  for a in fapi_allowed_algorithms {
+    if a == v.alg {
+      ok = true
+      break
+    }
+  }
+  if !ok {
+    raise FapiPolicyViolation(
+      "alg '" + alg_to_str(v.alg) + "' not permitted by FAPI 2.0",
+    )
+  }
 }

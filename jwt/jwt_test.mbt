@@ -2582,3 +2582,278 @@ test "aggregated-distributed: parser extracts sources and names" {
     None => abort("expected aggregated/distributed metadata")
   }
 }
+
+// -----------------------------------------------------------------------------
+// OIDC Discovery — Provider Metadata parser
+// -----------------------------------------------------------------------------
+
+///|
+test "discovery: parses Google-style provider metadata" {
+  let doc =
+    #|{
+    #|  "issuer": "https://accounts.google.com",
+    #|  "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+    #|  "token_endpoint": "https://oauth2.googleapis.com/token",
+    #|  "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+    #|  "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+    #|  "response_types_supported": ["code", "token", "id_token"],
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"],
+    #|  "scopes_supported": ["openid", "email", "profile"],
+    #|  "token_endpoint_auth_methods_supported": [
+    #|    "client_secret_post", "client_secret_basic"
+    #|  ]
+    #|}
+  let m = @jwt.parse_provider_metadata(doc)
+  @debug.assert_eq(m.issuer, "https://accounts.google.com")
+  @debug.assert_eq(m.jwks_uri, Some("https://www.googleapis.com/oauth2/v3/certs"))
+  @debug.assert_eq(m.id_token_signing_alg_values_supported, ["RS256"])
+  match m.scopes_supported {
+    Some(s) => @debug.assert_eq(s.length(), 3)
+    None => abort("scopes_supported missing")
+  }
+}
+
+///|
+test "discovery: missing issuer rejected" {
+  let doc =
+    #|{
+    #|  "response_types_supported": ["code"],
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(doc) catch {
+    MissingRequiredClaim(c) => @debug.assert_eq(c, "issuer")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC Federation 1.0 — Entity Statement verify
+// -----------------------------------------------------------------------------
+
+///|
+test "federation: entity Configuration (iss == sub) verifies" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"federation-config"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://op.example.com")
+  m["sub"] = Json::string("https://op.example.com")
+  m["exp"] = Json::number((now + 86400L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let jwks : Map[String, Json] = Map([])
+  jwks["keys"] = Json::array([])
+  m["jwks"] = Json::object(jwks)
+  let metadata : Map[String, Json] = Map([])
+  let op : Map[String, Json] = Map([])
+  op["issuer"] = Json::string("https://op.example.com")
+  metadata["openid_provider"] = Json::object(op)
+  m["metadata"] = Json::object(metadata)
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="entity-statement+jwt",
+  )
+  let opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example.com",
+    expected_issuer: Some("https://op.example.com"),
+    expected_kind: Some(@jwt.EntityStatementKind::Configuration),
+    allowed_algorithms: None,
+  }
+  let es = @jwt.verify_entity_statement(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
+  @debug.assert_eq(es.kind, @jwt.EntityStatementKind::Configuration)
+  @debug.assert_eq(es.iss, "https://op.example.com")
+}
+
+///|
+test "federation: entity Subordinate (iss != sub) verifies" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"federation-subord"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://federation.example.org/anchor")
+  m["sub"] = Json::string("https://op.example.com")
+  m["exp"] = Json::number((now + 86400L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let jwks : Map[String, Json] = Map([])
+  jwks["keys"] = Json::array([])
+  m["jwks"] = Json::object(jwks)
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="entity-statement+jwt",
+  )
+  let opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example.com",
+    expected_issuer: Some("https://federation.example.org/anchor"),
+    expected_kind: Some(@jwt.EntityStatementKind::Subordinate),
+    allowed_algorithms: None,
+  }
+  let es = @jwt.verify_entity_statement(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
+  @debug.assert_eq(es.kind, @jwt.EntityStatementKind::Subordinate)
+  @debug.assert_eq(es.iss, "https://federation.example.org/anchor")
+}
+
+///|
+test "federation: wrong typ rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"federation-wrong-typ"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://op.example.com")
+  m["sub"] = Json::string("https://op.example.com")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let jwks : Map[String, Json] = Map([])
+  jwks["keys"] = Json::array([])
+  m["jwks"] = Json::object(jwks)
+  // typ defaults to "JWT", not "entity-statement+jwt".
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.EntityStatementVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    subject: "https://op.example.com",
+    expected_issuer: None,
+    expected_kind: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_entity_statement(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  ) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// OIDC CIBA — auth_req_id + rt_hash binding
+// -----------------------------------------------------------------------------
+
+///|
+test "ciba: auth_req_id round-trips and rt_hash binds to refresh token" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"ciba-test"
+  let refresh_token = "rt-abc"
+  let rt_hash_value = @jwt.compute_x_hash(@jwt.Algorithm::HS256, refresh_token)
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://accounts.example.com/")
+  m["sub"] = Json::string("u")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["urn:openid:params:jwt:claim:auth_req_id"] = Json::string("auth-req-1")
+  m["urn:openid:params:jwt:claim:rt_hash"] = Json::string(rt_hash_value)
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let oidc_opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now,
+    "https://accounts.example.com/",
+    "client-abc",
+  )
+  let opts : @jwt.CibaVerifyOptions = {
+    oidc: oidc_opts,
+    expected_auth_req_id: Some("auth-req-1"),
+    refresh_token: Some(refresh_token),
+  }
+  let c = @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  @debug.assert_eq(c.auth_req_id, Some("auth-req-1"))
+  @debug.assert_eq(c.rt_hash, Some(rt_hash_value))
+}
+
+///|
+test "ciba: auth_req_id mismatch rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"ciba-areqid-bad"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://accounts.example.com/")
+  m["sub"] = Json::string("u")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["urn:openid:params:jwt:claim:auth_req_id"] = Json::string("attacker-id")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.CibaVerifyOptions = {
+    oidc: @jwt.OidcIdTokenVerifyOptions::default(
+      now,
+      "https://accounts.example.com/",
+      "client-abc",
+    ),
+    expected_auth_req_id: Some("real-id"),
+    refresh_token: None,
+  }
+  try @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    AuthReqIdMismatch => ()
+    e => abort("expected AuthReqIdMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AuthReqIdMismatch, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// FAPI 2.0 profile guard
+// -----------------------------------------------------------------------------
+
+///|
+test "fapi: HS256 token rejected by fapi_check_alg" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"fapi-reject-hmac"
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    Map([]),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now,
+    "https://accounts.example.com/",
+    "client-abc",
+  )
+  let id = @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  try @jwt.fapi_check_alg(id.jwt) catch {
+    FapiPolicyViolation(_) => ()
+    e => abort("expected FapiPolicyViolation, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected FapiPolicyViolation, got Ok")
+  }
+}
+
+///|
+test "fapi: EdDSA token accepted; fapi_oidc_options pins alg" {
+  let now = 1_700_000_000L
+  let seed = Bytes::makei(32, fn(i) { (i + 23).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk = sk.public_key()
+  let extra : Map[String, Json] = Map([])
+  extra["nonce"] = Json::string("fapi-nonce")
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    extra,
+  )
+  let token = @jwt.sign(payload, @jwt.Key::EdDsa(privkey=sk))
+  let opts = @jwt.fapi_oidc_options(
+    now,
+    "https://accounts.example.com/",
+    "client-abc",
+    "fapi-nonce",
+  )
+  let id = @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::EdDsa(pubkey=pk), opts)
+  @jwt.fapi_check_alg(id.jwt)
+}
