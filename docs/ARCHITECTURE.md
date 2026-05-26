@@ -41,7 +41,7 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 | Module | Spec | Role |
 |---|---|---|
 | `asn1` | X.690 (DER) / X.680 | Strict canonical DER encoder + decoder. MAX_DEPTH=32 on both ends, OID arc-0 validation, canonical INTEGER. |
-| `cbor` | RFC 8949 | CBOR major types 0..7 + tagged values. Floats always 8-byte. Used by COSE. |
+| `cose_cbor` | RFC 8949 | CBOR major types 0..7 + tagged values. Floats always 8-byte. Used by COSE. Renamed from `cbor` to free the `mizchi/cbor` namespace for the upstream package. |
 | `crypto_bigint` | (Rust crypto-bigint shape) | Currently a wrapper around `@bigint`. TODO: real limb-based impl unblocks constant-time mod-exp. |
 | `getrandom` | (target-specific) | CSPRNG bridge: `crypto.getRandomValues` on JS, `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native. |
 

@@ -25,7 +25,7 @@ members = [
   "./cms",
   "./secp256k1",
   "./jwe",
-  "./cbor",
+  "./cose_cbor",
   "./cose",
   "./bip39",
   "./bip32",

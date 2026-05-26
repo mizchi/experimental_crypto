@@ -20,11 +20,15 @@ Strict canonical DER. MAX_DEPTH=32 on decoder AND encoder. Rejects
 non-canonical INTEGER, BIT STRING `unused_bits > 7`, trailing bytes
 after the outer element, OID arc-overflow.
 
-### `mizchi/cbor`
-**RFC**: 8949 minimum-viable. **Tests**: 41.
+### `mizchi/cose_cbor`
+**RFC**: 8949 minimum-viable for COSE. **Tests**: 41.
 
-> **Note**: the workspace also depends on `mizchi/cbor` from mooncakes;
-> the in-tree module is currently unused upstream. Reconsider integration.
+Provides a `CborValue` ADT (Uint/Nint/Bytes/Text/Array/Map/Tag/Bool/Null/
+Undefined) plus `encode`, `decode`, `decode_first`, `map_get_int`,
+`map_get_str`. Renamed from `mizchi/cbor` to avoid colliding with the
+upstream `mizchi/cbor` published on mooncakes (which is currently a
+narrower type-specific API without Array/Map/Tag). Long-term plan: PR
+the ADT helpers upstream and retire this module.
 
 ### `mizchi/crypto_bigint`
 Wrapper around `@bigint`. Limb-based rewrite is the prerequisite for

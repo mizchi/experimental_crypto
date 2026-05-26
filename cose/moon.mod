@@ -6,7 +6,7 @@ name = "mizchi/cose"
 version = "0.1.0"
 
 import {
-  "mizchi/cbor@0.1.0",
+  "mizchi/cose_cbor@0.1.0",
   "mizchi/hash@0.1.0",
   "mizchi/ed25519@0.1.0",
   "mizchi/p256@0.1.0",

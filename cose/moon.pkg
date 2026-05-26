@@ -1,5 +1,5 @@
 import {
-  "mizchi/cbor",
+  "mizchi/cose_cbor" @cbor,
   "mizchi/hash",
   "mizchi/ed25519",
   "mizchi/p256",
