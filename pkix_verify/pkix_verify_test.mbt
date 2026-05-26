@@ -611,3 +611,368 @@ test "non-critical unknown extension is silently accepted" {
   // Should not raise.
   @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z")
 }
+
+// -----------------------------------------------------------------------------
+// Compliance test fixtures: extension builders for the new enforcement paths
+// -----------------------------------------------------------------------------
+
+///|
+// keyUsage BIT STRING. cRLSign(6) always set so the string is non-empty;
+// keyCertSign(5) is optional. critical defaults to true.
+fn key_usage_ext(key_cert_sign : Bool, critical : Bool) -> @pkix.Extension {
+  let mut byte0 = 0x02 // cRLSign (bit 6)
+  if key_cert_sign {
+    byte0 = byte0 | 0x04 // keyCertSign (bit 5)
+  }
+  let bytes = Bytes::makei(1, fn(_) { byte0.to_byte() })
+  let bs : @asn1.BitString = { unused_bits: 1, bytes }
+  let value = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_bit_string, BitString(bs)),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15]),
+    critical,
+    value,
+  }
+}
+
+///|
+// subjectAltName extension carrying a single dNSName ([2] IMPLICIT IA5String).
+fn san_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  let dns_element = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let san_seq = @asn1.Element::new(@asn1.tag_sequence, Sequence([dns_element]))
+  let value = @asn1.encode_der(san_seq)
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 17]),
+    critical: false,
+    value,
+  }
+}
+
+///|
+// nameConstraints with a single excludedSubtrees DNS entry.
+fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  // GeneralSubtree = SEQUENCE { base [2] IA5String }
+  // Then [1] IMPLICIT SEQUENCE OF GeneralSubtree = excludedSubtrees.
+  let base = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let gst = @asn1.Element::new(@asn1.tag_sequence, Sequence([base]))
+  let gst_bytes = @asn1.encode_der(gst)
+  // [1] IMPLICIT SEQUENCE OF GeneralSubtree — context-specific constructed.
+  let excluded_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(1U, constructed=true),
+    @asn1.Value::Unknown(gst_bytes),
+  )
+  let nc = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([excluded_subtrees]),
+  )
+  let value = @asn1.encode_der(nc)
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value,
+  }
+}
+
+///|
+// extendedKeyUsage with one explicit OID (e.g. id-kp-serverAuth).
+fn eku_ext_server_auth() -> @pkix.Extension {
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 3, 1])
+  let value = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(server_auth))]),
+    ),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 37]),
+    critical: false,
+    value,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Compliance: keyUsage enforcement
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK RFC 5280 §6.1.4(n): issuer keyUsage WITHOUT keyCertSign rejected" {
+  // Build a 2-cert chain: leaf signed by intermediate, intermediate has
+  // keyUsage but lacks keyCertSign. Should fail with KeyUsageMissingCertSign.
+  let inter_seed = "0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10"
+  let leaf_seed = "ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211ee"
+  let bad_ku = key_usage_ext(false, true)
+  let bc = basic_constraints_ca_ext()
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Bad Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, bad_ku],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Bad Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let inter_pk_extracted = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  ignore(inter_pk_extracted)
+  // The trust anchor is the issuer of `inter`, which is `inter` itself
+  // (self-signed). So anchor = inter's pubkey, intermediates = [inter].
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  match
+    (try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")) {
+    Err(KeyUsageMissingCertSign) => ()
+    other => abort("intermediate without keyCertSign NOT rejected: \{other}")
+  }
+}
+
+///|
+test "keyUsage WITH keyCertSign passes" {
+  let inter_seed = "1112131415161718191a1b1c1d1e1f201112131415161718191a1b1c1d1e1f20"
+  let leaf_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+  let good_ku = key_usage_ext(true, true)
+  let bc = basic_constraints_ca_ext()
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Good Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, good_ku],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Good Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  // Should pass.
+  @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+// -----------------------------------------------------------------------------
+// Compliance: nameConstraints (DNS) enforcement
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK RFC 5280 §4.2.1.10: nameConstraints excludedSubtrees blocks child SAN" {
+  // Intermediate excludes ".evil.com". Leaf has SAN dNSName "x.evil.com".
+  // verify_chain must reject with NameConstraintViolation.
+  let inter_seed = "2122232425262728292a2b2c2d2e2f302122232425262728292a2b2c2d2e2f30"
+  let leaf_seed = "8877665544332211ffeeddccbbaa99887766554433221100ffeeddccbbaa9988"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let nc = name_constraints_excluded_ext("evil.com")
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku, nc],
+  )
+  let leaf_san = san_ext("x.evil.com")
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [leaf_san],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  match
+    (try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")) {
+    Err(NameConstraintViolation(name)) => assert_eq(name, "x.evil.com")
+    other => abort("excludedSubtree DNS NOT enforced: \{other}")
+  }
+}
+
+///|
+test "nameConstraints excludedSubtrees lets through a different DNS suffix" {
+  // Same constraints as above but leaf SAN is "x.good.com" — allowed.
+  let inter_seed = "3132333435363738393a3b3c3d3e3f403132333435363738393a3b3c3d3e3f40"
+  let leaf_seed = "1111222233334444555566667777888811112222333344445555666677778888"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let nc = name_constraints_excluded_ext("evil.com")
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku, nc],
+  )
+  let leaf_san = san_ext("api.good.com")
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [leaf_san],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+// -----------------------------------------------------------------------------
+// Compliance: required EKU on leaf
+// -----------------------------------------------------------------------------
+
+///|
+test "required_eku: leaf without EKU passes (unrestricted per RFC 5280)" {
+  let inter_seed = "4142434445464748494a4b4c4d4e4f504142434445464748494a4b4c4d4e4f50"
+  let leaf_seed = "aabbccddeeff00112233445566778899aabbccddeeff001122334455667788ee"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(
+      @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 3, 1]),
+    ),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
+test "required_eku: leaf with mismatching EKU is rejected" {
+  let inter_seed = "5152535455565758595a5b5c5d5e5f605152535455565758595a5b5c5d5e5f60"
+  let leaf_seed = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  // Leaf has EKU = serverAuth, caller requires clientAuth — should fail.
+  let server_auth_only = eku_ext_server_auth()
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [server_auth_only],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let client_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 2,
+  ])
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(client_auth),
+  }
+  match
+    (try? @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor,
+      "250601000000Z",
+      opts,
+    )) {
+    Err(ExtendedKeyUsageMissing(oid)) => assert_eq(oid, client_auth)
+    other => abort("required_eku not enforced: \{other}")
+  }
+}
+
+///|
+test "required_eku: leaf with matching EKU passes" {
+  let inter_seed = "6162636465666768696a6b6c6d6e6f706162636465666768696a6b6c6d6e6f70"
+  let leaf_seed = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  let server_auth_ext = eku_ext_server_auth()
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [server_auth_ext],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(server_auth),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
