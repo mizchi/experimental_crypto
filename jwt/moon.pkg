@@ -3,6 +3,7 @@ import {
   "mizchi/rsa",
   "mizchi/p256",
   "mizchi/p384",
+  "mizchi/secp256k1",
   "mizchi/hash",
   "mizchi/jwk",
   "moonbitlang/core/encoding/base64",

@@ -11,6 +11,8 @@ import {
 }
 
 // Values
+pub fn compute_x_hash(Algorithm, String) -> String
+
 pub fn peek_header(String) -> Map[String, Json] raise JwtError
 
 pub fn select_verify_key(Array[@jwk.JwkSetEntry], Map[String, Json]) -> VerifyKey raise JwtError
@@ -18,6 +20,10 @@ pub fn select_verify_key(Array[@jwk.JwkSetEntry], Map[String, Json]) -> VerifyKe
 pub fn sign(Json, Key, kid? : String, typ? : String) -> String raise JwtError
 
 pub fn verify(String, VerifyKey, VerifyOptions) -> VerifiedJwt raise JwtError
+
+pub fn verify_client_assertion(String, VerifyKey, ClientAssertionVerifyOptions) -> ClientAssertion raise JwtError
+
+pub fn verify_client_assertion_jwks(String, Array[@jwk.JwkSetEntry], ClientAssertionVerifyOptions) -> ClientAssertion raise JwtError
 
 pub fn verify_oidc_id_token(String, VerifyKey, OidcIdTokenVerifyOptions) -> OidcIdToken raise JwtError
 
@@ -52,6 +58,7 @@ pub suberror JwtError {
   CHashMismatch
   AuthTimeTooOld
   AcrMismatch
+  SubjectMismatch
 } derive(@debug.Debug)
 
 // Types and methods
@@ -70,6 +77,24 @@ pub(all) enum Algorithm {
   PS512
   EdDSA
 } derive(Eq, @debug.Debug)
+
+pub(all) struct ClientAssertion {
+  client_id : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64?
+  jti : String?
+  jwt : VerifiedJwt
+}
+
+pub(all) struct ClientAssertionVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  expected_client_id : String
+  token_endpoint : String
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+pub fn ClientAssertionVerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) enum Key {
   Hs256(secret~ : Bytes)

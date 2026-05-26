@@ -33,6 +33,9 @@ pub(all) enum Algorithm {
   ES256
   ES384
   ES512
+  // RFC 8812 §3.1 — ECDSA with secp256k1 + SHA-256, used in DID / Web3
+  // ecosystems and OpenID Connect for blockchain-backed identities.
+  ES256K
   PS256
   PS384
   PS512
@@ -55,6 +58,9 @@ pub(all) enum Key {
   // ES256 / ES384: ECDSA-SHA-{256,384} sign with RFC 6979 deterministic nonce.
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
+  // ES256K (RFC 8812): ECDSA-secp256k1-SHA256 with RFC 6979 + BIP-62 low-s.
+  // Signature is the JOSE raw form r||s (64 bytes) regardless of the curve.
+  Es256k(privkey~ : @secp256k1.PrivateKey)
   // PS256 / PS384 / PS512: RSASSA-PSS sign with deterministic empty salt.
   // See the module comment for the sLen = 0 caveat vs RFC 7518 §3.5.
   Ps256(privkey~ : @rsa.RsaPrivateKey)
@@ -80,6 +86,10 @@ pub(all) enum VerifyKey {
   Es256(pubkey~ : @p256.PublicKey)
   // ES384 (ECDSA with P-384 + SHA-384, RFC 7518 §3.4). JOSE raw r||s = 96B.
   Es384(pubkey~ : @p384.PublicKey)
+  // ES256K (RFC 8812 §3.1): ECDSA-secp256k1-SHA256. JOSE raw r||s = 64B.
+  // Verify is permissive on high-s per the underlying SEC 2 / FIPS 186-5
+  // shape — strict BIP-66 rejection is the caller's job.
+  Es256k(pubkey~ : @secp256k1.PublicKey)
   // PS256 / PS384 / PS512: RSASSA-PSS verify with sLen = 0 (matches our
   // sign path, NOT the RFC 7518 sLen = hLen convention — see module
   // comment for the interop tradeoff).
@@ -125,6 +135,10 @@ pub suberror JwtError {
   CHashMismatch
   AuthTimeTooOld
   AcrMismatch
+  // RFC 7523 — OAuth 2.0 JWT Bearer client authentication. iss and sub
+  // MUST both equal the client_id; if they disagree the assertion is
+  // not from the claimed client.
+  SubjectMismatch
 } derive(Debug)
 
 ///|
@@ -223,6 +237,7 @@ fn alg_to_str(alg : Algorithm) -> String {
     ES256 => "ES256"
     ES384 => "ES384"
     ES512 => "ES512"
+    ES256K => "ES256K"
     PS256 => "PS256"
     PS384 => "PS384"
     PS512 => "PS512"
@@ -242,6 +257,7 @@ fn alg_from_str(s : String) -> Algorithm raise JwtError {
     "ES256" => ES256
     "ES384" => ES384
     "ES512" => ES512
+    "ES256K" => ES256K
     "PS256" => PS256
     "PS384" => PS384
     "PS512" => PS512
@@ -262,6 +278,7 @@ fn key_alg(k : Key) -> Algorithm {
     Rs512(..) => RS512
     Es256(..) => ES256
     Es384(..) => ES384
+    Es256k(..) => ES256K
     Ps256(..) => PS256
     Ps384(..) => PS384
     Ps512(..) => PS512
@@ -280,6 +297,7 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     Rs512(..) => RS512
     Es256(..) => ES256
     Es384(..) => ES384
+    Es256k(..) => ES256K
     Ps256(..) => PS256
     Ps384(..) => PS384
     Ps512(..) => PS512
@@ -365,6 +383,9 @@ pub fn sign(
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
     Es384(privkey~) => privkey.sign(signing_bytes)
+    Es256k(privkey~) =>
+      // @secp256k1.sign defaults to BIP-62 low-s + DER; JOSE wants raw r||s.
+      privkey.sign(signing_bytes, format=@secp256k1.SignatureFormat::Raw)
     // PSS with sLen = 0 (deterministic) — see module comment.
     Ps256(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, b"") catch {
@@ -600,6 +621,16 @@ pub fn verify(
       ) catch {
         _ => raise InvalidSignature
       }
+    (ES256K, Es256k(pubkey~)) =>
+      // r||s, 64 bytes total. RFC 8812 §3.1.
+      @secp256k1.verify(
+        pubkey,
+        signing_bytes,
+        provided_sig,
+        @secp256k1.SignatureFormat::Raw,
+      ) catch {
+        _ => raise InvalidSignature
+      }
     // PSS verify with sLen = 0 (matches the sign path; see module comment).
     (PS256, Ps256(pubkey~)) =>
       pubkey.verify_pss(
@@ -782,6 +813,7 @@ fn jwk_to_verify_key(
     (PS512, Rsa(pubkey~, ..)) => Ps512(pubkey~)
     (ES256, EcP256(pubkey~, ..)) => Es256(pubkey~)
     (ES384, EcP384(pubkey~, ..)) => Es384(pubkey~)
+    (ES256K, EcSecp256k1(pubkey~, ..)) => Es256k(pubkey~)
     (EdDSA, OkpEd25519(pubkey~, ..)) => EdDsa(pubkey~)
     _ =>
       raise UnsupportedAlgorithm(
@@ -1357,11 +1389,119 @@ fn get_bool(m : Map[String, Json], key : String) -> Bool? {
 pub fn compute_x_hash(alg : Algorithm, value : String) -> String {
   let bytes = @utf8.encode(value[:])
   let h = match alg {
-    HS256 | RS256 | ES256 | PS256 => @hash.sha256(bytes)
+    HS256 | RS256 | ES256 | PS256 | ES256K => @hash.sha256(bytes)
     HS384 | RS384 | ES384 | PS384 => @hash.sha384(bytes)
     HS512 | RS512 | ES512 | PS512 | EdDSA => @hash.sha512(bytes)
   }
   let half = h.length() / 2
   let left = Bytes::makei(half, fn(i) { h[i] })
   base64url_encode(left)
+}
+
+// -----------------------------------------------------------------------------
+// RFC 7523 — JWT Profile for OAuth 2.0 Client Authentication
+// -----------------------------------------------------------------------------
+//
+// §3 client_assertion shape:
+//   iss = sub = client_id
+//   aud = the AS's token endpoint URL (the verifier's identifier)
+//   exp REQUIRED; jti SHOULD; iat MAY
+//
+// This is the assertion the *client* presents to the *authorization server*
+// when using client_assertion_type=
+// "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".
+
+///|
+pub(all) struct ClientAssertionVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  // The client_id the AS believes is making the assertion. Both `iss`
+  // and `sub` MUST equal this value (RFC 7523 §3 step 2 + 3).
+  expected_client_id : String
+  // The AS's token endpoint URL (or another AS-chosen identifier).
+  // The assertion's `aud` claim must contain this value.
+  token_endpoint : String
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub fn ClientAssertionVerifyOptions::default(
+  now : Int64,
+  expected_client_id : String,
+  token_endpoint : String,
+) -> ClientAssertionVerifyOptions {
+  {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id,
+    token_endpoint,
+    allowed_algorithms: None,
+  }
+}
+
+///|
+pub(all) struct ClientAssertion {
+  client_id : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64?
+  jti : String?
+  jwt : VerifiedJwt
+}
+
+///|
+pub fn verify_client_assertion(
+  token : String,
+  key : VerifyKey,
+  opts : ClientAssertionVerifyOptions,
+) -> ClientAssertion raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: true,
+    issuer: Some(opts.expected_client_id),
+    audience: Some(opts.token_endpoint),
+    typ_allowed: None,
+  }
+  let v = verify(token, key, base)
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  let sub = require_string_claim(v.claims, "sub")
+  if sub != opts.expected_client_id {
+    raise SubjectMismatch
+  }
+  let aud = extract_aud(v.claims)
+  let exp = require_numeric_claim(v.claims, "exp")
+  {
+    client_id: opts.expected_client_id,
+    aud,
+    exp,
+    iat: get_numeric_date(v.claims, "iat"),
+    jti: get_string(v.claims, "jti"),
+    jwt: v,
+  }
+}
+
+///|
+pub fn verify_client_assertion_jwks(
+  token : String,
+  set : Array[@jwk.JwkSetEntry],
+  opts : ClientAssertionVerifyOptions,
+) -> ClientAssertion raise JwtError {
+  let header = peek_header(token)
+  let key = select_verify_key(set, header)
+  verify_client_assertion(token, key, opts)
 }
