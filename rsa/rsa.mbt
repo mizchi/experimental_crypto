@@ -178,10 +178,20 @@ pub fn RsaPublicKey::from_spki_der(der : Bytes) -> RsaPublicKey raise RsaError {
 let digest_info_prefix_sha256 : Bytes = b"\x30\x31\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01\x05\x00\x04\x20"
 
 ///|
+// RFC 8017 §9.2 note 1: sha384WithRSAEncryption / sha512WithRSAEncryption
+// DigestInfo prefixes. Each is the ASN.1 SEQUENCE { algorithm, OCTET STRING
+// header } that precedes the raw digest in the encoded EM.
+let digest_info_prefix_sha384 : Bytes = b"\x30\x41\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x02\x05\x00\x04\x30"
+
+///|
+let digest_info_prefix_sha512 : Bytes = b"\x30\x51\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x03\x05\x00\x04\x40"
+
+///|
 fn digest_info_prefix(hash : HashAlg) -> Bytes raise RsaError {
   match hash {
     Sha256 => digest_info_prefix_sha256
-    _ => raise UnsupportedHash(hash)
+    Sha384 => digest_info_prefix_sha384
+    Sha512 => digest_info_prefix_sha512
   }
 }
 
@@ -189,7 +199,8 @@ fn digest_info_prefix(hash : HashAlg) -> Bytes raise RsaError {
 fn digest_length(hash : HashAlg) -> Int raise RsaError {
   match hash {
     Sha256 => 32
-    _ => raise UnsupportedHash(hash)
+    Sha384 => 48
+    Sha512 => 64
   }
 }
 
@@ -197,7 +208,8 @@ fn digest_length(hash : HashAlg) -> Int raise RsaError {
 fn hash_message(hash : HashAlg, msg : Bytes) -> Bytes raise RsaError {
   match hash {
     Sha256 => @hash.sha256(msg)
-    _ => raise UnsupportedHash(hash)
+    Sha384 => @hash.sha384(msg)
+    Sha512 => @hash.sha512(msg)
   }
 }
 

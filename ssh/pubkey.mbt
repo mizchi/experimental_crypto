@@ -10,7 +10,10 @@
 ///|
 pub(all) enum SshPublicKey {
   Ed25519(@ed25519.PublicKey)
-} derive(Show)
+  P256(@p256.PublicKey)
+  P384(@p384.PublicKey)
+  Rsa(@rsa.RsaPublicKey)
+}
 
 ///|
 pub(all) struct SshPublicKeyText {
@@ -21,6 +24,61 @@ pub(all) struct SshPublicKeyText {
 
 ///|
 pub let ed25519_algo : String = "ssh-ed25519"
+
+///|
+pub let ecdsa_p256_algo : String = "ecdsa-sha2-nistp256"
+
+///|
+pub let ecdsa_p384_algo : String = "ecdsa-sha2-nistp384"
+
+///|
+pub let rsa_sha256_algo : String = "rsa-sha2-256"
+
+///|
+pub let rsa_sha512_algo : String = "rsa-sha2-512"
+
+///|
+// SSH `mpint` (RFC 4251 §5): two's-complement BE, no redundant leading
+// bytes. For non-negative integers with high-bit set, a single 0x00
+// sign byte is prepended. Returns the magnitude as a positive byte
+// slice (sign byte stripped). Zero ⇒ empty bytes.
+fn mpint_magnitude(b : Bytes) -> Bytes raise SshError {
+  if b.length() == 0 {
+    return b
+  }
+  if (b[0].to_int() & 0x80) != 0 {
+    raise InvalidEncoding("negative mpint")
+  }
+  if b.length() > 1 && b[0] == b'\x00' {
+    // Strip the 0x00 sign byte.
+    Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  } else {
+    b
+  }
+}
+
+///|
+// Left-pad `b` with 0x00 to exactly `target_len` bytes. Raises if the
+// natural length exceeds target_len (i.e. caller picked too-small a curve).
+fn left_pad(b : Bytes, target_len : Int) -> Bytes raise SshError {
+  if b.length() > target_len {
+    raise InvalidEncoding(
+      "integer wider than expected field (" +
+      b.length().to_string() +
+      " > " +
+      target_len.to_string() +
+      ")",
+    )
+  }
+  let pad = target_len - b.length()
+  Bytes::makei(target_len, fn(i) {
+    if i < pad {
+      b'\x00'
+    } else {
+      b[i - pad]
+    }
+  })
+}
 
 ///|
 // Parse a single `algorithm base64 [comment]` line. Whitespace at line
@@ -93,6 +151,68 @@ pub fn parse_ed25519_pubkey(
   @ed25519.PublicKey::from_bytes(key_bytes) catch {
     _ => raise InvalidEncoding("ed25519 pubkey decode failed")
   }
+}
+
+///|
+// Parse an `ecdsa-sha2-nistpN` pubkey blob.
+//   string  "ecdsa-sha2-nistpN"
+//   string  "nistpN"
+//   string  Q  (uncompressed: 04 || X || Y, 1+2N bytes)
+pub fn parse_ecdsa_pubkey(
+  blob : Bytes,
+) -> SshPublicKey raise SshError {
+  let reader = WireReader::new(blob)
+  let algo = reader.read_string_ascii()
+  let curve_label = reader.read_string_ascii()
+  let q = reader.read_string()
+  if not(reader.is_empty()) {
+    raise InvalidEncoding("trailing bytes after ECDSA pubkey")
+  }
+  if algo == ecdsa_p256_algo {
+    if curve_label != "nistp256" {
+      raise InvalidEncoding("expected nistp256 curve label, got " + curve_label)
+    }
+    let pk = @p256.PublicKey::from_uncompressed(q) catch {
+      _ => raise InvalidEncoding("p256 pubkey")
+    }
+    P256(pk)
+  } else if algo == ecdsa_p384_algo {
+    if curve_label != "nistp384" {
+      raise InvalidEncoding("expected nistp384 curve label, got " + curve_label)
+    }
+    let pk = @p384.PublicKey::from_uncompressed(q) catch {
+      _ => raise InvalidEncoding("p384 pubkey")
+    }
+    P384(pk)
+  } else {
+    raise UnsupportedAlgorithm(algo)
+  }
+}
+
+///|
+// Parse a `ssh-rsa` pubkey blob.
+//   string  "ssh-rsa"
+//   mpint   e
+//   mpint   n
+//
+// The same wire format is shared by ssh-rsa / rsa-sha2-256 / rsa-sha2-512;
+// the algorithm in the inner signature blob picks the hash.
+pub fn parse_rsa_pubkey(blob : Bytes) -> @rsa.RsaPublicKey raise SshError {
+  let reader = WireReader::new(blob)
+  let algo = reader.read_string_ascii()
+  if algo != "ssh-rsa" {
+    raise UnsupportedAlgorithm(algo)
+  }
+  let e_bytes = reader.read_string()
+  let n_bytes = reader.read_string()
+  if not(reader.is_empty()) {
+    raise InvalidEncoding("trailing bytes after ssh-rsa pubkey")
+  }
+  let e_mag = mpint_magnitude(e_bytes)
+  let n_mag = mpint_magnitude(n_bytes)
+  let e = BigInt::from_octets(e_mag[:])
+  let n = BigInt::from_octets(n_mag[:])
+  { n, e, n_bytes_len: n_mag.length() }
 }
 
 ///|

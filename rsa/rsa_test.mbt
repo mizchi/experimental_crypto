@@ -207,18 +207,17 @@ test "from_pkcs1_der: not a sequence rejected" {
 // ─── sanity: HashAlg ergonomics ────────────────────────────────────────
 
 ///|
-test "Sha384 / Sha512 raise UnsupportedHash" {
+test "Sha384 / Sha512 are now wired up (return false for wrong hash)" {
+  // The RFC 7515 signature was made with SHA-256; verifying with SHA-384
+  // or SHA-512 should now return false (rather than raise) since both
+  // hashes are implemented.
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
-  let r1 = try? pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384)
-  match r1 {
-    Err(UnsupportedHash(_)) => ()
-    _ => abort("expected UnsupportedHash for Sha384")
-  }
-  let r2 = try? pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512)
-  match r2 {
-    Err(UnsupportedHash(_)) => ()
-    _ => abort("expected UnsupportedHash for Sha512")
-  }
+  assert_false(
+    pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384),
+  )
+  assert_false(
+    pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512),
+  )
 }
 
 // -----------------------------------------------------------------------------

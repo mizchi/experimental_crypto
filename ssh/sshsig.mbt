@@ -33,7 +33,7 @@ pub(all) struct SshSignature {
   hash_algorithm : String // "sha256" or "sha512"
   // Inner signature blob (still in SSH wire format: algorithm + sig bytes).
   signature_blob : Bytes
-} derive(Show)
+}
 
 ///|
 // Decode a binary SSHSIG blob (i.e. base64-decoded armor body) into the
@@ -95,11 +95,16 @@ fn hash_message(alg : String, message : Bytes) -> Bytes raise SshError {
 
 ///|
 fn decode_pubkey(blob : Bytes) -> SshPublicKey raise SshError {
-  // Peek the algorithm to pick the right decoder.
+  // Peek the algorithm to pick the right decoder. We do NOT consume the
+  // reader here — each per-algorithm parser owns the full blob.
   let reader = WireReader::new(blob)
   let algo = reader.read_string_ascii()
   if algo == ed25519_algo {
     Ed25519(parse_ed25519_pubkey(blob))
+  } else if algo == ecdsa_p256_algo || algo == ecdsa_p384_algo {
+    parse_ecdsa_pubkey(blob)
+  } else if algo == "ssh-rsa" {
+    Rsa(parse_rsa_pubkey(blob))
   } else {
     raise UnsupportedAlgorithm(algo)
   }

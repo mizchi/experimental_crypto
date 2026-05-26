@@ -54,7 +54,10 @@ test "ssh: verify_armor_anonymous returns embedded pubkey" {
   assert_eq(ns, "git")
   let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
   let expected_pk = @ssh.parse_ed25519_pubkey(parsed.blob)
-  assert_eq(pk_from_sig.to_bytes(), expected_pk.to_bytes())
+  match pk_from_sig {
+    Ed25519(pk) => assert_eq(pk.to_bytes(), expected_pk.to_bytes())
+    _ => abort("expected Ed25519")
+  }
 }
 
 ///|
@@ -101,6 +104,7 @@ test "ssh: sshsig binary decode reveals fields" {
   assert_eq(sig.hash_algorithm, "sha512")
   match sig.publickey {
     Ed25519(pk) => assert_eq(pk.to_bytes().length(), 32)
+    _ => abort("expected Ed25519")
   }
 }
 
@@ -110,4 +114,189 @@ test "ssh: encode_sshsig_armor roundtrips through decode" {
   let reencoded = @ssh.encode_sshsig_armor(original_blob)
   let rebuilt_blob = @ssh.decode_sshsig_armor(reencoded)
   assert_eq(original_blob, rebuilt_blob)
+}
+
+// -----------------------------------------------------------------------------
+// allowed_signers parser + verify integration
+// -----------------------------------------------------------------------------
+
+///|
+let allowed_signers_text : String =
+  #|# Comment line is ignored
+  #|mizchi@misc-test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  #|
+  #|other@example.com namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+///|
+test "ssh: parse_allowed_signers reads two entries" {
+  let signers = @ssh.parse_allowed_signers(allowed_signers_text)
+  assert_eq(signers.length(), 2)
+  assert_eq(signers[0].principals[0], "mizchi@misc-test")
+  assert_eq(signers[1].principals[0], "other@example.com")
+  match signers[1].namespaces {
+    Some(ns) => assert_eq(ns[0], "file")
+    None => abort("namespaces option not parsed")
+  }
+}
+
+///|
+test "ssh: find_signers honours glob and literal principals" {
+  let signers = @ssh.parse_allowed_signers(allowed_signers_text)
+  let found = @ssh.find_signers(signers, "mizchi@misc-test")
+  assert_eq(found.length(), 1)
+  let none = @ssh.find_signers(signers, "nobody@elsewhere")
+  assert_eq(none.length(), 0)
+  // Glob support: add a wildcard line and re-test.
+  let glob_text =
+    #|* ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let glob_signers = @ssh.parse_allowed_signers(glob_text)
+  assert_eq(@ssh.find_signers(glob_signers, "anyone").length(), 1)
+}
+
+///|
+test "ssh: verify_with_allowed_signers passes for the real signed message" {
+  let ok = @ssh.verify_with_allowed_signers(
+    allowed_signers_text,
+    "mizchi@misc-test",
+    armored_signature,
+    fixture_message(),
+  )
+  assert_true(ok)
+}
+
+///|
+test "ssh: verify_with_allowed_signers rejects unknown principal" {
+  let ok = @ssh.verify_with_allowed_signers(
+    allowed_signers_text,
+    "attacker@evil.invalid",
+    armored_signature,
+    fixture_message(),
+  )
+  assert_false(ok)
+}
+
+///|
+test "ATTACK: namespace-scoped entry refuses cross-namespace use" {
+  // The 'other@example.com' entry restricts to namespaces="file". Even if
+  // the signer's key matched, a "git"-namespace signature must not satisfy it.
+  let restricted_text =
+    #|attacker@evil.invalid namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let ok = @ssh.verify_with_allowed_signers(
+    restricted_text,
+    "attacker@evil.invalid",
+    armored_signature,
+    fixture_message(),
+  )
+  assert_false(ok)
+}
+
+// -----------------------------------------------------------------------------
+// ECDSA-SSH (ecdsa-sha2-nistp256) — real ssh-keygen output
+// -----------------------------------------------------------------------------
+
+///|
+let ecdsa_pubkey_text : String =
+  #|ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOjP+LsOqVSQ4wr88Hr5sr3zdBVTn/NGSFwN8X03oCCHRetbuvgvRUqBChu7QlVqf33UeZgYJ6vczR570C5nnG0= ecdsa@test
+
+///|
+let ecdsa_armored_signature : String =
+  #|-----BEGIN SSH SIGNATURE-----
+  #|U1NIU0lHAAAAAQAAAGgAAAATZWNkc2Etc2hhMi1uaXN0cDI1NgAAAAhuaXN0cDI1NgAAAE
+  #|EE6M/4uw6pVJDjCvzwevmyvfN0FVOf80ZIXA3xfTegIIdF61u6+C9FSoEKG7tCVWp/fdR5
+  #|mBgnq9zNHnvQLmecbQAAAANnaXQAAAAAAAAABnNoYTUxMgAAAGQAAAATZWNkc2Etc2hhMi
+  #|1uaXN0cDI1NgAAAEkAAAAhAM1s2V4gqdJJ6xkpRE6vZpxNpBftg+oExy/jEEMjxqdWAAAA
+  #|IDUpuGnwmrO9l+3gqROm2ZuUW+hEtzeIzlIOj0bgp6WN
+  #|-----END SSH SIGNATURE-----
+
+///|
+test "ssh: verify_armor_with verifies a real ECDSA-SSH signature" {
+  let parsed = @ssh.parse_ssh_pubkey_text(ecdsa_pubkey_text)
+  let pk = @ssh.parse_ecdsa_pubkey(parsed.blob)
+  assert_true(
+    @ssh.verify_armor_with(ecdsa_armored_signature, fixture_message(), pk),
+  )
+}
+
+///|
+test "ssh: ECDSA-SSH tampered message fails" {
+  let parsed = @ssh.parse_ssh_pubkey_text(ecdsa_pubkey_text)
+  let pk = @ssh.parse_ecdsa_pubkey(parsed.blob)
+  let bad : Bytes = b"different"
+  assert_false(@ssh.verify_armor_with(ecdsa_armored_signature, bad, pk))
+}
+
+// -----------------------------------------------------------------------------
+// RSA-SSH (rsa-sha2-512) — real ssh-keygen output
+// -----------------------------------------------------------------------------
+
+///|
+let rsa_pubkey_text : String =
+  #|ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDD/GxR+DEacbYlagrS8fM7FOKgSbou4x6a08Mtn2US0G1ECV5Y1XDho7N4GgZe9OMggMWrrt4+PyjddTljwdMF876Kpv9osrnkTlFHCYvjHgCl0a6pn1wJw1KRrXXTSvEXbh3P+bNHd2r3AMX+b5OUt07nyWMuFty4daZ0BdkdPQncP3Oa++3VWLjpXa6UmeEBDlekiVjtbC1E6FCIOnhPTSE+6Bwmzu9B29GgdDctiTQoqw6MLywvMrsMwOhvDEDzIqORNOGUr6K+I9Hp/X/pqKaxtq2UDnoNnriI1+W0cOIv+78x/oU3qtvSEfkCZoob4otqDen4tt42yHMD+OxN rsa@test
+
+///|
+let rsa_armored_signature : String =
+  #|-----BEGIN SSH SIGNATURE-----
+  #|U1NIU0lHAAAAAQAAARcAAAAHc3NoLXJzYQAAAAMBAAEAAAEBAMP8bFH4MRpxtiVqCtLx8z
+  #|sU4qBJui7jHprTwy2fZRLQbUQJXljVcOGjs3gaBl704yCAxauu3j4/KN11OWPB0wXzvoqm
+  #|/2iyueROUUcJi+MeAKXRrqmfXAnDUpGtddNK8RduHc/5s0d3avcAxf5vk5S3TufJYy4W3L
+  #|h1pnQF2R09Cdw/c5r77dVYuOldrpSZ4QEOV6SJWO1sLUToUIg6eE9NIT7oHCbO70Hb0aB0
+  #|Ny2JNCirDowvLC8yuwzA6G8MQPMio5E04ZSvor4j0en9f+moprG2rZQOeg2euIjX5bRw4i
+  #|/7vzH+hTeq29IR+QJmihvii2oN6fi23jbIcwP47E0AAAADZ2l0AAAAAAAAAAZzaGE1MTIA
+  #|AAEUAAAADHJzYS1zaGEyLTUxMgAAAQA4k+HVYxvVmKKim+aRQ2FXvC0r16NUqw4ZpQsMp2
+  #|iMFLTD6/UBmH+a/SXWU+4trEDlf/6A1E1+gUorKzGhxiDK+XiD4wJh2jOJj8iZxpcskPSf
+  #|EHXHhst/nbGyNoUPGvcvBRDa42q0PZr2B9ioaYIqERtFnDPfoCOMVvZzvIeIPHHebx/E78
+  #|gjdkcBol6ElUIYl6RpRAzrQHKH71pNJAWblsPsZPEfr+awbHlj91O/tqaMznE3KxJ98DSK
+  #|sOz5GzORLj9BWZ1aHtEqJ+Q05macvn4SVAsHTuE+I9r/I9DAy6yC/uETpt7hEHa6V4uWt9
+  #|Yqe7OvM+1jtOWTDnWdAsmr
+  #|-----END SSH SIGNATURE-----
+
+///|
+test "ssh: verify_armor_with verifies a real RSA-SSH (rsa-sha2-512) signature" {
+  let parsed = @ssh.parse_ssh_pubkey_text(rsa_pubkey_text)
+  let rsa_pk = @ssh.parse_rsa_pubkey(parsed.blob)
+  let pk = @ssh.SshPublicKey::Rsa(rsa_pk)
+  assert_true(
+    @ssh.verify_armor_with(rsa_armored_signature, fixture_message(), pk),
+  )
+}
+
+///|
+test "ssh: RSA-SSH tampered message fails" {
+  let parsed = @ssh.parse_ssh_pubkey_text(rsa_pubkey_text)
+  let rsa_pk = @ssh.parse_rsa_pubkey(parsed.blob)
+  let pk = @ssh.SshPublicKey::Rsa(rsa_pk)
+  let bad : Bytes = b"different"
+  assert_false(@ssh.verify_armor_with(rsa_armored_signature, bad, pk))
+}
+
+// -----------------------------------------------------------------------------
+// allowed_signers with mixed key types
+// -----------------------------------------------------------------------------
+
+///|
+test "ssh: allowed_signers verifies ECDSA via verify_with_allowed_signers" {
+  let allowed =
+    #|ecdsa@test ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBOjP+LsOqVSQ4wr88Hr5sr3zdBVTn/NGSFwN8X03oCCHRetbuvgvRUqBChu7QlVqf33UeZgYJ6vczR570C5nnG0=
+  assert_true(
+    @ssh.verify_with_allowed_signers(
+      allowed,
+      "ecdsa@test",
+      ecdsa_armored_signature,
+      fixture_message(),
+    ),
+  )
+}
+
+///|
+test "ssh: allowed_signers verifies RSA via verify_with_allowed_signers" {
+  let allowed =
+    #|rsa@test ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDD/GxR+DEacbYlagrS8fM7FOKgSbou4x6a08Mtn2US0G1ECV5Y1XDho7N4GgZe9OMggMWrrt4+PyjddTljwdMF876Kpv9osrnkTlFHCYvjHgCl0a6pn1wJw1KRrXXTSvEXbh3P+bNHd2r3AMX+b5OUt07nyWMuFty4daZ0BdkdPQncP3Oa++3VWLjpXa6UmeEBDlekiVjtbC1E6FCIOnhPTSE+6Bwmzu9B29GgdDctiTQoqw6MLywvMrsMwOhvDEDzIqORNOGUr6K+I9Hp/X/pqKaxtq2UDnoNnriI1+W0cOIv+78x/oU3qtvSEfkCZoob4otqDen4tt42yHMD+OxN
+  assert_true(
+    @ssh.verify_with_allowed_signers(
+      allowed,
+      "rsa@test",
+      rsa_armored_signature,
+      fixture_message(),
+    ),
+  )
 }
