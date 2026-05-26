@@ -2,6 +2,8 @@
 package "mizchi/aead"
 
 // Values
+pub fn hchacha20(Bytes, Bytes) -> Bytes
+
 pub fn open(Algorithm, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError
 
 pub fn open_detached(Algorithm, Bytes, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError
@@ -12,6 +14,7 @@ pub fn seal_detached(Algorithm, Bytes, Bytes, Bytes, Bytes) -> (Bytes, Bytes) ra
 
 // Errors
 pub suberror AeadError {
+  InvalidTagSize(expected~ : Int, got~ : Int)
   InvalidKeySize(expected~ : Int, got~ : Int)
   InvalidNonceSize(expected~ : Int, got~ : Int)
   CiphertextTooShort

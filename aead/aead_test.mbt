@@ -297,23 +297,140 @@ test "AES-128-GCM empty round-trip" {
 }
 
 ///|
-test "XChaCha20-Poly1305 raises UnsupportedAlgorithm" {
-  let key = Bytes::makei(32, fn(_) { b'\x00' })
-  let nonce = Bytes::makei(24, fn(_) { b'\x00' })
+test "HChaCha20 RFC draft-irtf-cfrg-xchacha §A.1 sub-key" {
+  let key = hex(
+    "00:01:02:03:04:05:06:07:08:09:0a:0b:0c:0d:0e:0f" +
+    ":10:11:12:13:14:15:16:17:18:19:1a:1b:1c:1d:1e:1f",
+  )
+  let nonce16 = hex("00:00:00:09:00:00:00:4a:00:00:00:00:31:41:59:27")
+  let expected = hex(
+    "82413b4227b27bfed30e42508a877d73" + "a0f9e4d58a74a853c12ec41326d3ecdc",
+  )
+  let sub_key = @aead.hchacha20(key, nonce16)
+  assert_eq(to_hex(sub_key), to_hex(expected))
+}
+
+///|
+test "XChaCha20-Poly1305 RFC draft §A.3 test vector" {
+  // draft-irtf-cfrg-xchacha §A.3.1. Same plaintext as RFC 7539 sunscreen.
+  let key = hex(
+    "808182838485868788898a8b8c8d8e8f" + "909192939495969798999a9b9c9d9e9f",
+  )
+  let nonce = hex("404142434445464748494a4b4c4d4e4f5051525354555657")
+  let aad = hex("50515253c0c1c2c3c4c5c6c7")
+  let pt = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+  let pt_bytes = Bytes::makei(pt.length(), fn(i) { pt[i] })
+  let expected_ct = hex(
+    "bd6d179d3e83d43b9576579493c0e939" +
+    "572a1700252bfaccbed2902c21396cbb" +
+    "731c7f1b0b4aa6440bf3a82f4eda7e39" +
+    "ae64c6708c54c216cb96b72e1213b452" +
+    "2f8c9ba40db5d945b11b69b982c1bb9e" +
+    "3f3fac2bc369488f76b2383565d3fff9" +
+    "21f9664c97637da9768812f615c68b13" +
+    "b52e",
+  )
+  let expected_tag = hex("c0875924c1c7987947deafd8780acf49")
+  let (ct, tag) = @aead.seal_detached(
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    aad,
+    pt_bytes,
+  )
+  assert_eq(to_hex(ct), to_hex(expected_ct))
+  assert_eq(to_hex(tag), to_hex(expected_tag))
+
+  // Round-trip via open_detached.
+  let recovered = @aead.open_detached(
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    aad,
+    ct,
+    tag,
+  )
+  assert_eq(to_hex(recovered), to_hex(pt_bytes))
+}
+
+///|
+test "XChaCha20-Poly1305 authentication failure on tag tamper" {
+  let key = Bytes::makei(32, fn(i) { (0x80 + i).to_byte() })
+  let nonce = Bytes::makei(24, fn(i) { (0x40 + i).to_byte() })
   let aad = b""
+  let pt = b"hello xchacha"
+  let pt_bytes = Bytes::makei(pt.length(), fn(i) { pt[i] })
+  let (ct, tag) = @aead.seal_detached(
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    aad,
+    pt_bytes,
+  )
+  let bad_tag = Bytes::makei(tag.length(), fn(i) {
+    if i == 0 {
+      (tag[i].to_int() ^ 0x01).to_byte()
+    } else {
+      tag[i]
+    }
+  })
+  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    aad,
+    ct,
+    bad_tag,
+  )
+  match result {
+    Ok(_) => abort("expected AuthenticationFailed but open succeeded")
+    Err(@aead.AuthenticationFailed) => ()
+    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+  }
+}
+
+///|
+test "XChaCha20-Poly1305 invalid nonce size" {
+  let key = Bytes::makei(32, fn(_) { b'\x00' })
+  // 12 bytes is wrong for XChaCha20Poly1305 (needs 24).
+  let nonce = Bytes::makei(12, fn(_) { b'\x00' })
   let pt = b""
   let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
     @aead.XChaCha20Poly1305,
     key,
     nonce,
-    aad,
+    b"",
     pt,
   )
   match result {
-    Ok(_) => abort("expected UnsupportedAlgorithm but seal succeeded")
-    Err(@aead.UnsupportedAlgorithm(@aead.XChaCha20Poly1305)) => ()
-    Err(e) => abort("expected UnsupportedAlgorithm but got " + e.to_string())
+    Ok(_) => abort("expected InvalidNonceSize")
+    Err(@aead.InvalidNonceSize(expected=24, got=12)) => ()
+    Err(e) => abort("expected InvalidNonceSize but got " + e.to_string())
   }
+}
+
+///|
+test "XChaCha20-Poly1305 empty plaintext round-trip" {
+  let key = Bytes::makei(32, fn(_) { b'\x00' })
+  let nonce = Bytes::makei(24, fn(_) { b'\x00' })
+  let (ct, tag) = @aead.seal_detached(
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    b"",
+    b"",
+  )
+  assert_eq(ct.length(), 0)
+  assert_eq(tag.length(), 16)
+  let recovered = @aead.open_detached(
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    b"",
+    ct,
+    tag,
+  )
+  assert_eq(recovered.length(), 0)
 }
 
 ///|

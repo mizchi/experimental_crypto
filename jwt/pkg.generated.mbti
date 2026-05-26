@@ -1,0 +1,75 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/jwt"
+
+import {
+  "mizchi/ed25519",
+}
+
+// Values
+pub fn sign(Json, Key, kid? : String) -> String raise JwtError
+
+pub fn verify(String, VerifyKey, VerifyOptions) -> VerifiedJwt raise JwtError
+
+// Errors
+pub suberror JwtError {
+  InvalidToken(String)
+  InvalidHeader(String)
+  UnsupportedAlgorithm(String)
+  KeyAlgorithmMismatch
+  InvalidSignature
+  Expired
+  NotYetValid
+  InvalidAudience
+  InvalidIssuer
+  ClaimsParseError(String)
+} derive(Show)
+
+// Types and methods
+pub(all) enum Algorithm {
+  HS256
+  HS384
+  HS512
+  RS256
+  RS384
+  RS512
+  ES256
+  ES384
+  ES512
+  PS256
+  PS384
+  PS512
+  EdDSA
+} derive(Eq, Show)
+
+type HmacSha256Ctx
+
+pub(all) enum Key {
+  Hs256(secret~ : Bytes)
+  EdDsa(privkey~ : @ed25519.PrivateKey)
+}
+
+pub(all) struct VerifiedJwt {
+  header : Map[String, Json]
+  claims : Map[String, Json]
+  alg : Algorithm
+  kid : String?
+} derive(Show)
+
+pub(all) enum VerifyKey {
+  Hs256(secret~ : Bytes)
+  EdDsa(pubkey~ : @ed25519.PublicKey)
+}
+
+pub(all) struct VerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  require_exp : Bool
+  issuer : String?
+  audience : String?
+} derive(Eq, Show)
+pub fn VerifyOptions::default(Int64) -> Self
+
+// Type aliases
+
+// Traits
+

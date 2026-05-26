@@ -259,3 +259,138 @@ fn chacha20_first32_fa(key : Bytes, nonce : Bytes) -> FixedArray[Byte] {
   }
   out
 }
+
+///|
+/// HChaCha20 sub-key derivation (RFC draft-irtf-cfrg-xchacha §2.2).
+///
+/// Run the 20-round ChaCha20 permutation with the 16-byte input replacing
+/// the counter + nonce words at state[12..16]. Unlike `chacha20_block` the
+/// initial state is NOT added at the end. The output sub-key is
+/// `state[0..4] || state[12..16]` as little-endian bytes (32 bytes total).
+///
+/// `key` must be 32 bytes; `nonce16` must be 16 bytes. Callers are expected
+/// to enforce lengths.
+pub fn hchacha20(key : Bytes, nonce16 : Bytes) -> Bytes {
+  // Initial state.
+  let i0 : UInt = 0x61707865U
+  let i1 : UInt = 0x3320646eU
+  let i2 : UInt = 0x79622d32U
+  let i3 : UInt = 0x6b206574U
+  let i4 = load_le_u32(key, 0)
+  let i5 = load_le_u32(key, 4)
+  let i6 = load_le_u32(key, 8)
+  let i7 = load_le_u32(key, 12)
+  let i8 = load_le_u32(key, 16)
+  let i9 = load_le_u32(key, 20)
+  let i10 = load_le_u32(key, 24)
+  let i11 = load_le_u32(key, 28)
+  let i12 = load_le_u32(nonce16, 0)
+  let i13 = load_le_u32(nonce16, 4)
+  let i14 = load_le_u32(nonce16, 8)
+  let i15 = load_le_u32(nonce16, 12)
+
+  // Working state.
+  let mut s0 = i0
+  let mut s1 = i1
+  let mut s2 = i2
+  let mut s3 = i3
+  let mut s4 = i4
+  let mut s5 = i5
+  let mut s6 = i6
+  let mut s7 = i7
+  let mut s8 = i8
+  let mut s9 = i9
+  let mut s10 = i10
+  let mut s11 = i11
+  let mut s12 = i12
+  let mut s13 = i13
+  let mut s14 = i14
+  let mut s15 = i15
+
+  // 10 double-rounds (20 rounds total).
+  for _round in 0..<10 {
+    // Column round.
+    s0 = s0 + s4
+    s12 = rotl_u32(s12 ^ s0, 16)
+    s8 = s8 + s12
+    s4 = rotl_u32(s4 ^ s8, 12)
+    s0 = s0 + s4
+    s12 = rotl_u32(s12 ^ s0, 8)
+    s8 = s8 + s12
+    s4 = rotl_u32(s4 ^ s8, 7)
+    s1 = s1 + s5
+    s13 = rotl_u32(s13 ^ s1, 16)
+    s9 = s9 + s13
+    s5 = rotl_u32(s5 ^ s9, 12)
+    s1 = s1 + s5
+    s13 = rotl_u32(s13 ^ s1, 8)
+    s9 = s9 + s13
+    s5 = rotl_u32(s5 ^ s9, 7)
+    s2 = s2 + s6
+    s14 = rotl_u32(s14 ^ s2, 16)
+    s10 = s10 + s14
+    s6 = rotl_u32(s6 ^ s10, 12)
+    s2 = s2 + s6
+    s14 = rotl_u32(s14 ^ s2, 8)
+    s10 = s10 + s14
+    s6 = rotl_u32(s6 ^ s10, 7)
+    s3 = s3 + s7
+    s15 = rotl_u32(s15 ^ s3, 16)
+    s11 = s11 + s15
+    s7 = rotl_u32(s7 ^ s11, 12)
+    s3 = s3 + s7
+    s15 = rotl_u32(s15 ^ s3, 8)
+    s11 = s11 + s15
+    s7 = rotl_u32(s7 ^ s11, 7)
+    // Diagonal round.
+    s0 = s0 + s5
+    s15 = rotl_u32(s15 ^ s0, 16)
+    s10 = s10 + s15
+    s5 = rotl_u32(s5 ^ s10, 12)
+    s0 = s0 + s5
+    s15 = rotl_u32(s15 ^ s0, 8)
+    s10 = s10 + s15
+    s5 = rotl_u32(s5 ^ s10, 7)
+    s1 = s1 + s6
+    s12 = rotl_u32(s12 ^ s1, 16)
+    s11 = s11 + s12
+    s6 = rotl_u32(s6 ^ s11, 12)
+    s1 = s1 + s6
+    s12 = rotl_u32(s12 ^ s1, 8)
+    s11 = s11 + s12
+    s6 = rotl_u32(s6 ^ s11, 7)
+    s2 = s2 + s7
+    s13 = rotl_u32(s13 ^ s2, 16)
+    s8 = s8 + s13
+    s7 = rotl_u32(s7 ^ s8, 12)
+    s2 = s2 + s7
+    s13 = rotl_u32(s13 ^ s2, 8)
+    s8 = s8 + s13
+    s7 = rotl_u32(s7 ^ s8, 7)
+    s3 = s3 + s4
+    s14 = rotl_u32(s14 ^ s3, 16)
+    s9 = s9 + s14
+    s4 = rotl_u32(s4 ^ s9, 12)
+    s3 = s3 + s4
+    s14 = rotl_u32(s14 ^ s3, 8)
+    s9 = s9 + s14
+    s4 = rotl_u32(s4 ^ s9, 7)
+  }
+
+  // Output = state[0..4] || state[12..16] LE bytes (no initial-state add).
+  let out = FixedArray::make(32, b'\x00')
+  store_le_u32(out, 0, s0)
+  store_le_u32(out, 4, s1)
+  store_le_u32(out, 8, s2)
+  store_le_u32(out, 12, s3)
+  store_le_u32(out, 16, s12)
+  store_le_u32(out, 20, s13)
+  store_le_u32(out, 24, s14)
+  store_le_u32(out, 28, s15)
+  let result = Bytes::makei(32, fn(i) { out[i] })
+  // Best-effort wipe of the local sub-key buffer.
+  for i in 0..<32 {
+    out[i] = b'\x00'
+  }
+  result
+}

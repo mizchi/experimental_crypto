@@ -1,0 +1,47 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/naclbox"
+
+import {
+  "mizchi/x25519",
+}
+
+// Values
+pub fn box_(@x25519.PublicKey, @x25519.PrivateKey, Bytes, Bytes) -> Bytes raise NaclBoxError
+
+pub fn box_afternm(SharedKey, Bytes, Bytes) -> Bytes raise NaclBoxError
+
+pub fn box_beforenm(@x25519.PublicKey, @x25519.PrivateKey) -> SharedKey raise NaclBoxError
+
+pub fn box_open(@x25519.PublicKey, @x25519.PrivateKey, Bytes, Bytes) -> Bytes raise NaclBoxError
+
+pub fn box_open_afternm(SharedKey, Bytes, Bytes) -> Bytes raise NaclBoxError
+
+pub fn secretbox(Bytes, Bytes, Bytes) -> Bytes raise NaclBoxError
+
+pub fn secretbox_open(Bytes, Bytes, Bytes) -> Bytes raise NaclBoxError
+
+// Errors
+pub suberror NaclBoxError {
+  InvalidKeyLength(Int)
+  InvalidNonceLength(Int)
+  InvalidCiphertextLength(Int)
+  AuthenticationFailed
+  KeyGenerationError(String)
+} derive(Show)
+
+// Types and methods
+pub(all) struct KeyPair {
+  public_key : @x25519.PublicKey
+  secret_key : @x25519.PrivateKey
+}
+pub fn KeyPair::from_seed(Bytes) -> Self raise NaclBoxError
+
+pub(all) struct SharedKey {
+  bytes : FixedArray[Byte]
+}
+pub fn SharedKey::to_bytes(Self) -> Bytes
+
+// Type aliases
+
+// Traits
+

@@ -10,7 +10,8 @@
 // resistance matters: it uses table-based S-box lookups, branching on byte
 // values, and variable-time iteration. Use a vetted library for production.
 //
-// XChaCha20-Poly1305 remains out of scope and raises UnsupportedAlgorithm.
+// XChaCha20-Poly1305 (RFC draft-irtf-cfrg-xchacha) extends the nonce to 24
+// bytes by deriving a per-nonce sub-key with HChaCha20.
 
 ///|
 pub(all) enum Algorithm {
@@ -123,7 +124,8 @@ pub fn seal_detached(
     ChaCha20Poly1305 => chacha20_poly1305_seal(key, nonce, aad, plaintext)
     Aes128Gcm => aes_gcm_seal(16, key, nonce, aad, plaintext)
     Aes256Gcm => aes_gcm_seal(32, key, nonce, aad, plaintext)
-    XChaCha20Poly1305 => raise UnsupportedAlgorithm(alg)
+    XChaCha20Poly1305 =>
+      xchacha20_poly1305_seal(key, nonce, aad, plaintext)
   }
 }
 
@@ -142,7 +144,8 @@ pub fn open_detached(
     ChaCha20Poly1305 => chacha20_poly1305_open(key, nonce, aad, ciphertext, tag)
     Aes128Gcm => aes_gcm_open(16, key, nonce, aad, ciphertext, tag)
     Aes256Gcm => aes_gcm_open(32, key, nonce, aad, ciphertext, tag)
-    XChaCha20Poly1305 => raise UnsupportedAlgorithm(alg)
+    XChaCha20Poly1305 =>
+      xchacha20_poly1305_open(key, nonce, aad, ciphertext, tag)
   }
 }
 
@@ -193,6 +196,64 @@ fn chacha20_poly1305_seal(
   // Best-effort wipe of the one-time Poly1305 key. See review #2 finding 7.
   zeroize_fa_byte(otk_fa)
   (ct, tag)
+}
+
+// ─── XChaCha20-Poly1305 AEAD (extended 24-byte nonce) ──────────────────────
+//
+// RFC draft-irtf-cfrg-xchacha §2.3. Splits the 24-byte nonce into:
+//   nonce[0..16]  → HChaCha20 input for sub-key derivation
+//   nonce[16..24] → low 8 bytes of the 12-byte ChaCha20-Poly1305 nonce,
+//                   prefixed with 4 zero bytes per draft §2.3.
+
+///|
+fn xchacha20_poly1305_seal(
+  key : Bytes,
+  nonce : Bytes,
+  aad : Bytes,
+  plaintext : Bytes,
+) -> (Bytes, Bytes) raise AeadError {
+  if key.length() != 32 {
+    raise InvalidKeySize(expected=32, got=key.length())
+  }
+  if nonce.length() != 24 {
+    raise InvalidNonceSize(expected=24, got=nonce.length())
+  }
+  let nonce16 = Bytes::makei(16, fn(i) { nonce[i] })
+  let sub_key = hchacha20(key, nonce16)
+  let cha_nonce = Bytes::makei(12, fn(i) {
+    if i < 4 {
+      b'\x00'
+    } else {
+      nonce[i - 4 + 16]
+    }
+  })
+  chacha20_poly1305_seal(sub_key, cha_nonce, aad, plaintext)
+}
+
+///|
+fn xchacha20_poly1305_open(
+  key : Bytes,
+  nonce : Bytes,
+  aad : Bytes,
+  ciphertext : Bytes,
+  tag : Bytes,
+) -> Bytes raise AeadError {
+  if key.length() != 32 {
+    raise InvalidKeySize(expected=32, got=key.length())
+  }
+  if nonce.length() != 24 {
+    raise InvalidNonceSize(expected=24, got=nonce.length())
+  }
+  let nonce16 = Bytes::makei(16, fn(i) { nonce[i] })
+  let sub_key = hchacha20(key, nonce16)
+  let cha_nonce = Bytes::makei(12, fn(i) {
+    if i < 4 {
+      b'\x00'
+    } else {
+      nonce[i - 4 + 16]
+    }
+  })
+  chacha20_poly1305_open(sub_key, cha_nonce, aad, ciphertext, tag)
 }
 
 ///|

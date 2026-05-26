@@ -6,9 +6,13 @@ pub fn decode(String) -> PemBlock raise PemError
 
 pub fn decode_all(String) -> Array[PemBlock] raise PemError
 
+pub fn decode_strict(String, max_input_size? : Int) -> PemBlock raise PemError
+
 pub fn encode(PemBlock) -> String
 
 pub fn encode_simple(String, Bytes) -> String
+
+pub let pem_max_input_size : Int
 
 // Errors
 pub suberror PemError {
