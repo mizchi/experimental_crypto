@@ -8,3 +8,8 @@ target/
 
 # Why3 user config written by `why3 config detect`; not part of the repo
 *.why3.conf
+
+# direnv / nix
+.direnv/
+result
+result-*

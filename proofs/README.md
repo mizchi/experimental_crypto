@@ -53,22 +53,45 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 
 ## Setup
 
-`moon prove` requires Why3 1.7.2 and at least one SMT solver. Z3 is
-already a Homebrew formula; the rest comes through a project-local opam
-switch.
+`moon prove` requires Why3 1.7.2 and at least one SMT solver.
+
+### Nix (recommended)
+
+The repo ships a `flake.nix` that pins moonbit, opam, z3, cvc5,
+alt-ergo, and the OCaml build deps Why3 needs. Enter the dev shell:
+
+```bash
+nix develop --impure
+```
+
+The shell hook sets `OPAMROOT=$PWD/.opam` and auto-activates the opam
+switch if one exists. First time only, install Why3 into it:
+
+```bash
+bash proofs/setup.sh
+```
+
+With `direnv` installed, the bundled `.envrc` enters the shell
+automatically on `cd`.
+
+### Manual (no nix)
 
 ```bash
 brew install opam z3                   # one-time, system-wide
-export OPAMROOT="$PWD/.opam"
-opam init --bare --no-setup --disable-sandboxing -y
-opam switch create moonbit-crypto ocaml-base-compiler.4.14.2 -y
-eval "$(opam env --switch=moonbit-crypto --set-switch)"
-opam install -y why3.1.7.2 zarith
-why3 config detect                     # registers z3 (+ cvc5 / alt-ergo if installed)
+bash proofs/setup.sh
 ```
 
-Optional: install CVC5 and Alt-Ergo through opam (`opam install cvc5
-alt_ergo`) for better proof coverage on quantified goals.
+`setup.sh` initialises a project-local opam switch
+(`./.opam/moonbit-crypto`) with OCaml 4.14.2 + Why3 1.7.2 + zarith, then
+runs `why3 config detect` so the discovered solvers (z3, plus cvc5 /
+alt-ergo if present) are registered. After that, every shell needs:
+
+```bash
+export OPAMROOT="$PWD/.opam"
+eval "$(opam env --switch=moonbit-crypto --set-switch)"
+```
+
+(or use the nix devShell, which does this for you).
 
 ## Running the prover
 
