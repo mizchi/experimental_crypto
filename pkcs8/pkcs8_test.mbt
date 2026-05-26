@@ -29,6 +29,21 @@ fn sample_ed25519_key() -> @pkcs8.PrivateKeyInfo raise {
 }
 
 ///|
+fn pkcs8_base_items(version? : Bytes = b"\x00") -> Array[@asn1.Element] raise {
+  let key = sample_ed25519_key()
+  [
+    @asn1.Element::new(@asn1.tag_integer, Integer(version)),
+    @pkix.algorithm_identifier_to_element(key.algorithm),
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(key.private_key)),
+  ]
+}
+
+///|
+fn pkcs8_der_from_items(items : Array[@asn1.Element]) -> Bytes {
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence(items)))
+}
+
+///|
 test "pkcs8: serialize/parse Ed25519 PrivateKeyInfo roundtrip" {
   let original = sample_ed25519_key()
   let bytes1 = @pkcs8.serialize_der(original)
@@ -175,4 +190,73 @@ test "pkcs8: PrivateKeyInfo with attributes (Set OF) roundtrips" {
   let bytes2 = @pkcs8.serialize_der(parsed)
   assert_eq(bytes1, bytes2)
   assert_eq(parsed.attributes.length(), 1)
+}
+
+///|
+test "ATTACK pkcs8: duplicate publicKey fields reject" {
+  let items = pkcs8_base_items(version=b"\x01")
+  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x01")))
+  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x02")))
+  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
+    Err(@pkcs8.UnexpectedStructure(_)) => ()
+    other => abort("expected duplicate publicKey rejection, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkcs8: publicKey BIT STRING tail padding is checked" {
+  let items = pkcs8_base_items(version=b"\x01")
+  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x01\x01")))
+  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
+    Err(@pkcs8.UnexpectedStructure(_)) => ()
+    other => abort("expected BIT STRING padding rejection, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkcs8: duplicate attributes fields reject" {
+  let attr_payload = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence([])),
+  )
+  let items = pkcs8_base_items()
+  items.push(
+    @asn1.Element::new(
+      @asn1.Tag::context(0U, constructed=true),
+      Unknown(attr_payload),
+    ),
+  )
+  items.push(
+    @asn1.Element::new(
+      @asn1.Tag::context(0U, constructed=true),
+      Unknown(attr_payload),
+    ),
+  )
+  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
+    Err(@pkcs8.UnexpectedStructure(_)) => ()
+    other => abort("expected duplicate attributes rejection, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkcs8: attributes SET order must be DER canonical" {
+  let items = pkcs8_base_items()
+  let attr_payload = Buffer()
+  attr_payload.write_bytes(
+    @asn1.encode_der(@asn1.Element::new(@asn1.tag_null, Null)),
+  )
+  attr_payload.write_bytes(
+    @asn1.encode_der(
+      @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+    ),
+  )
+  items.push(
+    @asn1.Element::new(
+      @asn1.Tag::context(0U, constructed=true),
+      Unknown(attr_payload.to_bytes()),
+    ),
+  )
+  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
+    Err(@pkcs8.UnexpectedStructure(_)) => ()
+    other => abort("expected attributes SET order rejection, got \{other}")
+  }
 }

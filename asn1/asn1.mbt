@@ -612,6 +612,7 @@ fn decode_value(
         while not(inner.is_empty()) {
           items.push(inner.read_element())
         }
+        validate_der_set_order(items)
         Set(items)
       }
       _ => Unknown(read_bytes(dec, length))
@@ -662,10 +663,22 @@ fn decode_value(
       }
       6U => Oid(decode_oid(read_bytes(dec, length)))
       12U => Utf8String(decode_utf8_bytes(read_bytes(dec, length)))
-      19U => PrintableString(decode_ascii_bytes(read_bytes(dec, length)))
+      19U => {
+        let s = decode_ascii_bytes(read_bytes(dec, length))
+        validate_printable_string(s)
+        PrintableString(s)
+      }
       22U => Ia5String(decode_ascii_bytes(read_bytes(dec, length)))
-      23U => UtcTime(decode_ascii_bytes(read_bytes(dec, length)))
-      24U => GeneralizedTime(decode_ascii_bytes(read_bytes(dec, length)))
+      23U => {
+        let s = decode_ascii_bytes(read_bytes(dec, length))
+        validate_time_string(s, tag_utc_time)
+        UtcTime(s)
+      }
+      24U => {
+        let s = decode_ascii_bytes(read_bytes(dec, length))
+        validate_time_string(s, tag_generalized_time)
+        GeneralizedTime(s)
+      }
       3U => BitString(decode_bit_string(read_bytes(dec, length)))
       _ => Unknown(read_bytes(dec, length))
     }
@@ -688,6 +701,123 @@ fn decode_ascii_bytes(b : Bytes) -> String raise Asn1Error {
     }
   }
   decode_utf8_bytes(b)
+}
+
+///|
+fn validate_ascii_string(s : String) -> Unit raise Asn1Error {
+  for c in s {
+    if c.to_int() > 0x7F {
+      raise InvalidEncoding("non-ASCII character in ASCII string")
+    }
+  }
+}
+
+///|
+fn validate_printable_string(s : String) -> Unit raise Asn1Error {
+  for c in s {
+    if !is_printable_string_char(c) {
+      raise InvalidEncoding("character not allowed in PrintableString")
+    }
+  }
+}
+
+///|
+fn is_printable_string_char(c : Char) -> Bool {
+  let cp = c.to_int()
+  (cp >= 0x41 && cp <= 0x5A) || // A-Z
+  (cp >= 0x61 && cp <= 0x7A) || // a-z
+  (cp >= 0x30 && cp <= 0x39) || // 0-9
+  cp == 0x20 || // space
+  cp == 0x27 || // apostrophe
+  cp == 0x28 || // (
+  cp == 0x29 || // )
+  cp == 0x2B || // +
+  cp == 0x2C || // ,
+  cp == 0x2D || // -
+  cp == 0x2E || // .
+  cp == 0x2F || // /
+  cp == 0x3A || // :
+  cp == 0x3D || // =
+  cp == 0x3F // ?
+}
+
+///|
+fn validate_time_string(s : String, tag : Tag) -> Unit raise Asn1Error {
+  validate_ascii_string(s)
+  let (digits, year_at, month_at, day_at, hour_at, minute_at, second_at) = if tag ==
+    tag_utc_time {
+    (12, 0, 2, 4, 6, 8, 10)
+  } else if tag == tag_generalized_time {
+    (14, 0, 4, 6, 8, 10, 12)
+  } else {
+    raise InvalidEncoding("expected UTCTime / GeneralizedTime tag")
+  }
+  if s.length() != digits + 1 {
+    raise InvalidEncoding("non-canonical time length")
+  }
+  if s.get_char(digits).unwrap() != 'Z' {
+    raise InvalidEncoding("DER time must use Z timezone")
+  }
+  for i in 0..<digits {
+    let c = s.get_char(i).unwrap()
+    if c < '0' || c > '9' {
+      raise InvalidEncoding("non-digit in time")
+    }
+  }
+  let year = if tag == tag_utc_time {
+    let yy = decimal2(s, year_at)
+    if yy >= 50 {
+      1900 + yy
+    } else {
+      2000 + yy
+    }
+  } else {
+    decimal4(s, year_at)
+  }
+  if year <= 0 {
+    raise InvalidEncoding("invalid time year")
+  }
+  let month = decimal2(s, month_at)
+  let day = decimal2(s, day_at)
+  let hour = decimal2(s, hour_at)
+  let minute = decimal2(s, minute_at)
+  let second = decimal2(s, second_at)
+  if month < 1 || month > 12 {
+    raise InvalidEncoding("invalid time month")
+  }
+  if day < 1 || day > days_in_month(year, month) {
+    raise InvalidEncoding("invalid time day")
+  }
+  if hour > 23 || minute > 59 || second > 59 {
+    raise InvalidEncoding("invalid time clock")
+  }
+}
+
+///|
+fn decimal2(s : String, offset : Int) -> Int {
+  let hi = s.get_char(offset).unwrap().to_int() - '0'.to_int()
+  let lo = s.get_char(offset + 1).unwrap().to_int() - '0'.to_int()
+  hi * 10 + lo
+}
+
+///|
+fn decimal4(s : String, offset : Int) -> Int {
+  decimal2(s, offset) * 100 + decimal2(s, offset + 2)
+}
+
+///|
+fn days_in_month(year : Int, month : Int) -> Int {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn is_leap_year(year : Int) -> Bool {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
 ///|
@@ -730,6 +860,39 @@ fn validate_bit_string_tail(
       raise InvalidEncoding("BitString unused tail bits must be zero")
     }
   }
+}
+
+///|
+fn validate_der_set_order(items : Array[Element]) -> Unit raise Asn1Error {
+  let mut prev : Bytes? = None
+  for item in items {
+    let current = element_to_bytes_at(item, 0)
+    match prev {
+      Some(p) =>
+        if bytes_lex_compare(p, current) > 0 {
+          raise InvalidEncoding("SET items not in DER order")
+        }
+      None => ()
+    }
+    prev = Some(current)
+  }
+}
+
+///|
+fn bytes_lex_compare(a : Bytes, b : Bytes) -> Int {
+  let la = a.length()
+  let lb = b.length()
+  let mut i = 0
+  let n = if la < lb { la } else { lb }
+  while i < n {
+    let av = a[i].to_int()
+    let bv = b[i].to_int()
+    if av != bv {
+      return av - bv
+    }
+    i = i + 1
+  }
+  la - lb
 }
 
 ///|
@@ -792,10 +955,30 @@ fn value_encoded_size_at(value : Value, depth : Int) -> Int {
     Integer(b) => b.length()
     OctetString(b) => b.length()
     Utf8String(s) => utf8_byte_count(s)
-    PrintableString(s) => utf8_byte_count(s)
-    Ia5String(s) => utf8_byte_count(s)
-    UtcTime(s) => utf8_byte_count(s)
-    GeneralizedTime(s) => utf8_byte_count(s)
+    PrintableString(s) => {
+      validate_printable_string(s) catch {
+        e => abort("encode PrintableString: \{e}")
+      }
+      utf8_byte_count(s)
+    }
+    Ia5String(s) => {
+      validate_ascii_string(s) catch {
+        e => abort("encode IA5String: \{e}")
+      }
+      utf8_byte_count(s)
+    }
+    UtcTime(s) => {
+      validate_time_string(s, tag_utc_time) catch {
+        e => abort("encode UTCTime: \{e}")
+      }
+      utf8_byte_count(s)
+    }
+    GeneralizedTime(s) => {
+      validate_time_string(s, tag_generalized_time) catch {
+        e => abort("encode GeneralizedTime: \{e}")
+      }
+      utf8_byte_count(s)
+    }
     BitString(bs) => {
       validate_bit_string_for_encode(bs)
       1 + bs.bytes.length()
@@ -821,6 +1004,13 @@ fn element_encoded_size(elem : Element) -> Int {
 fn element_encoded_size_at(elem : Element, depth : Int) -> Int {
   let payload = value_encoded_size_at(elem.value, depth)
   tag_encoded_size(elem.tag) + length_encoded_size(payload) + payload
+}
+
+///|
+fn element_to_bytes_at(elem : Element, depth : Int) -> Bytes {
+  let enc = Encoder::new()
+  write_element_at(enc, elem, depth)
+  enc.finish()
 }
 
 ///|
@@ -924,10 +1114,16 @@ fn encode_value_at(enc : Encoder, value : Value, depth : Int) -> Unit {
     Ia5String(s) => encode_ascii_string(enc, s)
     UtcTime(s) => encode_ascii_string(enc, s)
     GeneralizedTime(s) => encode_ascii_string(enc, s)
-    Sequence(items) | Set(items) =>
+    Sequence(items) =>
       for item in items {
         write_element_at(enc, item, depth + 1)
       }
+    Set(items) => {
+      let encoded = sorted_set_item_encodings(items, depth)
+      for item in encoded {
+        enc.buf.write_bytes(item)
+      }
+    }
     BitString(bs) => {
       enc.buf.write_byte(bs.unused_bits.to_byte())
       enc.buf.write_bytes(bs.bytes)
@@ -935,6 +1131,19 @@ fn encode_value_at(enc : Encoder, value : Value, depth : Int) -> Unit {
     Oid(oid) => encode_oid(enc, oid)
     Unknown(bytes) => enc.buf.write_bytes(bytes)
   }
+}
+
+///|
+fn sorted_set_item_encodings(
+  items : Array[Element],
+  depth : Int,
+) -> Array[Bytes] {
+  let encoded : Array[Bytes] = []
+  for item in items {
+    encoded.push(element_to_bytes_at(item, depth + 1))
+  }
+  encoded.sort_by(fn(a, b) { bytes_lex_compare(a, b) })
+  encoded
 }
 
 ///|

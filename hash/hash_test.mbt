@@ -636,3 +636,16 @@ test "blake3_derive_key: official KDF, 1-byte material" {
     ),
   )
 }
+
+///|
+test "blake3_derive_key: non-ASCII context uses UTF-8 bytes" {
+  // Reference produced by the upstream Python `blake3` package with
+  // derive_key_context="ctx-é" and input "material".
+  let dk = @hash.blake3_derive_key("ctx-é", b"material")
+  assert_eq(
+    dk,
+    hex_to_bytes(
+      "ba663c284a2153ebb37628fd5403c82c0ec394fd80a7c8acb700f7b2e3d2a10b",
+    ),
+  )
+}

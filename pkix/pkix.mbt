@@ -166,10 +166,61 @@ fn expect_bool(elem : @asn1.Element) -> Bool raise PkixError {
 ///|
 fn expect_time(elem : @asn1.Element) -> (String, @asn1.Tag) raise PkixError {
   match elem.value {
-    UtcTime(s) => (s, @asn1.tag_utc_time)
-    GeneralizedTime(s) => (s, @asn1.tag_generalized_time)
+    UtcTime(s) => {
+      validate_time_string(s, @asn1.tag_utc_time)
+      (s, @asn1.tag_utc_time)
+    }
+    GeneralizedTime(s) => {
+      validate_time_string(s, @asn1.tag_generalized_time)
+      (s, @asn1.tag_generalized_time)
+    }
     _ => raise UnexpectedStructure("expected UTCTime / GeneralizedTime")
   }
+}
+
+///|
+fn validate_time_string(s : String, tag : @asn1.Tag) -> Unit raise PkixError {
+  let (digits, month_at, day_at, hour_at, minute_at, second_at) = if tag ==
+    @asn1.tag_utc_time {
+    (12, 2, 4, 6, 8, 10)
+  } else if tag == @asn1.tag_generalized_time {
+    (14, 4, 6, 8, 10, 12)
+  } else {
+    raise UnexpectedStructure("expected UTCTime / GeneralizedTime tag")
+  }
+  if s.length() != digits + 1 {
+    raise InvalidTime(s)
+  }
+  if s.get_char(digits).unwrap() != 'Z' {
+    raise InvalidTime(s)
+  }
+  for i in 0..<digits {
+    let c = s.get_char(i).unwrap()
+    if c < '0' || c > '9' {
+      raise InvalidTime(s)
+    }
+  }
+  let month = decimal2(s, month_at)
+  let day = decimal2(s, day_at)
+  let hour = decimal2(s, hour_at)
+  let minute = decimal2(s, minute_at)
+  let second = decimal2(s, second_at)
+  if month < 1 || month > 12 {
+    raise InvalidTime(s)
+  }
+  if day < 1 || day > 31 {
+    raise InvalidTime(s)
+  }
+  if hour > 23 || minute > 59 || second > 59 {
+    raise InvalidTime(s)
+  }
+}
+
+///|
+fn decimal2(s : String, offset : Int) -> Int {
+  let hi = s.get_char(offset).unwrap().to_int() - '0'.to_int()
+  let lo = s.get_char(offset + 1).unwrap().to_int() - '0'.to_int()
+  hi * 10 + lo
 }
 
 // Context [n] EXPLICIT: outer tag = ContextSpecific n constructed,
@@ -238,7 +289,33 @@ fn decode_bit_string_content(b : Bytes) -> @asn1.BitString raise PkixError {
     raise UnexpectedStructure("BIT STRING unused_bits > 7")
   }
   let bytes = Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  validate_bit_string_tail(bytes, unused_bits)
   { bytes, unused_bits }
+}
+
+///|
+fn validate_bit_string_tail(
+  bytes : Bytes,
+  unused_bits : Int,
+) -> Unit raise PkixError {
+  if unused_bits < 0 || unused_bits > 7 {
+    raise UnexpectedStructure("BIT STRING unused_bits out of range")
+  }
+  if bytes.length() == 0 {
+    if unused_bits != 0 {
+      raise UnexpectedStructure(
+        "BIT STRING unused_bits non-zero with empty data",
+      )
+    }
+    return
+  }
+  if unused_bits > 0 {
+    let mask = (1 << unused_bits) - 1
+    let last = bytes[bytes.length() - 1].to_int()
+    if (last & mask) != 0 {
+      raise UnexpectedStructure("BIT STRING unused tail bits must be zero")
+    }
+  }
 }
 
 // ─── low-level structure parsers ─────────────────────────────────────────
@@ -277,6 +354,26 @@ fn parse_validity_elem(elem : @asn1.Element) -> Validity raise PkixError {
 }
 
 ///|
+fn validate_certificate_serial(serial : Bytes) -> Unit raise PkixError {
+  if serial.length() == 0 {
+    raise UnexpectedStructure("Certificate serialNumber must be non-empty")
+  }
+  if (serial[0].to_int() & 0x80) != 0 {
+    raise UnexpectedStructure("Certificate serialNumber must be positive")
+  }
+  let mut non_zero = false
+  for b in serial {
+    if b != b'\x00' {
+      non_zero = true
+      break
+    }
+  }
+  if !non_zero {
+    raise UnexpectedStructure("Certificate serialNumber must be non-zero")
+  }
+}
+
+///|
 fn parse_attribute_type_and_value(
   elem : @asn1.Element,
 ) -> AttributeTypeAndValue raise PkixError {
@@ -295,11 +392,45 @@ fn parse_rdn(
   if items.length() == 0 {
     raise UnexpectedStructure("RelativeDistinguishedName must be non-empty")
   }
+  validate_der_set_order(items)
   let out : Array[AttributeTypeAndValue] = []
   for item in items {
     out.push(parse_attribute_type_and_value(item))
   }
   out
+}
+
+///|
+fn validate_der_set_order(items : Array[@asn1.Element]) -> Unit raise PkixError {
+  let mut prev : Bytes? = None
+  for item in items {
+    let current = @asn1.encode_der(item)
+    match prev {
+      Some(p) =>
+        if bytes_lex_compare(p, current) > 0 {
+          raise UnexpectedStructure("SET items not in DER order")
+        }
+      None => ()
+    }
+    prev = Some(current)
+  }
+}
+
+///|
+fn bytes_lex_compare(a : Bytes, b : Bytes) -> Int {
+  let la = a.length()
+  let lb = b.length()
+  let mut i = 0
+  let n = if la < lb { la } else { lb }
+  while i < n {
+    let av = a[i].to_int()
+    let bv = b[i].to_int()
+    if av != bv {
+      return av - bv
+    }
+    i = i + 1
+  }
+  la - lb
 }
 
 ///|
@@ -369,6 +500,11 @@ fn parse_tbs_certificate_elem(
     match match_context_explicit(items[idx], 0U) {
       Some(inner) => {
         version = expect_integer_small(inner)
+        if version == 0 {
+          raise UnexpectedStructure(
+            "TBSCertificate version DEFAULT must be omitted",
+          )
+        }
         if version < 0 || version > 2 {
           raise UnsupportedVersion(version)
         }
@@ -381,6 +517,7 @@ fn parse_tbs_certificate_elem(
     raise UnexpectedStructure("TBSCertificate too few fields")
   }
   let serial_number = expect_integer_bytes(items[idx])
+  validate_certificate_serial(serial_number)
   let signature = parse_algorithm_identifier_elem(items[idx + 1])
   let issuer = parse_name_elem(items[idx + 2])
   let validity = parse_validity_elem(items[idx + 3])
@@ -390,12 +527,17 @@ fn parse_tbs_certificate_elem(
   let mut issuer_unique_id : @asn1.BitString? = None
   let mut subject_unique_id : @asn1.BitString? = None
   let mut extensions : Array[Extension] = []
+  let mut saw_extensions = false
   while idx < items.length() {
     let item = items[idx]
     match match_context_implicit_bit_string(item, 1U) {
       Some(bs) => {
         if version < 1 {
           raise UnexpectedStructure("issuerUniqueID requires v2 or v3")
+        }
+        match issuer_unique_id {
+          Some(_) => raise UnexpectedStructure("duplicate issuerUniqueID")
+          None => ()
         }
         issuer_unique_id = Some(bs)
         idx = idx + 1
@@ -408,6 +550,10 @@ fn parse_tbs_certificate_elem(
         if version < 1 {
           raise UnexpectedStructure("subjectUniqueID requires v2 or v3")
         }
+        match subject_unique_id {
+          Some(_) => raise UnexpectedStructure("duplicate subjectUniqueID")
+          None => ()
+        }
         subject_unique_id = Some(bs)
         idx = idx + 1
         continue
@@ -419,7 +565,11 @@ fn parse_tbs_certificate_elem(
         if version < 2 {
           raise UnexpectedStructure("extensions requires v3")
         }
+        if saw_extensions {
+          raise UnexpectedStructure("duplicate extensions")
+        }
         extensions = parse_extensions_seq(inner)
+        saw_extensions = true
         idx = idx + 1
         continue
       }
@@ -502,6 +652,9 @@ fn rdn_to_element(rdn : Array[AttributeTypeAndValue]) -> @asn1.Element {
   for av in rdn {
     items.push(attribute_type_and_value_to_element(av))
   }
+  items.sort_by(fn(a, b) {
+    bytes_lex_compare(@asn1.encode_der(a), @asn1.encode_der(b))
+  })
   @asn1.Element::new(@asn1.tag_set, Set(items))
 }
 
@@ -516,6 +669,12 @@ fn name_to_element(name : Name) -> @asn1.Element {
 
 ///|
 fn validity_to_element(v : Validity) -> @asn1.Element {
+  validate_time_string(v.not_before, v.not_before_tag) catch {
+    e => abort("invalid notBefore: \{e}")
+  }
+  validate_time_string(v.not_after, v.not_after_tag) catch {
+    e => abort("invalid notAfter: \{e}")
+  }
   let nb_value = if v.not_before_tag == @asn1.tag_utc_time {
     @asn1.Value::UtcTime(v.not_before)
   } else {
@@ -579,6 +738,9 @@ fn wrap_context_implicit_bit_string(
   number : UInt,
   bs : @asn1.BitString,
 ) -> @asn1.Element {
+  validate_bit_string_tail(bs.bytes, bs.unused_bits) catch {
+    e => abort("invalid context BIT STRING: \{e}")
+  }
   let buf = Buffer()
   buf.write_byte(bs.unused_bits.to_byte())
   buf.write_bytes(bs.bytes)
@@ -601,6 +763,7 @@ pub fn tbs_certificate_to_element(
       ),
     )
   }
+  validate_certificate_serial(tbs.serial_number)
   items.push(@asn1.Element::new(@asn1.tag_integer, Integer(tbs.serial_number)))
   items.push(algorithm_identifier_to_element(tbs.signature))
   items.push(name_to_element(tbs.issuer))

@@ -8,7 +8,7 @@ repository = ""
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ ]
 
 description = "HPKE (RFC 9180) — Hybrid Public Key Encryption."
 

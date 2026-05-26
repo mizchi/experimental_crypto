@@ -52,9 +52,9 @@ test "RFC 7638 §3.1 thumbprint vector" {
   let canon = @jwk.debug_canonical_form(jwk)
   inspect(
     canon,
-    content=
+    content=(
       #|{"e":"AQAB","kty":"RSA","n":"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw"}
-    ,
+    ),
   )
 }
 
@@ -166,14 +166,14 @@ test "EC secp256k1 public roundtrip" {
 // -----------------------------------------------------------------------------
 
 ///|
-test "HMAC oct roundtrip" {
+test "HMAC oct private roundtrip" {
   // 32-byte HS256 secret base64url-encoded.
   let json =
     #|{"kty":"oct","k":"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"}
 
-  let jwk = @jwk.parse_public(json)
-  let re = @jwk.serialise_public(jwk)
-  let jwk2 = @jwk.parse_public(re)
+  let jwk = @jwk.parse_private(json)
+  let re = @jwk.serialise_private(jwk)
+  let jwk2 = @jwk.parse_private(re)
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
   assert_eq(t1, t2)
@@ -185,16 +185,11 @@ test "HMAC oct roundtrip" {
 // -----------------------------------------------------------------------------
 
 ///|
-test "tampered n is rejected at b64 decode" {
-  // Inject a NUL (0x00) into the base64 — non-alphabet character.
-  let json =
-    #|{"kty":"RSA","n":"!notvalid","e":"AQAB"}
-  // Just assert it raises something — we don't pin the discriminant.
+fn assert_parse_public_raises(json : String) -> Unit raise {
   let mut raised = false
-  let _ = try @jwk.parse_public(json) catch {
+  let _ = @jwk.parse_public(json) catch {
     _ => {
       raised = true
-      // Return a dummy Jwk value — never used, branch is unreachable.
       @jwk.Jwk::Hmac(secret=b"")
     }
   }
@@ -202,17 +197,30 @@ test "tampered n is rejected at b64 decode" {
 }
 
 ///|
-test "tampered e is rejected at b64 decode" {
-  let json =
-    #|{"kty":"RSA","n":"AQAB","e":"!!!!!"}
+fn assert_parse_private_raises(json : String) -> Unit raise {
   let mut raised = false
-  let _ = try @jwk.parse_public(json) catch {
+  let _ = @jwk.parse_private(json) catch {
     _ => {
       raised = true
       @jwk.Jwk::Hmac(secret=b"")
     }
   }
   assert_true(raised)
+}
+
+///|
+test "tampered n is rejected at b64 decode" {
+  // Inject a NUL (0x00) into the base64 — non-alphabet character.
+  let json =
+    #|{"kty":"RSA","n":"!notvalid","e":"AQAB"}
+  assert_parse_public_raises(json)
+}
+
+///|
+test "tampered e is rejected at b64 decode" {
+  let json =
+    #|{"kty":"RSA","n":"AQAB","e":"!!!!!"}
+  assert_parse_public_raises(json)
 }
 
 ///|
@@ -220,28 +228,57 @@ test "missing required field is rejected" {
   // RSA JWK without `e`.
   let json =
     #|{"kty":"RSA","n":"AQAB"}
-  let mut raised = false
-  let _ = try @jwk.parse_public(json) catch {
-    _ => {
-      raised = true
-      @jwk.Jwk::Hmac(secret=b"")
-    }
-  }
-  assert_true(raised)
+  assert_parse_public_raises(json)
 }
 
 ///|
 test "unsupported kty is rejected" {
   let json =
     #|{"kty":"DSA","y":"AQAB"}
-  let mut raised = false
-  let _ = try @jwk.parse_public(json) catch {
-    _ => {
-      raised = true
-      @jwk.Jwk::Hmac(secret=b"")
-    }
-  }
-  assert_true(raised)
+  assert_parse_public_raises(json)
+}
+
+///|
+test "oct JWK is rejected by public parser" {
+  let json = #|{"kty":"oct","k":"AQIDBA"}
+  assert_parse_public_raises(json)
+}
+
+///|
+test "serialise_public does not expose oct secret" {
+  let jwk = @jwk.Jwk::Hmac(secret=b"\x01\x02\x03\x04")
+  let public_json = @jwk.serialise_public(jwk)
+  assert_false(public_json.contains("\"k\""))
+  assert_false(public_json.contains("AQIDBA"))
+}
+
+///|
+test "RSA JWK rejects non-positive or even public parameters" {
+  let zero_n = #|{"kty":"RSA","n":"AA","e":"AQAB"}
+  let one_e = #|{"kty":"RSA","n":"Aw","e":"AQ"}
+  let even_e = #|{"kty":"RSA","n":"Aw","e":"Ag"}
+  assert_parse_public_raises(zero_n)
+  assert_parse_public_raises(one_e)
+  assert_parse_public_raises(even_e)
+}
+
+///|
+test "EC private JWK rejects public/private mismatch" {
+  let json =
+    #|{"kty":"EC","crv":"P-256",
+    #| "x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+    #| "y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+    #| "d":"AQ"}
+  assert_parse_private_raises(json)
+}
+
+///|
+test "OKP private JWK rejects public/private mismatch" {
+  let json =
+    #|{"kty":"OKP","crv":"Ed25519",
+    #| "d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    #| "x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}
+  assert_parse_private_raises(json)
 }
 
 ///|
@@ -250,7 +287,7 @@ test "serialise_private without private key raises" {
     #|{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}
   let jwk = @jwk.parse_public(json)
   let mut raised = false
-  let _ = try @jwk.serialise_private(jwk) catch {
+  let _ = @jwk.serialise_private(jwk) catch {
     _ => {
       raised = true
       ""
@@ -264,7 +301,7 @@ test "unsupported curve is rejected" {
   let json =
     #|{"kty":"EC","crv":"P-521","x":"AAAA","y":"AAAA"}
   let mut raised = false
-  let _ = try @jwk.parse_public(json) catch {
+  let _ = @jwk.parse_public(json) catch {
     _ => {
       raised = true
       @jwk.Jwk::Hmac(secret=b"")

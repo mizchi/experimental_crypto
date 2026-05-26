@@ -49,8 +49,8 @@ fn hex_nibble_t(c : Int) -> Int {
 test "HOTP RFC 4226 Appendix D — 6-digit, counter 0..9" {
   let key = ascii_to_bytes("12345678901234567890")
   let expected = [
-    "755224", "287082", "359152", "969429", "338314", "254676", "287922",
-    "162583", "399871", "520489",
+    "755224", "287082", "359152", "969429", "338314", "254676", "287922", "162583",
+    "399871", "520489",
   ]
   for i = 0; i < expected.length(); i = i + 1 {
     assert_eq(@totp.hotp(key, i.to_uint64()), expected[i])
@@ -147,9 +147,7 @@ test "verify_totp — exact match" {
   // T = 1111111109 / 30 = 37037036.96... but the code at exact 1111111109 is
   // the same as at 1111111111 (same 30-s window). Use 59s to keep it simple.
   let code = @totp.totp(key, 59L, digits=8)
-  assert_true(
-    @totp.verify_totp(key, code, 59L, digits=8, skew=0),
-  )
+  assert_true(@totp.verify_totp(key, code, 59L, digits=8, skew=0))
 }
 
 ///|
@@ -158,29 +156,39 @@ test "verify_totp — accepts ±1 step within skew" {
   // Compute code at t = 30 (counter = 1, step = 30s).
   let code_step1 = @totp.totp(key, 30L, digits=8)
   // Verify at t = 75 (counter = 2). With skew=1 this should pass.
-  assert_true(
-    @totp.verify_totp(key, code_step1, 75L, digits=8, skew=1),
-  )
+  assert_true(@totp.verify_totp(key, code_step1, 75L, digits=8, skew=1))
   // With skew=0 it should fail.
-  assert_false(
-    @totp.verify_totp(key, code_step1, 75L, digits=8, skew=0),
-  )
+  assert_false(@totp.verify_totp(key, code_step1, 75L, digits=8, skew=0))
 }
 
 ///|
 test "verify_totp — rejects bogus code" {
   let key = ascii_to_bytes("12345678901234567890")
-  assert_false(
-    @totp.verify_totp(key, "00000000", 59L, digits=8, skew=1),
-  )
+  assert_false(@totp.verify_totp(key, "00000000", 59L, digits=8, skew=1))
 }
 
 ///|
 test "verify_totp — length mismatch rejected" {
   let key = ascii_to_bytes("12345678901234567890")
-  assert_false(
-    @totp.verify_totp(key, "1234", 59L, digits=8, skew=1),
-  )
+  assert_false(@totp.verify_totp(key, "1234", 59L, digits=8, skew=1))
+}
+
+///|
+test "verify_totp — invalid timing and skew parameters fail closed" {
+  let key = ascii_to_bytes("12345678901234567890")
+  let code = @totp.totp(key, 59L)
+  assert_false(@totp.verify_totp(key, code, 59L, step_seconds=0))
+  assert_false(@totp.verify_totp(key, code, 0L, t0=30L))
+  assert_false(@totp.verify_totp(key, code, 59L, skew=11))
+}
+
+///|
+test "TOTP — invalid generation parameters return empty code" {
+  let key = ascii_to_bytes("12345678901234567890")
+  assert_eq(@totp.hotp(key, 0UL, digits=5), "")
+  assert_eq(@totp.hotp(key, 0UL, digits=9), "")
+  assert_eq(@totp.totp(key, 59L, step_seconds=0), "")
+  assert_eq(@totp.totp(key, 0L, t0=30L), "")
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -198,8 +206,11 @@ test "base32 encode — Hello!<DE><AD><BE><EF>" {
   // We can't reach the private helper directly from blackbox tests, but
   // provisioning_uri embeds it, so we observe via the full URI.
   let secret = hex_to_bytes("48656c6c6f21deadbeef")
-  let uri = @totp.provisioning_uri("Example:alice@example.com", secret,
-    issuer="Example")
+  let uri = @totp.provisioning_uri(
+    "Example:alice@example.com",
+    secret,
+    issuer="Example",
+  )
   // Expected base32 of "Hello!<DE><AD><BE><EF>" is "JBSWY3DPEHPK3PXP".
   assert_true(uri.contains("secret=JBSWY3DPEHPK3PXP"))
 }
@@ -208,8 +219,14 @@ test "base32 encode — Hello!<DE><AD><BE><EF>" {
 test "provisioning_uri — full URI for a known secret" {
   // Synthetic-but-deterministic sanity check.
   let secret = ascii_to_bytes("12345678901234567890")
-  let uri = @totp.provisioning_uri("alice@example.com", secret,
-    issuer="ACME Co", digits=6, step_seconds=30, hash=Sha1)
+  let uri = @totp.provisioning_uri(
+    "alice@example.com",
+    secret,
+    issuer="ACME Co",
+    digits=6,
+    step_seconds=30,
+    hash=Sha1,
+  )
   // label percent-encoding: '@' -> %40
   assert_true(uri.starts_with("otpauth://totp/alice%40example.com?"))
   // base32 of ASCII "12345678901234567890" = GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ

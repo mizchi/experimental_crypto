@@ -73,6 +73,31 @@ fn pow10(n : Int) -> Int {
 }
 
 ///|
+let min_digits : Int = 6
+
+///|
+let max_digits : Int = 8
+
+///|
+let max_verify_skew : Int = 10
+
+///|
+fn valid_digits(digits : Int) -> Bool {
+  digits >= min_digits && digits <= max_digits
+}
+
+///|
+fn is_decimal_string(s : String) -> Bool {
+  for i = 0; i < s.length(); i = i + 1 {
+    let c = s.code_unit_at(i).to_int()
+    if c < 0x30 || c > 0x39 {
+      return false
+    }
+  }
+  true
+}
+
+///|
 // Zero-pad `value` to `width` digits as a decimal string.
 fn pad_decimal(value : Int, width : Int) -> String {
   let buf = StringBuilder::new()
@@ -93,12 +118,15 @@ fn pad_decimal(value : Int, width : Int) -> String {
 pub fn hotp(
   key : Bytes,
   counter : UInt64,
-  digits~ : Int = 6,
-  hash~ : TotpHash = Sha1,
+  digits? : Int = 6,
+  hash? : TotpHash = Sha1,
 ) -> String {
+  if !valid_digits(digits) {
+    return ""
+  }
   let tag = totp_hmac(hash, key, counter_be_8(counter))
   let last = tag.length() - 1
-  let offset = (tag[last].to_int() & 0x0F)
+  let offset = tag[last].to_int() & 0x0F
   let bin = ((tag[offset].to_int() & 0x7F) << 24) |
     ((tag[offset + 1].to_int() & 0xFF) << 16) |
     ((tag[offset + 2].to_int() & 0xFF) << 8) |
@@ -114,14 +142,22 @@ pub fn hotp(
 // We do the arithmetic in Int64 so negative `now - T0` is well-defined
 // (truncating-toward-zero division, not floor). For all real-world inputs
 // `now_seconds >= t0` so the truncating semantics match floor.
-fn totp_counter(
-  now_seconds : Int64,
-  step_seconds : Int,
-  t0 : Int64,
-) -> UInt64 {
+fn totp_counter(now_seconds : Int64, step_seconds : Int, t0 : Int64) -> UInt64 {
   let elapsed = now_seconds - t0
   let c = elapsed / step_seconds.to_int64()
   c.reinterpret_as_uint64()
+}
+
+///|
+fn totp_counter_checked(
+  now_seconds : Int64,
+  step_seconds : Int,
+  t0 : Int64,
+) -> UInt64? {
+  if step_seconds <= 0 || now_seconds < t0 {
+    return None
+  }
+  Some(totp_counter(now_seconds, step_seconds, t0))
 }
 
 ///|
@@ -132,13 +168,18 @@ fn totp_counter(
 pub fn totp(
   key : Bytes,
   now_seconds : Int64,
-  step_seconds~ : Int = 30,
-  t0~ : Int64 = 0L,
-  digits~ : Int = 6,
-  hash~ : TotpHash = Sha1,
+  step_seconds? : Int = 30,
+  t0? : Int64 = 0L,
+  digits? : Int = 6,
+  hash? : TotpHash = Sha1,
 ) -> String {
-  let counter = totp_counter(now_seconds, step_seconds, t0)
-  hotp(key, counter, digits=digits, hash=hash)
+  if !valid_digits(digits) {
+    return ""
+  }
+  match totp_counter_checked(now_seconds, step_seconds, t0) {
+    Some(counter) => hotp(key, counter, digits~, hash~)
+    None => ""
+  }
 }
 
 ///|
@@ -150,25 +191,45 @@ pub fn verify_totp(
   key : Bytes,
   code : String,
   now_seconds : Int64,
-  step_seconds~ : Int = 30,
-  t0~ : Int64 = 0L,
-  digits~ : Int = 6,
-  hash~ : TotpHash = Sha1,
-  skew~ : Int = 1,
+  step_seconds? : Int = 30,
+  t0? : Int64 = 0L,
+  digits? : Int = 6,
+  hash? : TotpHash = Sha1,
+  skew? : Int = 1,
 ) -> Bool {
-  if code.length() != digits {
+  if !valid_digits(digits) ||
+    code.length() != digits ||
+    !is_decimal_string(code) ||
+    skew < 0 ||
+    skew > max_verify_skew {
     return false
   }
-  let center = totp_counter(now_seconds, step_seconds, t0)
+  let center = match totp_counter_checked(now_seconds, step_seconds, t0) {
+    Some(c) => c
+    None => return false
+  }
   let mut matched = false
   // Walk the whole window even after a match so timing does not leak the
   // offset. `matched |=` rather than early return.
   for d = -skew; d <= skew; d = d + 1 {
-    // counter ± d using two's-complement wrap on UInt64.
-    let off = d.to_int64().reinterpret_as_uint64()
-    let candidate_counter = center + off
-    let candidate = hotp(key, candidate_counter, digits=digits, hash=hash)
-    matched = matched || ct_eq_string(candidate, code)
+    let candidate_counter : UInt64? = if d < 0 {
+      let off = (-d).to_uint64()
+      if center < off {
+        None
+      } else {
+        Some(center - off)
+      }
+    } else {
+      Some(center + d.to_uint64())
+    }
+    match candidate_counter {
+      Some(c) => {
+        let candidate = hotp(key, c, digits~, hash~)
+        let eq = ct_eq_string(candidate, code)
+        matched = matched || eq
+      }
+      None => ()
+    }
   }
   matched
 }
@@ -202,11 +263,14 @@ fn ct_eq_string(a : String, b : String) -> Bool {
 pub fn provisioning_uri(
   label : String,
   secret : Bytes,
-  issuer~ : String = "",
-  digits~ : Int = 6,
-  step_seconds~ : Int = 30,
-  hash~ : TotpHash = Sha1,
+  issuer? : String = "",
+  digits? : Int = 6,
+  step_seconds? : Int = 30,
+  hash? : TotpHash = Sha1,
 ) -> String {
+  if !valid_digits(digits) || step_seconds <= 0 || secret.length() == 0 {
+    return ""
+  }
   let buf = StringBuilder::new()
   buf.write_string("otpauth://totp/")
   buf.write_string(uri_encode(label))
@@ -251,12 +315,16 @@ fn base32_encode_no_padding(data : Bytes) -> String {
     while bit_count >= 5 {
       bit_count = bit_count - 5
       let idx = (bit_buffer >> bit_count) & 0x1F
-      buf.write_char(base32_alphabet.code_unit_at(idx).to_int() |> Int::unsafe_to_char)
+      buf.write_char(
+        base32_alphabet.code_unit_at(idx).to_int() |> Int::unsafe_to_char,
+      )
     }
   }
   if bit_count > 0 {
     let idx = (bit_buffer << (5 - bit_count)) & 0x1F
-    buf.write_char(base32_alphabet.code_unit_at(idx).to_int() |> Int::unsafe_to_char)
+    buf.write_char(
+      base32_alphabet.code_unit_at(idx).to_int() |> Int::unsafe_to_char,
+    )
   }
   buf.to_string()
 }
@@ -293,23 +361,21 @@ fn uri_encode(s : String) -> String {
     i = i + 1
     if is_unreserved(cp) {
       buf.write_char(cp |> Int::unsafe_to_char)
-    } else {
       // UTF-8 encode then percent-encode each byte.
-      if cp < 0x80 {
-        write_pct(buf, cp)
-      } else if cp < 0x800 {
-        write_pct(buf, 0xC0 | (cp >> 6))
-        write_pct(buf, 0x80 | (cp & 0x3F))
-      } else if cp < 0x10000 {
-        write_pct(buf, 0xE0 | (cp >> 12))
-        write_pct(buf, 0x80 | ((cp >> 6) & 0x3F))
-        write_pct(buf, 0x80 | (cp & 0x3F))
-      } else {
-        write_pct(buf, 0xF0 | (cp >> 18))
-        write_pct(buf, 0x80 | ((cp >> 12) & 0x3F))
-        write_pct(buf, 0x80 | ((cp >> 6) & 0x3F))
-        write_pct(buf, 0x80 | (cp & 0x3F))
-      }
+    } else if cp < 0x80 {
+      write_pct(buf, cp)
+    } else if cp < 0x800 {
+      write_pct(buf, 0xC0 | (cp >> 6))
+      write_pct(buf, 0x80 | (cp & 0x3F))
+    } else if cp < 0x10000 {
+      write_pct(buf, 0xE0 | (cp >> 12))
+      write_pct(buf, 0x80 | ((cp >> 6) & 0x3F))
+      write_pct(buf, 0x80 | (cp & 0x3F))
+    } else {
+      write_pct(buf, 0xF0 | (cp >> 18))
+      write_pct(buf, 0x80 | ((cp >> 12) & 0x3F))
+      write_pct(buf, 0x80 | ((cp >> 6) & 0x3F))
+      write_pct(buf, 0x80 | (cp & 0x3F))
     }
   }
   buf.to_string()
@@ -320,10 +386,10 @@ fn is_unreserved(c : Int) -> Bool {
   (c >= 0x41 && c <= 0x5A) || // A-Z
   (c >= 0x61 && c <= 0x7A) || // a-z
   (c >= 0x30 && c <= 0x39) || // 0-9
-  c == 0x2D ||                // -
-  c == 0x2E ||                // .
-  c == 0x5F ||                // _
-  c == 0x7E                   // ~
+  c == 0x2D || // -
+  c == 0x2E || // .
+  c == 0x5F || // _
+  c == 0x7E // ~
 }
 
 ///|
@@ -332,6 +398,10 @@ let hex_upper : String = "0123456789ABCDEF"
 ///|
 fn write_pct(buf : StringBuilder, byte : Int) -> Unit {
   buf.write_char('%')
-  buf.write_char(hex_upper.code_unit_at((byte >> 4) & 0xF).to_int() |> Int::unsafe_to_char)
-  buf.write_char(hex_upper.code_unit_at(byte & 0xF).to_int() |> Int::unsafe_to_char)
+  buf.write_char(
+    hex_upper.code_unit_at((byte >> 4) & 0xF).to_int() |> Int::unsafe_to_char,
+  )
+  buf.write_char(
+    hex_upper.code_unit_at(byte & 0xF).to_int() |> Int::unsafe_to_char,
+  )
 }

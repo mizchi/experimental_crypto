@@ -34,3 +34,37 @@ test "fuzz pkcs8: parse_encrypted_pem never panics on random strings" {
     let _ = try? @pkcs8.parse_encrypted_pem(input)
   }
 }
+
+///|
+test "fuzz pkcs8: generated PRIVATE KEY PEM matches direct DER parse" {
+  let n = 200
+  for der in (@quickcheck.samples(n) : Array[Bytes]) {
+    let pem = @pem.encode_simple("PRIVATE KEY", der)
+    let direct_ok = match (try? @pkcs8.parse_der(der)) {
+      Ok(_) => true
+      Err(_) => false
+    }
+    let pem_ok = match (try? @pkcs8.parse_pem(pem)) {
+      Ok(_) => true
+      Err(_) => false
+    }
+    assert_eq(pem_ok, direct_ok)
+  }
+}
+
+///|
+test "fuzz pkcs8: generated ENCRYPTED PRIVATE KEY PEM matches direct DER parse" {
+  let n = 200
+  for der in (@quickcheck.samples(n) : Array[Bytes]) {
+    let pem = @pem.encode_simple("ENCRYPTED PRIVATE KEY", der)
+    let direct_ok = match (try? @pkcs8.parse_encrypted_der(der)) {
+      Ok(_) => true
+      Err(_) => false
+    }
+    let pem_ok = match (try? @pkcs8.parse_encrypted_pem(pem)) {
+      Ok(_) => true
+      Err(_) => false
+    }
+    assert_eq(pem_ok, direct_ok)
+  }
+}

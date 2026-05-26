@@ -113,7 +113,13 @@ fn bytes_concat4(a : Bytes, b : Bytes, c : Bytes, d : Bytes) -> Bytes {
 }
 
 ///|
-fn bytes_concat5(a : Bytes, b : Bytes, c : Bytes, d : Bytes, e : Bytes) -> Bytes {
+fn bytes_concat5(
+  a : Bytes,
+  b : Bytes,
+  c : Bytes,
+  d : Bytes,
+  e : Bytes,
+) -> Bytes {
   bytes_concat(bytes_concat4(a, b, c, d), e)
 }
 
@@ -155,6 +161,9 @@ fn labeled_expand(
   info : Bytes,
   length : Int,
 ) -> Bytes raise HpkeError {
+  if length < 0 || length > 0xffff {
+    raise KdfFailure
+  }
   // labeled_info = I2OSP(L, 2) || "HPKE-v1" || suite_id || label || info
   let lab_info = bytes_concat5(
     i2osp2(length),
@@ -324,22 +333,32 @@ fn increment_seq(ctx : HpkeContext) -> Unit raise HpkeError {
 }
 
 ///|
+fn validate_aead_context(ctx : HpkeContext) -> Unit raise HpkeError {
+  if ctx.sequence == 0xFFFFFFFFFFFFFFFFUL {
+    raise SequenceOverflow
+  }
+  if ctx.key.length() != NK || ctx.base_nonce.length() != NN {
+    raise AeadFailure
+  }
+}
+
+///|
 pub fn HpkeContext::seal(
   self : HpkeContext,
   aad : Bytes,
   pt : Bytes,
 ) -> Bytes raise HpkeError {
+  validate_aead_context(self)
   let nonce = compute_nonce(self.base_nonce, self.sequence)
   let ct = @aead.seal(
-      @aead.Algorithm::ChaCha20Poly1305,
-      self.key,
-      nonce,
-      aad,
-      pt,
-    )
-    catch {
-      _ => raise AeadFailure
-    }
+    @aead.Algorithm::ChaCha20Poly1305,
+    self.key,
+    nonce,
+    aad,
+    pt,
+  ) catch {
+    _ => raise AeadFailure
+  }
   increment_seq(self)
   ct
 }
@@ -350,17 +369,17 @@ pub fn HpkeContext::open(
   aad : Bytes,
   ct : Bytes,
 ) -> Bytes raise HpkeError {
+  validate_aead_context(self)
   let nonce = compute_nonce(self.base_nonce, self.sequence)
   let pt = @aead.open(
-      @aead.Algorithm::ChaCha20Poly1305,
-      self.key,
-      nonce,
-      aad,
-      ct,
-    )
-    catch {
-      _ => raise AeadFailure
-    }
+    @aead.Algorithm::ChaCha20Poly1305,
+    self.key,
+    nonce,
+    aad,
+    ct,
+  ) catch {
+    _ => raise AeadFailure
+  }
   increment_seq(self)
   pt
 }

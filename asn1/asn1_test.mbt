@@ -1,4 +1,17 @@
 ///|
+fn ascii_tlv(tag : Int, payload : String) -> Bytes {
+  let bytes = @utf8.encode(payload[:])
+  if bytes.length() >= 128 {
+    abort("ascii_tlv helper only supports short-form length")
+  }
+  let buf = Buffer()
+  buf.write_byte(tag.to_byte())
+  buf.write_byte(bytes.length().to_byte())
+  buf.write_bytes(bytes)
+  buf.to_bytes()
+}
+
+///|
 test "tag: universal primitive short form (INTEGER)" {
   let enc = @asn1.Encoder::new()
   @asn1.write_tag(enc, @asn1.tag_integer)
@@ -275,8 +288,8 @@ test "primitive: PrintableString rejects non-ASCII bytes" {
 }
 
 ///|
-test "primitive: PrintableString accepts pure ASCII" {
-  let s = "Hello, World!"
+test "primitive: PrintableString accepts allowed alphabet" {
+  let s = "Hello, World +()-./:=?AZaz09"
   let enc = @asn1.Encoder::new()
   enc.write_element(
     @asn1.Element::new(@asn1.tag_printable_string, PrintableString(s)),
@@ -285,6 +298,20 @@ test "primitive: PrintableString accepts pure ASCII" {
   match dec.read_element().value {
     PrintableString(out) => assert_eq(out, s)
     _ => assert_eq(true, false, msg="expected PrintableString")
+  }
+}
+
+///|
+test "ATTACK: PrintableString rejects disallowed ASCII characters" {
+  for s in ["Hello!", "mail@example", "snake_case", "[bracket]"] {
+    let raised = try {
+      let _ = @asn1.decode_der(ascii_tlv(0x13, s))
+      false
+    } catch {
+      InvalidEncoding(_) => true
+      _ => false
+    }
+    assert_true(raised)
   }
 }
 
@@ -488,6 +515,38 @@ test "set: SET { NULL }" {
 }
 
 ///|
+test "ATTACK: SET items must be in DER canonical order" {
+  // Non-canonical SET { NULL, OCTET STRING "" }; lexicographic DER order is
+  // OCTET STRING (04 00) before NULL (05 00).
+  let der : Bytes = b"\x31\x04\x05\x00\x04\x00"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "set: encoder sorts SET items canonically" {
+  let elem = @asn1.Element::new(
+    @asn1.tag_set,
+    Set([
+      @asn1.Element::new(@asn1.tag_null, Null),
+      @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+    ]),
+  )
+  inspect(
+    @asn1.encode_der(elem),
+    content=(
+      #|b"1\x04\x04\x00\x05\x00"
+    ),
+  )
+}
+
+///|
 test "bit_string: 6-bit value 011011 (unused=2)" {
   // From X.690 Annex A: bits 0..5 = 0,1,1,0,1,1 → byte 0x6C, unused_bits=2
   let bs : @asn1.BitString = { bytes: b"\x6c", unused_bits: 2 }
@@ -549,6 +608,37 @@ test "time: GeneralizedTime '20260525120000Z'" {
   match dec.read_element().value {
     GeneralizedTime(t) => assert_eq(t, s)
     _ => assert_eq(true, false, msg="expected GeneralizedTime")
+  }
+}
+
+///|
+test "ATTACK: UTCTime requires YYMMDDHHMMSSZ canonical form" {
+  for s in ["230101000000+0900", "2301010000Z", "230101000000", "230231000000Z"] {
+    let raised = try {
+      let _ = @asn1.decode_der(ascii_tlv(0x17, s))
+      false
+    } catch {
+      InvalidEncoding(_) => true
+      _ => false
+    }
+    assert_true(raised)
+  }
+}
+
+///|
+test "ATTACK: GeneralizedTime requires YYYYMMDDHHMMSSZ canonical form" {
+  for
+    s in [
+      "20260525120000+0900", "20260525120000.0Z", "202605251200Z", "20260230000000Z",
+    ] {
+    let raised = try {
+      let _ = @asn1.decode_der(ascii_tlv(0x18, s))
+      false
+    } catch {
+      InvalidEncoding(_) => true
+      _ => false
+    }
+    assert_true(raised)
   }
 }
 

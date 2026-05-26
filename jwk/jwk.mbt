@@ -14,6 +14,8 @@
 //     just decoded but the resulting `Jwk::Rsa` keeps only what the
 //     workspace can hold. Round-tripping a private RSA JWK therefore
 //     emits `n`, `e`, `d` but NOT the CRT parameters.
+//   * `oct` keys are symmetric secrets. `parse_public` rejects them and
+//     `serialise_public` deliberately omits `k`.
 //   * `serialise_public` never emits private fields (RFC 7517 §6).
 //   * `serialise_private` emits the private fields and requires that the
 //     `privkey~` slot is populated.
@@ -176,10 +178,30 @@ fn bigint_byte_len(n : @bigint.BigInt) -> Int {
 }
 
 ///|
-fn make_ec_pub_p256(
-  x : Bytes,
-  y : Bytes,
-) -> @p256.PublicKey raise JwkError {
+fn bigint_is_odd(n : @bigint.BigInt) -> Bool {
+  let oct = n.to_octets()
+  oct.length() > 0 && (oct[oct.length() - 1].to_int() & 1) == 1
+}
+
+///|
+fn validate_rsa_public_params(
+  n : @bigint.BigInt,
+  e : @bigint.BigInt,
+) -> Int raise JwkError {
+  if n.compare_int(1) <= 0 {
+    raise CryptoError("RSA modulus must be greater than 1")
+  }
+  if !bigint_is_odd(n) {
+    raise CryptoError("RSA modulus must be odd")
+  }
+  if e.compare_int(3) < 0 || !bigint_is_odd(e) {
+    raise CryptoError("RSA public exponent must be odd and >= 3")
+  }
+  bigint_byte_len(n)
+}
+
+///|
+fn make_ec_pub_p256(x : Bytes, y : Bytes) -> @p256.PublicKey raise JwkError {
   if x.length() != 32 {
     raise InvalidFieldLength("EC P-256 x must be 32 bytes")
   }
@@ -201,10 +223,7 @@ fn make_ec_pub_p256(
 }
 
 ///|
-fn make_ec_pub_p384(
-  x : Bytes,
-  y : Bytes,
-) -> @p384.PublicKey raise JwkError {
+fn make_ec_pub_p384(x : Bytes, y : Bytes) -> @p384.PublicKey raise JwkError {
   if x.length() != 48 {
     raise InvalidFieldLength("EC P-384 x must be 48 bytes")
   }
@@ -252,19 +271,14 @@ fn make_ec_pub_secp256k1(
 
 // EC private-key construction: pad the scalar to the required length before
 // handing it to `from_bytes`, mirroring the workspace's PKCS#8 loaders.
+
 ///|
 fn pad_left(b : Bytes, n : Int) -> Bytes raise JwkError {
   if b.length() > n {
     raise InvalidFieldLength("EC d longer than curve order")
   }
   let pad = n - b.length()
-  Bytes::makei(n, fn(i) {
-    if i < pad {
-      b'\x00'
-    } else {
-      b[i - pad]
-    }
-  })
+  Bytes::makei(n, fn(i) { if i < pad { b'\x00' } else { b[i - pad] } })
 }
 
 // -----------------------------------------------------------------------------
@@ -273,6 +287,7 @@ fn pad_left(b : Bytes, n : Int) -> Bytes raise JwkError {
 
 // Each of p256/p384/secp256k1 already gives us `to_uncompressed` returning
 // `04 || X || Y`. We split it here for the JWK x / y fields.
+
 ///|
 fn split_uncompressed(b : Bytes, coord_len : Int) -> (Bytes, Bytes) {
   let x = Bytes::makei(coord_len, fn(i) { b[1 + i] })
@@ -304,12 +319,15 @@ fn parse_inner(
       let e_bytes = need_b64url(m, "e")
       let n = bytes_to_bigint(n_bytes)
       let e = bytes_to_bigint(e_bytes)
-      let n_bytes_len = bigint_byte_len(n)
+      let n_bytes_len = validate_rsa_public_params(n, e)
       let pub_key : @rsa.RsaPublicKey = { n, e, n_bytes_len }
       let priv_key : @rsa.RsaPrivateKey? = if allow_private {
         match opt_b64url(m, "d") {
           Some(d_bytes) => {
             let d = bytes_to_bigint(d_bytes)
+            if d.compare_int(0) <= 0 {
+              raise CryptoError("RSA private exponent must be positive")
+            }
             let p : @rsa.RsaPrivateKey = { n, e, d, n_bytes_len }
             Some(p)
           }
@@ -334,6 +352,9 @@ fn parse_inner(
                 let p = @p256.PrivateKey::from_bytes(d_padded) catch {
                   e => raise CryptoError("P-256 private: " + e.to_string())
                 }
+                if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
+                  raise CryptoError("P-256 public/private mismatch")
+                }
                 Some(p)
               }
               None => None
@@ -352,6 +373,9 @@ fn parse_inner(
                 let p = @p384.PrivateKey::from_bytes(d_padded) catch {
                   e => raise CryptoError("P-384 private: " + e.to_string())
                 }
+                if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
+                  raise CryptoError("P-384 public/private mismatch")
+                }
                 Some(p)
               }
               None => None
@@ -369,6 +393,10 @@ fn parse_inner(
                 let d_padded = pad_left(d_bytes, 32)
                 let p = @secp256k1.PrivateKey::from_bytes(d_padded) catch {
                   e => raise CryptoError("secp256k1 private: " + e.to_string())
+                }
+                if p.public_key().to_uncompressed() !=
+                  pub_key.to_uncompressed() {
+                  raise CryptoError("secp256k1 public/private mismatch")
                 }
                 Some(p)
               }
@@ -402,6 +430,9 @@ fn parse_inner(
                 let p = @ed25519.PrivateKey::from_seed(d_bytes) catch {
                   e => raise CryptoError("Ed25519 seed: " + e.to_string())
                 }
+                if p.public_key().to_bytes() != pub_key.to_bytes() {
+                  raise CryptoError("Ed25519 public/private mismatch")
+                }
                 Some(p)
               }
               None => None
@@ -415,6 +446,9 @@ fn parse_inner(
       }
     }
     "oct" => {
+      if !allow_private {
+        raise CryptoError("oct is a symmetric key; use parse_private")
+      }
       let k = need_b64url(m, "k")
       Hmac(secret=k)
     }
@@ -476,9 +510,8 @@ fn jwk_to_public_map(jwk : Jwk) -> Map[String, Json] {
       m["crv"] = Json::string("Ed25519")
       m["x"] = Json::string(b64url_encode(pubkey.to_bytes()))
     }
-    Hmac(secret~) => {
+    Hmac(_) => {
       m["kty"] = Json::string("oct")
-      m["k"] = Json::string(b64url_encode(secret))
     }
   }
   m
@@ -496,10 +529,8 @@ pub fn serialise_private(jwk : Jwk) -> String raise JwkError {
   match jwk {
     Rsa(privkey~, ..) =>
       match privkey {
-        Some(p) => {
-          m["d"] = Json::string(b64url_encode(p.d.to_octets()))
-          // CRT params not held in @rsa.RsaPrivateKey; omitted intentionally.
-        }
+        Some(p) => m["d"] = Json::string(b64url_encode(p.d.to_octets()))
+        // CRT params not held in @rsa.RsaPrivateKey; omitted intentionally.
         None => raise PrivateKeyMissing
       }
     EcP256(privkey~, ..) =>
@@ -525,9 +556,9 @@ pub fn serialise_private(jwk : Jwk) -> String raise JwkError {
         Some(p) => m["d"] = Json::string(b64url_encode(p.seed_bytes()))
         None => raise PrivateKeyMissing
       }
-    Hmac(_) =>
+    Hmac(secret~) =>
       // For `oct` the secret IS the whole key — no separate private field.
-      ()
+      m["k"] = Json::string(b64url_encode(secret))
   }
   Json::object(m).stringify()
 }
@@ -566,7 +597,7 @@ fn json_string_escape(s : String) -> String {
       let n = c.to_int()
       buf.write_string("\\u00")
       let hex_chars = "0123456789abcdef"
-      let hi = (n / 16) % 16
+      let hi = n / 16 % 16
       let lo = n % 16
       buf.write_char(hex_chars.unsafe_char_at(hi))
       buf.write_char(hex_chars.unsafe_char_at(lo))
@@ -674,6 +705,7 @@ fn canonical_form(jwk : Jwk) -> String {
 
 // Internal debug helper — exposed so tests can pin the canonical JSON
 // form for RFC 7638 fixtures without re-deriving it.
+
 ///|
 pub fn debug_canonical_form(jwk : Jwk) -> String {
   canonical_form(jwk)

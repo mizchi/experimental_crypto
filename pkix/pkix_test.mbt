@@ -32,6 +32,130 @@ fn name_cn(value : String) -> @pkix.Name raise {
 }
 
 ///|
+fn elem_from_der(bytes : Bytes) -> @asn1.Element {
+  @asn1.decode_der(bytes) catch {
+    _ => abort("test fixture DER failed")
+  }
+}
+
+///|
+fn concat_der(parts : Array[Bytes]) -> Bytes {
+  let buf = Buffer()
+  for p in parts {
+    buf.write_bytes(p)
+  }
+  buf.to_bytes()
+}
+
+///|
+fn raw_short_tlv(tag : Int, payload : Bytes) -> Bytes {
+  if payload.length() >= 128 {
+    abort("raw_short_tlv helper only supports short-form length")
+  }
+  let buf = Buffer()
+  buf.write_byte(tag.to_byte())
+  buf.write_byte(payload.length().to_byte())
+  buf.write_bytes(payload)
+  buf.to_bytes()
+}
+
+///|
+fn raw_ascii_tlv(tag : Int, payload : String) -> Bytes {
+  let buf = Buffer()
+  for c in payload {
+    let cp = c.to_int()
+    if cp > 0x7F {
+      abort("raw_ascii_tlv helper only supports ASCII")
+    }
+    buf.write_byte(cp.to_byte())
+  }
+  raw_short_tlv(tag, buf.to_bytes())
+}
+
+///|
+fn explicit_version(version_bytes : Bytes) -> @asn1.Element {
+  @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    Unknown(
+      @asn1.encode_der(
+        @asn1.Element::new(@asn1.tag_integer, Integer(version_bytes)),
+      ),
+    ),
+  )
+}
+
+///|
+fn validity_elem(
+  not_before : String,
+  not_before_tag : @asn1.Tag,
+  not_after : String,
+  not_after_tag : @asn1.Tag,
+) -> @asn1.Element {
+  let nb_value = if not_before_tag == @asn1.tag_utc_time {
+    @asn1.Value::UtcTime(not_before)
+  } else {
+    @asn1.Value::GeneralizedTime(not_before)
+  }
+  let na_value = if not_after_tag == @asn1.tag_utc_time {
+    @asn1.Value::UtcTime(not_after)
+  } else {
+    @asn1.Value::GeneralizedTime(not_after)
+  }
+  @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(not_before_tag, nb_value),
+      @asn1.Element::new(not_after_tag, na_value),
+    ]),
+  )
+}
+
+///|
+fn base_tbs_items(
+  version_bytes? : Bytes = b"\x02",
+  serial? : Bytes = b"\x01",
+  validity? : @asn1.Element,
+) -> Array[@asn1.Element] raise {
+  let cert = sample_cert()
+  let validity_elem = match validity {
+    Some(e) => e
+    None =>
+      validity_elem(
+        cert.tbs.validity.not_before,
+        cert.tbs.validity.not_before_tag,
+        cert.tbs.validity.not_after,
+        cert.tbs.validity.not_after_tag,
+      )
+  }
+  [
+    explicit_version(version_bytes),
+    @asn1.Element::new(@asn1.tag_integer, Integer(serial)),
+    @pkix.algorithm_identifier_to_element(cert.tbs.signature),
+    elem_from_der(@pkix.serialize_name(cert.tbs.issuer)),
+    validity_elem,
+    elem_from_der(@pkix.serialize_name(cert.tbs.subject)),
+    elem_from_der(
+      @pkix.serialize_subject_public_key_info(cert.tbs.subject_public_key_info),
+    ),
+  ]
+}
+
+///|
+fn cert_der_from_tbs_items(items : Array[@asn1.Element]) -> Bytes raise {
+  let cert = sample_cert()
+  @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([
+        @asn1.Element::new(@asn1.tag_sequence, Sequence(items)),
+        @pkix.algorithm_identifier_to_element(cert.signature_algorithm),
+        @asn1.Element::new(@asn1.tag_bit_string, BitString(cert.signature)),
+      ]),
+    ),
+  )
+}
+
+///|
 fn sample_cert() -> @pkix.Certificate raise {
   let tbs : @pkix.TbsCertificate = {
     version: 2,
@@ -178,5 +302,109 @@ test "pkix: parse_certificate rejects truncated input" {
   match (try? @pkix.parse_certificate(b"\x30\x82")) {
     Err(_) => ()
     Ok(_) => assert_eq(true, false, msg="expected error on truncated input")
+  }
+}
+
+///|
+test "ATTACK pkix: explicit DEFAULT v1 version is rejected" {
+  let der = cert_der_from_tbs_items(base_tbs_items(version_bytes=b"\x00"))
+  match (try? @pkix.parse_certificate(der)) {
+    Err(@pkix.UnexpectedStructure(_)) => ()
+    other => abort("expected explicit default version rejection, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkix: serial number must be positive" {
+  for serial in [b"\x00", b"\xff"] {
+    let der = cert_der_from_tbs_items(base_tbs_items(serial~))
+    match (try? @pkix.parse_certificate(der)) {
+      Err(@pkix.UnexpectedStructure(_)) => ()
+      other => abort("expected serial rejection, got \{other}")
+    }
+  }
+}
+
+///|
+test "ATTACK pkix: invalid validity time syntax is rejected at parse" {
+  let bad_validity = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Unknown(
+      concat_der([
+        raw_ascii_tlv(0x17, "230101000000+0900"),
+        raw_ascii_tlv(0x17, "330101000000Z"),
+      ]),
+    ),
+  )
+  let der = cert_der_from_tbs_items(base_tbs_items(validity=bad_validity))
+  match (try? @pkix.parse_certificate(der)) {
+    Err(@pkix.Asn1(@asn1.InvalidEncoding(_))) => ()
+    Err(@pkix.InvalidTime(_)) => ()
+    other => abort("expected InvalidTime, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkix: duplicate optional TBSCertificate fields are rejected" {
+  let items = base_tbs_items()
+  let empty_exts = @asn1.Element::new(@asn1.tag_sequence, Sequence([]))
+  items.push(
+    @asn1.Element::new(
+      @asn1.Tag::context(3U, constructed=true),
+      Unknown(@asn1.encode_der(empty_exts)),
+    ),
+  )
+  items.push(
+    @asn1.Element::new(
+      @asn1.Tag::context(3U, constructed=true),
+      Unknown(@asn1.encode_der(empty_exts)),
+    ),
+  )
+  let der = cert_der_from_tbs_items(items)
+  match (try? @pkix.parse_certificate(der)) {
+    Err(@pkix.UnexpectedStructure(_)) => ()
+    other => abort("expected duplicate extensions rejection, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkix: IMPLICIT uniqueID BIT STRING tail padding is checked" {
+  let items = base_tbs_items(version_bytes=b"\x01")
+  items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x01\x01")))
+  let der = cert_der_from_tbs_items(items)
+  match (try? @pkix.parse_certificate(der)) {
+    Err(@pkix.UnexpectedStructure(_)) => ()
+    other => abort("expected BIT STRING padding rejection, got \{other}")
+  }
+}
+
+///|
+test "ATTACK pkix: RDN SET order must be DER canonical" {
+  let cn_av = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_oid, Oid(cn_oid())),
+      @asn1.Element::new(@asn1.tag_utf8_string, Utf8String("b")),
+    ]),
+  )
+  let country_av = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(
+        @asn1.tag_oid,
+        Oid(@asn1.ObjectIdentifier::from_string("2.5.4.6")),
+      ),
+      @asn1.Element::new(@asn1.tag_printable_string, PrintableString("US")),
+    ]),
+  )
+  let noncanonical_set = raw_short_tlv(
+    0x31,
+    concat_der([@asn1.encode_der(country_av), @asn1.encode_der(cn_av)]),
+  )
+  let noncanonical_name = raw_short_tlv(0x30, noncanonical_set)
+  match (try? @pkix.parse_name(noncanonical_name)) {
+    Err(@pkix.Asn1(@asn1.InvalidEncoding(_))) => ()
+    Err(@pkix.UnexpectedStructure(_)) => ()
+    other => abort("expected RDN SET order rejection, got \{other}")
   }
 }

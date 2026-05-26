@@ -189,27 +189,63 @@ test "hpke: open fails with wrong aad" {
 ///|
 test "hpke: invalid pk_r length is rejected" {
   let mut got_err = false
-  let _ = @hpke.setup_base_s(b"\x00\x01\x02", test_info, sk_e=test_sk_e)
-    catch {
-      InvalidPublicKey(_) => {
-        got_err = true
-        (b"", { key: b"", base_nonce: b"", sequence: 0UL, exporter_secret: b"" })
-      }
-      e => raise e
+  let _ = @hpke.setup_base_s(b"\x00\x01\x02", test_info, sk_e=test_sk_e) catch {
+    InvalidPublicKey(_) => {
+      got_err = true
+      (b"", { key: b"", base_nonce: b"", sequence: 0UL, exporter_secret: b"" })
     }
+    e => raise e
+  }
   assert_true(got_err)
 }
 
 ///|
 test "hpke: invalid sk_e length is rejected" {
   let mut got_err = false
-  let _ = @hpke.setup_base_s(test_pk_r, test_info, sk_e=b"\x00\x01")
-    catch {
-      InvalidEphemeral(_) => {
-        got_err = true
-        (b"", { key: b"", base_nonce: b"", sequence: 0UL, exporter_secret: b"" })
-      }
-      e => raise e
+  let _ = @hpke.setup_base_s(test_pk_r, test_info, sk_e=b"\x00\x01") catch {
+    InvalidEphemeral(_) => {
+      got_err = true
+      (b"", { key: b"", base_nonce: b"", sequence: 0UL, exporter_secret: b"" })
     }
+    e => raise e
+  }
+  assert_true(got_err)
+}
+
+///|
+test "hpke: seal refuses exhausted sequence before AEAD" {
+  let ctx : @hpke.HpkeContext = {
+    key: b"short",
+    base_nonce: test_base_nonce,
+    sequence: 0xffffffffffffffffUL,
+    exporter_secret: test_exporter_secret,
+  }
+  let mut got_err = false
+  let _ = ctx.seal(b"", b"") catch {
+    SequenceOverflow => {
+      got_err = true
+      b""
+    }
+    e => raise e
+  }
+  assert_true(got_err)
+}
+
+///|
+test "hpke: open refuses exhausted sequence before AEAD" {
+  let ctx : @hpke.HpkeContext = {
+    key: b"short",
+    base_nonce: test_base_nonce,
+    sequence: 0xffffffffffffffffUL,
+    exporter_secret: test_exporter_secret,
+  }
+  let mut got_err = false
+  let _ = ctx.open(b"", b"") catch {
+    SequenceOverflow => {
+      got_err = true
+      b""
+    }
+    e => raise e
+  }
   assert_true(got_err)
 }

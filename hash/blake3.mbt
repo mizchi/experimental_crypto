@@ -175,10 +175,7 @@ fn blake3_compress(
   // Final feedforward: V[0..8] ^= V[8..16]; V[8..16] ^= input CV.
   for i = 0; i < 8; i = i + 1 {
     out.unsafe_set(i, state.unsafe_get(i) ^ state.unsafe_get(i + 8))
-    out.unsafe_set(
-      i + 8,
-      state.unsafe_get(i + 8) ^ cv.unsafe_get(i),
-    )
+    out.unsafe_set(i + 8, state.unsafe_get(i + 8) ^ cv.unsafe_get(i))
   }
 }
 
@@ -257,7 +254,14 @@ fn Blake3ChunkState::compress_full_block(self : Blake3ChunkState) -> Unit {
   blake3_load_block_le(self.block, 0, words)
   let out = FixedArray::make(16, 0U)
   let f = self.flags | self.start_flag()
-  blake3_compress(self.cv, words, self.chunk_counter, blake3_block_len_bytes, f, out)
+  blake3_compress(
+    self.cv,
+    words,
+    self.chunk_counter,
+    blake3_block_len_bytes,
+    f,
+    out,
+  )
   for i = 0; i < 8; i = i + 1 {
     self.cv.unsafe_set(i, out.unsafe_get(i))
   }
@@ -378,20 +382,18 @@ pub fn Blake3State::new_keyed(key : Bytes) -> Blake3State raise Blake3Error {
 }
 
 ///|
-/// New derive_key BLAKE3 hasher. `context` should be a hard-coded ASCII
+/// New derive_key BLAKE3 hasher. `context` should be a hard-coded UTF-8
 /// label per the spec.
 pub fn Blake3State::new_derive_key(context : String) -> Blake3State {
   // 1. Hash the context with DERIVE_KEY_CONTEXT flag to produce a 32-byte
   //    pseudo-random key.
-  let ctx_bytes = Bytes::from_iter(context.iter().map(fn(c) { c.to_int().to_byte() }))
+  let ctx_bytes = @utf8.encode(context[:])
   let ctx_hasher_key = blake3_copy_cv(blake3_iv)
   let ctx_hasher = {
     key: ctx_hasher_key,
     flags: blake3_flag_derive_key_context,
     chunk: Blake3ChunkState::new(
-      ctx_hasher_key,
-      0UL,
-      blake3_flag_derive_key_context,
+      ctx_hasher_key, 0UL, blake3_flag_derive_key_context,
     ),
     cv_stack: [],
   }
@@ -410,7 +412,9 @@ pub fn Blake3State::new_derive_key(context : String) -> Blake3State {
   {
     key: key_words,
     flags: blake3_flag_derive_key_material,
-    chunk: Blake3ChunkState::new(key_words, 0UL, blake3_flag_derive_key_material),
+    chunk: Blake3ChunkState::new(
+      key_words, 0UL, blake3_flag_derive_key_material,
+    ),
     cv_stack: [],
   }
 }
@@ -480,7 +484,11 @@ pub fn Blake3State::update(self : Blake3State, data : Bytes) -> Unit {
       }
       let next_chunk_counter = self.chunk.chunk_counter + 1UL
       self.add_chunk_cv(chunk_cv, next_chunk_counter)
-      self.chunk = Blake3ChunkState::new(self.key, next_chunk_counter, self.flags)
+      self.chunk = Blake3ChunkState::new(
+        self.key,
+        next_chunk_counter,
+        self.flags,
+      )
     }
     let consumed = self.chunk.update(data, pos, n)
     pos += consumed
@@ -600,7 +608,7 @@ fn blake3_xof_from_root(
     let take = if remain < 64 { remain } else { 64 }
     for i = 0; i < take; i = i + 1 {
       let w = buf.unsafe_get(i / 4)
-      let shift = (i % 4) * 8
+      let shift = i % 4 * 8
       out_bytes.unsafe_set(produced + i, (w >> shift).to_byte())
     }
     produced += take

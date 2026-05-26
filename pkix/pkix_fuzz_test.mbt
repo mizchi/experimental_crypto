@@ -26,3 +26,23 @@ test "fuzz pkix: parse_subject_public_key_info never panics on random bytes" {
     let _ = try? @pkix.parse_subject_public_key_info(input)
   }
 }
+
+///|
+test "fuzz pkix: generated CERTIFICATE PEM data matches direct DER parse" {
+  let n = 200
+  for der in (@quickcheck.samples(n) : Array[Bytes]) {
+    let pem = @pem.encode_simple("CERTIFICATE", der)
+    let block = @pem.decode(pem)
+    assert_eq(block.label, "CERTIFICATE")
+    assert_eq(block.data, der)
+    let direct_ok = match (try? @pkix.parse_certificate(der)) {
+      Ok(_) => true
+      Err(_) => false
+    }
+    let via_pem_ok = match (try? @pkix.parse_certificate(block.data)) {
+      Ok(_) => true
+      Err(_) => false
+    }
+    assert_eq(via_pem_ok, direct_ok)
+  }
+}
