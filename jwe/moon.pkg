@@ -9,6 +9,7 @@ import {
 }
 
 import {
+  "moonbitlang/core/debug",
   "mizchi/rsa",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/encoding/utf8",

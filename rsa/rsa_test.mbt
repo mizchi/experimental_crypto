@@ -71,17 +71,17 @@ let rfc7515_spki_der : Bytes = hex(
 ///|
 test "RFC 7515 §A.2.1: RS256 verify via PKCS#1 DER" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
-  assert_eq(pubkey.n_bytes_len, 256)
+  @debug.assert_eq(pubkey.n_bytes_len, 256)
   let ok = pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
 test "RFC 7515 §A.2.1: RS256 verify via SPKI DER" {
   let pubkey = @rsa.RsaPublicKey::from_spki_der(rfc7515_spki_der)
-  assert_eq(pubkey.n_bytes_len, 256)
+  @debug.assert_eq(pubkey.n_bytes_len, 256)
   let ok = @rsa.verify(pubkey, rfc7515_signing_input, rfc7515_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
@@ -96,7 +96,7 @@ test "RFC 7515 §A.2.1: tampered message rejects" {
     }
   })
   let ok = pubkey.verify(bad, rfc7515_signature, Sha256)
-  assert_eq(ok, false)
+  @debug.assert_eq(ok, false)
 }
 
 ///|
@@ -110,7 +110,7 @@ test "RFC 7515 §A.2.1: tampered signature rejects" {
     }
   })
   let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
-  assert_eq(ok, false)
+  @debug.assert_eq(ok, false)
 }
 
 ///|
@@ -150,23 +150,23 @@ let openssl_signature : Bytes = hex(
 ///|
 test "openssl-generated: RSA-2048 SHA-256 verify via SPKI" {
   let pubkey = @rsa.RsaPublicKey::from_spki_der(openssl_spki_der)
-  assert_eq(pubkey.n_bytes_len, 256)
+  @debug.assert_eq(pubkey.n_bytes_len, 256)
   let ok = pubkey.verify(openssl_message, openssl_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
 test "openssl-generated: RSA-2048 SHA-256 verify via PKCS#1" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(openssl_pkcs1_der)
   let ok = pubkey.verify(openssl_message, openssl_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
 test "cross-key rejection: openssl key cannot verify RFC 7515 signature" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(openssl_pkcs1_der)
   let ok = pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha256)
-  assert_eq(ok, false)
+  @debug.assert_eq(ok, false)
 }
 
 // ─── decoder negative tests ────────────────────────────────────────────
@@ -308,7 +308,7 @@ test "rsa: sign + verify roundtrip with SHA-256" {
   let pk = sk.public_key()
   let msg : Bytes = b"hello rsa sign"
   let sig = sk.sign(msg, Sha256)
-  assert_eq(sig.length(), pk.n_bytes_len)
+  @debug.assert_eq(sig.length(), pk.n_bytes_len)
   assert_true(pk.verify(msg, sig, Sha256))
 }
 
@@ -326,7 +326,7 @@ test "rsa: sign is deterministic (PKCS#1 v1.5)" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
   let s1 = sk.sign(b"msg", Sha256)
   let s2 = sk.sign(b"msg", Sha256)
-  assert_eq(s1, s2)
+  @debug.assert_eq(s1, s2)
 }
 
 ///|
@@ -357,7 +357,7 @@ test "rsa-pss: sign + verify roundtrip with SHA-256, empty salt (deterministic)"
   let pk = sk.public_key()
   let msg : Bytes = b"pss-deterministic-roundtrip"
   let sig = sk.sign_pss(msg, Sha256, b"")
-  assert_eq(sig.length(), pk.n_bytes_len)
+  @debug.assert_eq(sig.length(), pk.n_bytes_len)
   // salt_len = 0 must be passed explicitly — the default of -1 (hLen = 32)
   // would not match the empty salt we signed with.
   assert_true(pk.verify_pss(msg, sig, Sha256, salt_len=0))

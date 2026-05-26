@@ -69,20 +69,20 @@ fn pub_hex(xpriv : @bip32.ExtendedPrivateKey) -> String {
 test "master_from_seed: BIP-32 test vector 1" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(m.chain_code),
     "873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508",
   )
-  assert_eq(
+  @debug.assert_eq(
     priv_hex(m),
     "e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35",
   )
-  assert_eq(
+  @debug.assert_eq(
     pub_hex(m),
     "0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2",
   )
-  assert_eq(m.depth, 0)
-  assert_eq(bytes_to_hex(m.parent_fingerprint), "00000000")
+  @debug.assert_eq(m.depth, 0)
+  @debug.assert_eq(bytes_to_hex(m.parent_fingerprint), "00000000")
 }
 
 ///|
@@ -90,16 +90,16 @@ test "derive_path: BIP-32 vector 1 m/0'" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let child = @bip32.derive_path(m, "m/0'")
-  assert_eq(
+  @debug.assert_eq(
     priv_hex(child),
     "edb2e14f9ee77d26dd93b4ecede8d16ed408ce149b6cd80b0715a2d911a0afea",
   )
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(child.chain_code),
     "47fdacbd0f1097043b78c63c20c34ef4ed9a111d980047ad16282c7ae6236141",
   )
-  assert_eq(bytes_to_hex(child.parent_fingerprint), "3442193e")
-  assert_eq(child.depth, 1)
+  @debug.assert_eq(bytes_to_hex(child.parent_fingerprint), "3442193e")
+  @debug.assert_eq(child.depth, 1)
 }
 
 ///|
@@ -107,15 +107,15 @@ test "derive_path: BIP-32 vector 1 m/0'/1" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let child = @bip32.derive_path(m, "m/0'/1")
-  assert_eq(
+  @debug.assert_eq(
     priv_hex(child),
     "3c6cb8d0f6a264c91ea8b5030fadaa8e538b020f0a387421a12de9319dc93368",
   )
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(child.chain_code),
     "2a7857631386ba23dacac34180dd1983734e444fdbf774041578e9b6adb37c19",
   )
-  assert_eq(child.depth, 2)
+  @debug.assert_eq(child.depth, 2)
 }
 
 ///|
@@ -126,15 +126,15 @@ test "derive_path: BIP-32 vector 1 m/0'/1/2'" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let child = @bip32.derive_path(m, "m/0'/1/2'")
-  assert_eq(
+  @debug.assert_eq(
     priv_hex(child),
     "cbce0d719ecf7431d88e6a89fa1483e02e35092af60c042b1df2ff59fa424dca",
   )
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(child.chain_code),
     "04466b9cc8e161e966409ca52986c584f07e9dc81f735db683c3ff6ec7b1503f",
   )
-  assert_eq(child.depth, 3)
+  @debug.assert_eq(child.depth, 3)
 }
 
 ///|
@@ -145,11 +145,11 @@ test "derive_path: BIP-32 vector 1 m/0'/1/2'/2/1000000000" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let child = @bip32.derive_path(m, "m/0'/1/2'/2/1000000000")
-  assert_eq(
+  @debug.assert_eq(
     priv_hex(child),
     "471b76e389e528d6de6d816857e012c5455051cad6660850e58372a6c3e6e7c8",
   )
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(child.chain_code),
     "c783e67b921d2beb8f6b389cc646d7263b4145701dadd2161548a8b078e65e9e",
   )
@@ -164,11 +164,11 @@ test "derive_path: BIP-32 test vector 2 (different seed)" {
   let m = @bip32.master_from_seed(seed)
   // Master priv 4b03d6fc340455b363f51020ad3ecca4f0850280cf436c70c727923f6db46c3e
   // Master chain 60499f801b896d83179a4374aeb7822aaeaceaa0db1f85ee3e904c4defbd9689
-  assert_eq(
+  @debug.assert_eq(
     priv_hex(m),
     "4b03d6fc340455b363f51020ad3ecca4f0850280cf436c70c727923f6db46c3e",
   )
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(m.chain_code),
     "60499f801b896d83179a4374aeb7822aaeaceaa0db1f85ee3e904c4defbd9689",
   )
@@ -181,8 +181,8 @@ test "derive_path: BIP-44 layout m/44'/0'/0'/0/0" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let child = @bip32.derive_path(m, "m/44'/0'/0'/0/0")
-  assert_eq(child.depth, 5)
-  assert_eq(child.privkey.d.is_zero(), false)
+  @debug.assert_eq(child.depth, 5)
+  @debug.assert_eq(child.privkey.d.is_zero(), false)
 }
 
 ///|
@@ -190,11 +190,11 @@ test "neuter strips private half" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let xpub = @bip32.neuter(m)
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(xpub.pubkey.to_compressed()),
     "0339a36013301597daef41fbe593a02cc513d0b55527ec2df1050e2e8ff49c85c2",
   )
-  assert_eq(bytes_to_hex(xpub.chain_code), bytes_to_hex(m.chain_code))
+  @debug.assert_eq(bytes_to_hex(xpub.chain_code), bytes_to_hex(m.chain_code))
 }
 
 ///|

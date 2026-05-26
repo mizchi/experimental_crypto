@@ -12,31 +12,31 @@
 ///   - the embedded pubkey is supported (Ed25519, ECDSA-P256/P384, ssh-rsa
 ///     with rsa-sha2-256/512)
 ///   - the signature is valid for `message` under that key
-///   - the SSHSIG namespace matches `namespace` (default "git")
+///   - the SSHSIG sig_namespace matches `sig_namespace` (default "git")
 ///
 /// The pubkey is returned alongside so the caller can do its own
 /// identity binding (e.g. lookup in an allowed_signers map).
 pub fn verify_armor_anonymous(
   armor : String,
   message : Bytes,
-  namespace? : String = "git",
+  sig_namespace? : String = "git",
 ) -> (SshPublicKey, String) raise SshError {
-  validate_namespace(namespace)
+  validate_namespace(sig_namespace)
   let blob = decode_sshsig_armor(armor)
   let sig = decode_sshsig_blob(blob)
-  if sig.namespace != namespace {
+  if sig.sig_namespace != sig_namespace {
     raise InvalidSignature
   }
   let signed_data = compute_signed_data(
-    sig.namespace,
+    sig.sig_namespace,
     sig.hash_algorithm,
     message,
   )
   let ok = verify_signed_data(sig.publickey, signed_data, sig.signature_blob)
-  if not(ok) {
+  if !ok {
     raise InvalidSignature
   }
-  (sig.publickey, sig.namespace)
+  (sig.publickey, sig.sig_namespace)
 }
 
 ///|
@@ -47,12 +47,12 @@ pub fn verify_armor(
   armor : String,
   message : Bytes,
   expected_pubkey : @ed25519.PublicKey,
-  namespace? : String = "git",
+  sig_namespace? : String = "git",
 ) -> Bool raise SshError {
-  validate_namespace(namespace)
+  validate_namespace(sig_namespace)
   let blob = decode_sshsig_armor(armor)
   let sig = decode_sshsig_blob(blob)
-  if sig.namespace != namespace {
+  if sig.sig_namespace != sig_namespace {
     return false
   }
   match sig.publickey {
@@ -61,7 +61,7 @@ pub fn verify_armor(
         return false
       }
       let signed_data = compute_signed_data(
-        sig.namespace,
+        sig.sig_namespace,
         sig.hash_algorithm,
         message,
       )
@@ -78,19 +78,19 @@ pub fn verify_armor_with(
   armor : String,
   message : Bytes,
   expected_pubkey : SshPublicKey,
-  namespace? : String = "git",
+  sig_namespace? : String = "git",
 ) -> Bool raise SshError {
-  validate_namespace(namespace)
+  validate_namespace(sig_namespace)
   let blob = decode_sshsig_armor(armor)
   let sig = decode_sshsig_blob(blob)
-  if sig.namespace != namespace {
+  if sig.sig_namespace != sig_namespace {
     return false
   }
-  if not(pubkeys_equal(sig.publickey, expected_pubkey)) {
+  if !pubkeys_equal(sig.publickey, expected_pubkey) {
     return false
   }
   let signed_data = compute_signed_data(
-    sig.namespace,
+    sig.sig_namespace,
     sig.hash_algorithm,
     message,
   )
@@ -122,7 +122,7 @@ fn verify_signed_data(
   let reader = WireReader::new(signature_blob)
   let algo = reader.read_string_ascii()
   let raw = reader.read_string()
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after signature blob")
   }
   match (pubkey, algo) {
@@ -181,7 +181,7 @@ fn ecdsa_inner_to_raw(inner : Bytes, half_len : Int) -> Bytes raise SshError {
   let reader = WireReader::new(inner)
   let r_bytes = reader.read_string()
   let s_bytes = reader.read_string()
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after ECDSA (r, s)")
   }
   let r_mag = mpint_magnitude(r_bytes)
@@ -199,15 +199,15 @@ fn ecdsa_inner_to_raw(inner : Bytes, half_len : Int) -> Bytes raise SshError {
 
 ///|
 /// Produce an armored SSHSIG over `message` using an Ed25519 private key.
-/// `namespace` defaults to "git" (what `ssh-keygen -Y sign -n git` uses).
+/// `sig_namespace` defaults to "git" (what `ssh-keygen -Y sign -n git` uses).
 /// `hash_algorithm` defaults to "sha512".
 pub fn sign_armor(
   privkey : @ed25519.PrivateKey,
   message : Bytes,
-  namespace? : String = "git",
+  sig_namespace? : String = "git",
   hash_algorithm? : String = "sha512",
 ) -> String raise SshError {
-  let signed_data = compute_signed_data(namespace, hash_algorithm, message)
+  let signed_data = compute_signed_data(sig_namespace, hash_algorithm, message)
   let raw_sig = privkey.sign(signed_data)
   let pubkey_blob = serialize_ed25519_pubkey(privkey.public_key())
   // Build inner signature wire blob: "ssh-ed25519" string + raw sig string.
@@ -220,7 +220,7 @@ pub fn sign_armor(
   w.write_bytes_raw(sshsig_magic)
   w.write_uint32(sshsig_version)
   w.write_string(pubkey_blob)
-  w.write_string_ascii(namespace)
+  w.write_string_ascii(sig_namespace)
   w.write_string(b"")
   w.write_string_ascii(hash_algorithm)
   w.write_string(inner_blob)
@@ -243,7 +243,7 @@ fn parse_ed25519_sig_blob(blob : Bytes) -> Bytes raise SshError {
       "ssh-ed25519 signature must be 64 bytes, got " + sig.length().to_string(),
     )
   }
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after ssh-ed25519 signature")
   }
   sig
@@ -265,7 +265,7 @@ pub(all) enum SshPrivateKey {
 
 ///|
 /// Produce an armored SSHSIG using any supported private-key kind.
-/// `namespace` defaults to "git". `hash_algorithm` picks SHA-256 /
+/// `sig_namespace` defaults to "git". `hash_algorithm` picks SHA-256 /
 /// SHA-384 / SHA-512; this package's default pairing is:
 ///   Ed25519 → sha512
 ///   P-256   → sha256
@@ -274,7 +274,7 @@ pub(all) enum SshPrivateKey {
 pub fn sign_armor_with(
   privkey : SshPrivateKey,
   message : Bytes,
-  namespace? : String = "git",
+  sig_namespace? : String = "git",
   hash_algorithm? : String = "",
 ) -> String raise SshError {
   // Default hash per algorithm if caller didn't supply one.
@@ -288,7 +288,7 @@ pub fn sign_armor_with(
   } else {
     hash_algorithm
   }
-  let signed_data = compute_signed_data(namespace, actual_hash, message)
+  let signed_data = compute_signed_data(sig_namespace, actual_hash, message)
   let (pubkey_blob, inner_blob) = match privkey {
     Ed25519(sk) => {
       let raw_sig = sk.sign(signed_data)
@@ -344,7 +344,7 @@ pub fn sign_armor_with(
   w.write_bytes_raw(sshsig_magic)
   w.write_uint32(sshsig_version)
   w.write_string(pubkey_blob)
-  w.write_string_ascii(namespace)
+  w.write_string_ascii(sig_namespace)
   w.write_string(b"")
   w.write_string_ascii(actual_hash)
   w.write_string(inner_blob)

@@ -1,9 +1,9 @@
 import {
   "mizchi/cose_cbor" @cbor,
-  "mizchi/hash",
   "mizchi/ed25519",
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/rsa",
   "mizchi/asn1",
+  "moonbitlang/core/debug",
 }

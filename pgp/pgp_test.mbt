@@ -36,15 +36,15 @@ fn message_bytes() -> Bytes {
 ///|
 test "pgp: armor decode roundtrips through CRC24" {
   let a = @pgp.decode_armor(pubkey_armor)
-  assert_eq(a.label, "PUBLIC KEY BLOCK")
+  @debug.assert_eq(a.label, "PUBLIC KEY BLOCK")
   assert_true(a.data.length() > 0)
 }
 
 ///|
 test "pgp: parse Public-Key Packet from armor (Ed25519)" {
   let pk = @pgp.parse_pubkey_armor(pubkey_armor)
-  assert_eq(pk.version, 4)
-  assert_eq(pk.algo, @pgp.algo_eddsa_legacy)
+  @debug.assert_eq(pk.version, 4)
+  @debug.assert_eq(pk.algo, @pgp.algo_eddsa_legacy)
   match pk.key {
     Ed25519(_) => ()
     _ => abort("expected Ed25519 key")
@@ -76,11 +76,12 @@ test "pgp: tampered signature fails verify" {
     #|=0DWT
     #|-----END PGP SIGNATURE-----
   let pkpkt = @pgp.parse_pubkey_armor(pubkey_armor)
-  match (try? @pgp.verify_armor(bad_sig, message_bytes(), pkpkt.key)) {
-    Err(ArmorCrcMismatch) => () // CRC24 catches the byte flip first
-    Err(_) => () // or parser rejects
-    Ok(false) => () // or signature verify rejects
-    Ok(true) => abort("tampered signature accepted!")
+  try @pgp.verify_armor(bad_sig, message_bytes(), pkpkt.key) catch {
+    ArmorCrcMismatch => () // CRC24 catches the byte flip first
+    _ => () // or parser rejects
+  } noraise {
+    false => () // or signature verify rejects
+    true => abort("tampered signature accepted!")
   }
 }
 
@@ -92,10 +93,11 @@ test "pgp: armor CRC mismatch is detected" {
     #|mDMEahVikBYJKwYBBAHaRw8BAQdAFcCGD4FWeFWaKP63iD2kaWB7PdCvi/qNbKdn
     #|=AAAA
     #|-----END PGP PUBLIC KEY BLOCK-----
-  match (try? @pgp.decode_armor(bad_crc)) {
-    Err(ArmorCrcMismatch) => ()
-    Err(other) => abort("expected ArmorCrcMismatch, got \{other}")
-    Ok(_) => abort("expected ArmorCrcMismatch, got Ok")
+  try @pgp.decode_armor(bad_crc) catch {
+    ArmorCrcMismatch => ()
+    other => abort("expected ArmorCrcMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected ArmorCrcMismatch, got Ok")
   }
 }
 
@@ -218,10 +220,12 @@ test "pgp v6: tampered version byte rejected" {
       sig_body[i]
     }
   })
-  match (try? @pgp.parse_signature_packet(bad_body)) {
-    Err(UnsupportedPacketVersion(5)) => ()
-    Err(other) => abort("expected UnsupportedPacketVersion(5), got \{other}")
-    Ok(_) => abort("expected rejection")
+  try @pgp.parse_signature_packet(bad_body) catch {
+    UnsupportedPacketVersion(5) => ()
+    other =>
+      abort("expected UnsupportedPacketVersion(5), got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected rejection")
   }
   assert_true(@pgp.verify_armor(armor, b"hello v6 vbyte", pk_pgp))
 }
@@ -268,11 +272,11 @@ test "pgp v6: wire format checks (algo 27, salt=0, raw 64-byte sig)" {
       sig6 = @pgp.parse_signature_packet(p.body)
     }
   }
-  assert_eq(sig4.version, 4)
-  assert_eq(sig4.pubkey_algo, @pgp.algo_eddsa_legacy)
-  assert_eq(sig4.salt.length(), 0)
-  assert_eq(sig6.version, 6)
-  assert_eq(sig6.pubkey_algo, @pgp.algo_ed25519)
-  assert_eq(sig6.salt.length(), 0)
-  assert_eq(sig6.signature_material.length(), 64) // raw Ed25519 sig
+  @debug.assert_eq(sig4.version, 4)
+  @debug.assert_eq(sig4.pubkey_algo, @pgp.algo_eddsa_legacy)
+  @debug.assert_eq(sig4.salt.length(), 0)
+  @debug.assert_eq(sig6.version, 6)
+  @debug.assert_eq(sig6.pubkey_algo, @pgp.algo_ed25519)
+  @debug.assert_eq(sig6.salt.length(), 0)
+  @debug.assert_eq(sig6.signature_material.length(), 64) // raw Ed25519 sig
 }

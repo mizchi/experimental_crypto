@@ -16,7 +16,7 @@
 ///|
 pub(all) struct AllowedSigner {
   principals : Array[String]
-  // Optional namespace filter, derived from a namespaces="..." option.
+  // Optional sig_namespace filter, derived from a namespaces="..." option.
   // None means the signer is unconstrained.
   namespaces : Array[String]?
   pubkey : SshPublicKey
@@ -178,9 +178,9 @@ pub fn verify_with_allowed_signers(
   principal : String,
   armor : String,
   message : Bytes,
-  namespace? : String = "git",
+  sig_namespace? : String = "git",
 ) -> Bool raise SshError {
-  validate_namespace(namespace)
+  validate_namespace(sig_namespace)
   let signers = parse_allowed_signers(allowed_signers_text)
   let matched = find_signers(signers, principal)
   if matched.length() == 0 {
@@ -191,7 +191,7 @@ pub fn verify_with_allowed_signers(
       Some(ns_list) => {
         let mut ok = false
         for n in ns_list {
-          if n == namespace {
+          if n == sig_namespace {
             ok = true
             break
           }
@@ -202,7 +202,7 @@ pub fn verify_with_allowed_signers(
       }
       None => ()
     }
-    if verify_armor_with(armor, message, s.pubkey, namespace~) {
+    if verify_armor_with(armor, message, s.pubkey, sig_namespace~) {
       return true
     }
   }

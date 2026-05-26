@@ -77,10 +77,10 @@ test "HS256: RFC 7515 §A.1 token verifies and decodes claims" {
     audience: None,
   }
   let v = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
-  assert_eq(v.alg, @jwt.Algorithm::HS256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::HS256)
   // iss claim
   match v.claims.get("iss") {
-    Some(String(s)) => assert_eq(s, "joe")
+    Some(String(s)) => @debug.assert_eq(s, "joe")
     _ => abort("missing iss")
   }
 }
@@ -93,10 +93,11 @@ test "HS256: tampered payload fails signature check" {
   // Replace one character in the payload segment.
   let bad = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2VzIiwNCiAiZXhwIjoxMzAwODE5MzgwLA0KICJodHRwOi8vZXhhbXBsZS5jb20vaXNfcm9vdCI6dHJ1ZX0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(bad, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(InvalidSignature) => ()
-    Ok(_) => abort("expected InvalidSignature, got Ok")
-    Err(e) => abort("expected InvalidSignature, got \{e}")
+  try @jwt.verify(bad, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidSignature => ()
+    e => abort("expected InvalidSignature, got " + repr(e) + "")
+  } noraise {
+    _ => abort("expected InvalidSignature, got Ok")
   }
 }
 
@@ -107,17 +108,17 @@ test "HS256: tampered payload fails signature check" {
 ///|
 test "HS256: sign + verify roundtrip preserves claims" {
   let secret : Bytes = b"my-very-secret-hmac-key"
-  let claims_map : Map[String, Json] = Map::new()
+  let claims_map : Map[String, Json] = Map([])
   claims_map["sub"] = Json::string("alice")
   claims_map["iat"] = Json::number(1_700_000_000.0)
   let payload = Json::object(claims_map)
   let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), kid="key-1")
   let opts = @jwt.VerifyOptions::default(1_700_000_100L)
   let v = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
-  assert_eq(v.alg, @jwt.Algorithm::HS256)
-  assert_eq(v.kid, Some("key-1"))
+  @debug.assert_eq(v.alg, @jwt.Algorithm::HS256)
+  @debug.assert_eq(v.kid, Some("key-1"))
   match v.claims.get("sub") {
-    Some(String(s)) => assert_eq(s, "alice")
+    Some(String(s)) => @debug.assert_eq(s, "alice")
     _ => abort("missing sub")
   }
 }
@@ -126,15 +127,17 @@ test "HS256: sign + verify roundtrip preserves claims" {
 test "HS256: wrong secret fails verification" {
   let secret : Bytes = b"my-very-secret-hmac-key"
   let other_secret : Bytes = b"another-secret-hmac-key"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("bob")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts = @jwt.VerifyOptions::default(0L)
-  match
-    (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=other_secret), opts)) {
-    Err(InvalidSignature) => ()
-    Ok(_) => abort("expected InvalidSignature")
-    Err(e) => abort("expected InvalidSignature, got \{e}")
+  try
+    @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=other_secret), opts)
+  catch {
+    InvalidSignature => ()
+    e => abort("expected InvalidSignature, got " + repr(e) + "")
+  } noraise {
+    _ => abort("expected InvalidSignature")
   }
 }
 
@@ -152,7 +155,7 @@ test "EdDSA: RFC 8037 §A.4 token verifies" {
   let token = "eyJhbGciOiJFZERTQSJ9.RXhhbXBsZSBvZiBFZDI1NTE5IHNpZ25pbmc.hgyY0il_MGCjP0JzlnLWG1PPOt7-09PGcvMg3AIbQR6dWbhijcNR4ki4iylGjg5BhVsPt9g7sVvpAr_MuM0KAg"
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(token, @jwt.VerifyKey::EdDsa(pubkey=pk), opts)
-  assert_eq(v.alg, @jwt.Algorithm::EdDSA)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::EdDSA)
   // Payload is not JSON, so claims fall back to an empty map.
   assert_true(v.claims.is_empty())
 }
@@ -167,14 +170,14 @@ test "EdDSA: corresponding private key signs the RFC 8037 payload" {
   let seed = b64u_to_bytes("nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A")
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk = sk.public_key()
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("rfc8037-test")
   let token = @jwt.sign(Json::object(m), @jwt.Key::EdDsa(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(token, @jwt.VerifyKey::EdDsa(pubkey=pk), opts)
-  assert_eq(v.alg, @jwt.Algorithm::EdDSA)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::EdDSA)
   match v.claims.get("sub") {
-    Some(String(s)) => assert_eq(s, "rfc8037-test")
+    Some(String(s)) => @debug.assert_eq(s, "rfc8037-test")
     _ => abort("missing sub")
   }
 }
@@ -188,10 +191,11 @@ test "EdDSA: tampered signature fails verification" {
   let opts = @jwt.VerifyOptions::default(0L)
   // Note: the suffix change may also be caught as InvalidToken (base64 garbled)
   // — either is acceptable as long as we do not accept the token.
-  match (try? @jwt.verify(bad, @jwt.VerifyKey::EdDsa(pubkey=pk), opts)) {
-    Err(InvalidSignature) | Err(InvalidToken(_)) => ()
-    Ok(_) => abort("expected verification failure")
-    Err(e) => abort("unexpected error: \{e}")
+  try @jwt.verify(bad, @jwt.VerifyKey::EdDsa(pubkey=pk), opts) catch {
+    InvalidSignature | InvalidToken(_) => ()
+    e => abort("unexpected error: " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected verification failure")
   }
 }
 
@@ -202,20 +206,22 @@ test "EdDSA: tampered signature fails verification" {
 ///|
 test "exp: expired token raises Expired" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["exp"] = Json::number(1_000.0)
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts = @jwt.VerifyOptions::default(2_000L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(Expired) => ()
-    other => abort("expected Expired, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    Expired => ()
+    other => abort("expected Expired, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected Expired, got " + repr(other) + "")
   }
 }
 
 ///|
 test "exp: clock_skew_sec absorbs small differences" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["exp"] = Json::number(1_000.0)
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   // now = 1010, exp = 1000, skew = 60 -> allowed (exp + skew = 1060 >= now)
@@ -227,26 +233,28 @@ test "exp: clock_skew_sec absorbs small differences" {
     audience: None,
   }
   let v = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
-  assert_eq(v.alg, @jwt.Algorithm::HS256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::HS256)
 }
 
 ///|
 test "nbf: not yet valid raises NotYetValid" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["nbf"] = Json::number(5_000.0)
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts = @jwt.VerifyOptions::default(1_000L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(NotYetValid) => ()
-    other => abort("expected NotYetValid, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    NotYetValid => ()
+    other => abort("expected NotYetValid, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected NotYetValid, got " + repr(other) + "")
   }
 }
 
 ///|
 test "iss: wrong issuer raises InvalidIssuer" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["iss"] = Json::string("a")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts : @jwt.VerifyOptions = {
@@ -256,9 +264,11 @@ test "iss: wrong issuer raises InvalidIssuer" {
     issuer: Some("b"),
     audience: None,
   }
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(InvalidIssuer) => ()
-    other => abort("expected InvalidIssuer, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidIssuer => ()
+    other => abort("expected InvalidIssuer, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidIssuer, got " + repr(other) + "")
   }
 }
 
@@ -266,7 +276,7 @@ test "iss: wrong issuer raises InvalidIssuer" {
 test "aud: string and array forms both match" {
   let secret : Bytes = b"k"
   // string form
-  let m1 : Map[String, Json] = Map::new()
+  let m1 : Map[String, Json] = Map([])
   m1["aud"] = Json::string("svc1")
   let t1 = @jwt.sign(Json::object(m1), @jwt.Key::Hs256(secret~))
   let opts1 : @jwt.VerifyOptions = {
@@ -279,7 +289,7 @@ test "aud: string and array forms both match" {
   let _ = @jwt.verify(t1, @jwt.VerifyKey::Hs256(secret~), opts1)
   // array form
   let arr : Array[Json] = [Json::string("other"), Json::string("svc2")]
-  let m2 : Map[String, Json] = Map::new()
+  let m2 : Map[String, Json] = Map([])
   m2["aud"] = Json::array(arr)
   let t2 = @jwt.sign(Json::object(m2), @jwt.Key::Hs256(secret~))
   let opts2 : @jwt.VerifyOptions = {
@@ -298,9 +308,11 @@ test "aud: string and array forms both match" {
     issuer: None,
     audience: Some("nope"),
   }
-  match (try? @jwt.verify(t2, @jwt.VerifyKey::Hs256(secret~), opts3)) {
-    Err(InvalidAudience) => ()
-    other => abort("expected InvalidAudience, got \{other}")
+  try @jwt.verify(t2, @jwt.VerifyKey::Hs256(secret~), opts3) catch {
+    InvalidAudience => ()
+    other => abort("expected InvalidAudience, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidAudience, got " + repr(other) + "")
   }
 }
 
@@ -312,9 +324,11 @@ test "aud: string and array forms both match" {
 test "InvalidToken: wrong segment count" {
   let secret : Bytes = b"k"
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify("only.two", @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(InvalidToken(_)) => ()
-    other => abort("expected InvalidToken, got \{other}")
+  try @jwt.verify("only.two", @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidToken(_) => ()
+    other => abort("expected InvalidToken, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidToken, got " + repr(other) + "")
   }
 }
 
@@ -331,16 +345,18 @@ test "UnsupportedAlgorithm: header alg=RS256 is rejected even with matching key 
   let token = header_b64 + "." + payload_b64 + "." + sig_b64
   let secret : Bytes = b"k"
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(KeyAlgorithmMismatch) | Err(UnsupportedAlgorithm(_)) => ()
-    other => abort("expected alg failure, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    KeyAlgorithmMismatch | UnsupportedAlgorithm(_) => ()
+    other => abort("expected alg failure, got " + @debug.to_string(other))
+  } noraise {
+    other => abort("expected alg failure, got " + @debug.to_string(other))
   }
 }
 
 ///|
 test "KeyAlgorithmMismatch: HS256 token with EdDSA verify key" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("x")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   // Use an arbitrary Ed25519 public key — the alg-vs-key check should fire
@@ -350,9 +366,11 @@ test "KeyAlgorithmMismatch: HS256 token with EdDSA verify key" {
   )
   let pk = @ed25519.PrivateKey::from_seed(seed).public_key()
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::EdDsa(pubkey=pk), opts)) {
-    Err(KeyAlgorithmMismatch) => ()
-    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::EdDsa(pubkey=pk), opts) catch {
+    KeyAlgorithmMismatch => ()
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
   }
 }
 
@@ -386,9 +404,9 @@ test "RS256: RFC 7515 §A.2.1 token verifies and decodes claims" {
     audience: None,
   }
   let v = @jwt.verify(rfc7515_a2_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)
-  assert_eq(v.alg, @jwt.Algorithm::RS256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::RS256)
   match v.claims.get("iss") {
-    Some(String(s)) => assert_eq(s, "joe")
+    Some(String(s)) => @debug.assert_eq(s, "joe")
     _ => abort("missing iss")
   }
 }
@@ -408,10 +426,11 @@ test "RS256: tampered payload fails signature check" {
     "." +
     parts[2].to_string()
   let opts = @jwt.VerifyOptions::default(1300819300L)
-  match (try? @jwt.verify(bad_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)) {
-    Err(InvalidSignature) => ()
-    Ok(_) => abort("expected InvalidSignature, got Ok")
-    Err(e) => abort("expected InvalidSignature, got \{e}")
+  try @jwt.verify(bad_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts) catch {
+    InvalidSignature => ()
+    e => abort("expected InvalidSignature, got " + repr(e) + "")
+  } noraise {
+    _ => abort("expected InvalidSignature, got Ok")
   }
 }
 
@@ -419,14 +438,16 @@ test "RS256: tampered payload fails signature check" {
 test "RS256: KeyAlgorithmMismatch when alg=HS256 but key is Rs256" {
   // Sign an HS256 token, then try to verify with an Rs256 key.
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("x")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)) {
-    Err(KeyAlgorithmMismatch) => ()
-    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=pk), opts) catch {
+    KeyAlgorithmMismatch => ()
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
   }
 }
 
@@ -468,9 +489,9 @@ test "ES256: RFC 7515 §A.3 token verifies" {
     audience: None,
   }
   let v = @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)
-  assert_eq(v.alg, @jwt.Algorithm::ES256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::ES256)
   match v.claims.get("iss") {
-    Some(String(s)) => assert_eq(s, "joe")
+    Some(String(s)) => @debug.assert_eq(s, "joe")
     _ => abort("missing iss")
   }
 }
@@ -481,23 +502,27 @@ test "ES256: tampered signature fails" {
   let bad = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.AtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
   let pk = rfc7515_a3_pubkey()
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(bad, @jwt.VerifyKey::Es256(pubkey=pk), opts)) {
-    Err(InvalidSignature) => ()
-    other => abort("expected InvalidSignature, got \{other}")
+  try @jwt.verify(bad, @jwt.VerifyKey::Es256(pubkey=pk), opts) catch {
+    InvalidSignature => ()
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
   }
 }
 
 ///|
 test "ES256: KeyAlgorithmMismatch when alg=HS256 but key is Es256" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("x")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let pk = rfc7515_a3_pubkey()
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)) {
-    Err(KeyAlgorithmMismatch) => ()
-    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts) catch {
+    KeyAlgorithmMismatch => ()
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
   }
 }
 
@@ -523,9 +548,9 @@ test "ES384: token signed by openssl verifies" {
   let pk = es384_pubkey()
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(token, @jwt.VerifyKey::Es384(pubkey=pk), opts)
-  assert_eq(v.alg, @jwt.Algorithm::ES384)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::ES384)
   match v.claims.get("sub") {
-    Some(String(s)) => assert_eq(s, "mizchi")
+    Some(String(s)) => @debug.assert_eq(s, "mizchi")
     _ => abort("missing sub")
   }
 }
@@ -536,9 +561,11 @@ test "ES384: tampered signature fails" {
   let bad = "eyJhbGciOiJFUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.JVF1bDvZX38ltujtQQIWXhPwZDUlHOx6FtRDDA4v1Q1ZS69tUr_BbH3sY3x8pxvp1x_ESP-nEzknjsz5vM6i51HOk1T3z0V_U_pnrCmbpIo--miUMdJIIHrUWofOCb9J"
   let pk = es384_pubkey()
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(bad, @jwt.VerifyKey::Es384(pubkey=pk), opts)) {
-    Err(InvalidSignature) => ()
-    other => abort("expected InvalidSignature, got \{other}")
+  try @jwt.verify(bad, @jwt.VerifyKey::Es384(pubkey=pk), opts) catch {
+    InvalidSignature => ()
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
   }
 }
 
@@ -555,11 +582,13 @@ test "ATTACK CVE-2015-9235: alg=none token must be rejected" {
   let token = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiJ9."
   let opts = @jwt.VerifyOptions::default(0L)
   let secret : Bytes = b"any"
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(UnsupportedAlgorithm(s)) => assert_eq(s, "none")
-    Err(KeyAlgorithmMismatch) => () // also acceptable
-    Err(InvalidToken(_)) => () // rejected at token shape
-    other => abort("alg=none NOT rejected: \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    UnsupportedAlgorithm(s) => @debug.assert_eq(s, "none")
+    KeyAlgorithmMismatch => () // also acceptable
+    InvalidToken(_) => () // rejected at token shape
+    other => abort("alg=none NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("alg=none NOT rejected: " + repr(other) + "")
   }
 }
 
@@ -569,11 +598,13 @@ test "ATTACK alg=None (titlecase variant) must be rejected" {
   let token = "eyJhbGciOiJOb25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiJ9."
   let opts = @jwt.VerifyOptions::default(0L)
   let secret : Bytes = b"any"
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
-    Err(UnsupportedAlgorithm(_)) => ()
-    Err(KeyAlgorithmMismatch) => ()
-    Err(InvalidToken(_)) => ()
-    other => abort("alg=None NOT rejected: \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    UnsupportedAlgorithm(_) => ()
+    KeyAlgorithmMismatch => ()
+    InvalidToken(_) => ()
+    other => abort("alg=None NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("alg=None NOT rejected: " + repr(other) + "")
   }
 }
 
@@ -587,9 +618,13 @@ test "ATTACK CVE-2016-10555: alg confusion (HS256 token vs Rs256 key)" {
   let token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhdHRhY2tlciJ9.AAAA"
   let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)) {
-    Err(KeyAlgorithmMismatch) => ()
-    other => abort("alg confusion HS256↔Rs256 NOT blocked: \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=pk), opts) catch {
+    KeyAlgorithmMismatch => ()
+    other =>
+      abort("alg confusion HS256↔Rs256 NOT blocked: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("alg confusion HS256↔Rs256 NOT blocked: " + repr(other) + "")
   }
 }
 
@@ -630,7 +665,7 @@ let rs256_priv_pkcs1_der : Bytes = hex_to_bytes(
 ///|
 test "JWT RS256 sign + verify roundtrip" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("rs256-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Rs256(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
@@ -639,9 +674,9 @@ test "JWT RS256 sign + verify roundtrip" {
     @jwt.VerifyKey::Rs256(pubkey=sk.public_key()),
     opts,
   )
-  assert_eq(v.alg, @jwt.Algorithm::RS256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::RS256)
   match v.claims.get("sub") {
-    Some(String(s)) => assert_eq(s, "rs256-roundtrip")
+    Some(String(s)) => @debug.assert_eq(s, "rs256-roundtrip")
     _ => abort("missing sub")
   }
 }
@@ -652,7 +687,7 @@ test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
   // the closed-loop behaviour described in the jwt module comment; it is
   // NOT RFC 7518 §3.5 interoperable.
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("ps256-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
@@ -661,9 +696,9 @@ test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
     @jwt.VerifyKey::Ps256(pubkey=sk.public_key()),
     opts,
   )
-  assert_eq(v.alg, @jwt.Algorithm::PS256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::PS256)
   match v.claims.get("sub") {
-    Some(String(s)) => assert_eq(s, "ps256-roundtrip")
+    Some(String(s)) => @debug.assert_eq(s, "ps256-roundtrip")
     _ => abort("missing sub")
   }
 }
@@ -671,7 +706,7 @@ test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
 ///|
 test "JWT PS384 sign + verify roundtrip" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("ps384-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps384(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
@@ -680,13 +715,13 @@ test "JWT PS384 sign + verify roundtrip" {
     @jwt.VerifyKey::Ps384(pubkey=sk.public_key()),
     opts,
   )
-  assert_eq(v.alg, @jwt.Algorithm::PS384)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::PS384)
 }
 
 ///|
 test "JWT PS512 sign + verify roundtrip" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("ps512-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps512(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
@@ -695,27 +730,29 @@ test "JWT PS512 sign + verify roundtrip" {
     @jwt.VerifyKey::Ps512(pubkey=sk.public_key()),
     opts,
   )
-  assert_eq(v.alg, @jwt.Algorithm::PS512)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::PS512)
 }
 
 ///|
 test "JWT PS256: KeyAlgorithmMismatch when alg=HS256 but key is Ps256" {
   let secret : Bytes = b"k"
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("x")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Ps256(pubkey=pk), opts)) {
-    Err(KeyAlgorithmMismatch) => ()
-    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Ps256(pubkey=pk), opts) catch {
+    KeyAlgorithmMismatch => ()
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
   }
 }
 
 ///|
 test "JWT PS256: tampered payload fails signature check" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("original")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
   // Swap the payload segment for a different valid base64url.
@@ -726,14 +763,13 @@ test "JWT PS256: tampered payload fails signature check" {
     "." +
     parts[2].to_string()
   let opts = @jwt.VerifyOptions::default(0L)
-  match
-    (try? @jwt.verify(
-      bad_token,
-      @jwt.VerifyKey::Ps256(pubkey=sk.public_key()),
-      opts,
-    )) {
-    Err(InvalidSignature) => ()
-    other => abort("expected InvalidSignature, got \{other}")
+  try
+    @jwt.verify(bad_token, @jwt.VerifyKey::Ps256(pubkey=sk.public_key()), opts)
+  catch {
+    InvalidSignature => ()
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
   }
 }
 
@@ -743,7 +779,7 @@ test "JWT ES256 sign + verify roundtrip" {
     "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
   )
   let sk = @p256.PrivateKey::from_bytes(scalar)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("es256-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Es256(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
@@ -752,7 +788,7 @@ test "JWT ES256 sign + verify roundtrip" {
     @jwt.VerifyKey::Es256(pubkey=sk.public_key()),
     opts,
   )
-  assert_eq(v.alg, @jwt.Algorithm::ES256)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::ES256)
 }
 
 ///|
@@ -761,7 +797,7 @@ test "JWT ES384 sign + verify roundtrip" {
     "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
   )
   let sk = @p384.PrivateKey::from_bytes(scalar)
-  let claims = Map::new()
+  let claims = Map([])
   claims["sub"] = Json::string("es384-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Es384(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
@@ -770,7 +806,7 @@ test "JWT ES384 sign + verify roundtrip" {
     @jwt.VerifyKey::Es384(pubkey=sk.public_key()),
     opts,
   )
-  assert_eq(v.alg, @jwt.Algorithm::ES384)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::ES384)
 }
 
 // -----------------------------------------------------------------------------
@@ -782,9 +818,11 @@ test "ATTACK RFC 7515 §4.1.11: token with `crit` header must be rejected" {
   // {"alg":"HS256","typ":"JWT","crit":["enc"]}.{"sub":"x"}.AAAA
   let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImNyaXQiOlsiZW5jIl19.eyJzdWIiOiJ4In0.AAAA"
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=b"k"), opts)) {
-    Err(InvalidHeader(_)) => ()
-    other => abort("crit header NOT rejected: \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=b"k"), opts) catch {
+    InvalidHeader(_) => ()
+    other => abort("crit header NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("crit header NOT rejected: " + repr(other) + "")
   }
 }
 
@@ -793,8 +831,10 @@ test "ATTACK RFC 7797: token with `b64=false` must be rejected" {
   // {"alg":"HS256","b64":false}.payload.AAAA
   let token = "eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2V9.cGF5bG9hZA.AAAA"
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=b"k"), opts)) {
-    Err(InvalidHeader(_)) => ()
-    other => abort("b64=false header NOT rejected: \{other}")
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=b"k"), opts) catch {
+    InvalidHeader(_) => ()
+    other => abort("b64=false header NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("b64=false header NOT rejected: " + repr(other) + "")
   }
 }

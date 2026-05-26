@@ -396,7 +396,7 @@ test "ocsp: good status, direct-signed, SHA-256 CertID" {
   let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")
-  assert_eq(status, Good)
+  @debug.assert_eq(status, Good)
 }
 
 ///|
@@ -438,8 +438,8 @@ test "ocsp: revoked status round-trips with reason code" {
   // Reason is absent in our builder (no [0] EXPLICIT CRLReason emitted).
   match status {
     Revoked(revocation_time~, reason~) => {
-      assert_eq(revocation_time, "20240505000000Z")
-      assert_eq(reason, None)
+      @debug.assert_eq(revocation_time, "20240505000000Z")
+      @debug.assert_eq(reason, None)
     }
     _ => abort("expected Revoked")
   }
@@ -481,7 +481,7 @@ test "ocsp: unknown status" {
   let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")
-  assert_eq(status, Unknown)
+  @debug.assert_eq(status, Unknown)
 }
 
 ///|
@@ -520,7 +520,7 @@ test "ocsp: SHA-1 CertID also accepted" {
   let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")
-  assert_eq(status, Good)
+  @debug.assert_eq(status, Good)
 }
 
 ///|
@@ -558,9 +558,11 @@ test "ocsp: stale response (now >= nextUpdate) rejected" {
   )
   let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
-  match (try? @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")) {
-    Err(StaleResponse(_)) => ()
-    other => abort("expected StaleResponse, got \{other}")
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    StaleResponse(_) => ()
+    other => abort("expected StaleResponse, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected StaleResponse, got " + repr(other) + "")
   }
 }
 
@@ -603,9 +605,11 @@ test "ocsp: wrong issuer (BadSignature)" {
   // Sign with cert_seed, not issuer_seed.
   let basic = build_basic_ocsp_der(rd, cert_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
-  match (try? @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")) {
-    Err(BadSignature) => ()
-    other => abort("expected BadSignature, got \{other}")
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    BadSignature => ()
+    other => abort("expected BadSignature, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected BadSignature, got " + repr(other) + "")
   }
 }
 
@@ -645,9 +649,11 @@ test "ocsp: cert not in responses list (CertNotFound)" {
   )
   let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
-  match (try? @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")) {
-    Err(CertNotFound) => ()
-    other => abort("expected CertNotFound, got \{other}")
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    CertNotFound => ()
+    other => abort("expected CertNotFound, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected CertNotFound, got " + repr(other) + "")
   }
 }
 
@@ -687,10 +693,10 @@ test "ocsp: parse_response without verify works on a successful response" {
   let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
   let ocsp = build_ocsp_response_der(basic)
   let parsed = @ocsp.parse_response(ocsp)
-  assert_eq(parsed.produced_at, "20240101000000Z")
-  assert_eq(parsed.responses.length(), 1)
-  assert_eq(parsed.responses[0].this_update, "20240101000000Z")
-  assert_eq(parsed.responses[0].next_update, Some("20300101000000Z"))
+  @debug.assert_eq(parsed.produced_at, "20240101000000Z")
+  @debug.assert_eq(parsed.responses.length(), 1)
+  @debug.assert_eq(parsed.responses[0].this_update, "20240101000000Z")
+  @debug.assert_eq(parsed.responses[0].next_update, Some("20300101000000Z"))
   match parsed.responses[0].status {
     Good => ()
     _ => abort("expected Good")
@@ -707,9 +713,11 @@ test "ocsp: parse_response rejects non-successful OCSPResponseStatus" {
   let der = @asn1.encode_der(
     @asn1.Element::new(@asn1.tag_sequence, Sequence([status_elem])),
   )
-  match (try? @ocsp.parse_response(der)) {
-    Err(ResponseNotSuccessful(3)) => ()
-    other => abort("expected ResponseNotSuccessful(3), got \{other}")
+  try @ocsp.parse_response(der) catch {
+    ResponseNotSuccessful(3) => ()
+    other => abort("expected ResponseNotSuccessful(3), got " + repr(other) + "")
+  } noraise {
+    other => abort("expected ResponseNotSuccessful(3), got " + repr(other) + "")
   }
 }
 
@@ -763,5 +771,5 @@ test "ocsp: delegated responder cert path" {
   let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z")
-  assert_eq(status, Good)
+  @debug.assert_eq(status, Good)
 }

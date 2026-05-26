@@ -39,9 +39,10 @@ test "fuzz scrypt: invalid log_n / r / p / dk_len rejected" {
       2 => { log_n: 4, r: 1, p: 0, dk_len: 32 } // p < 1
       _ => { log_n: 4, r: 1, p: 1, dk_len: 0 } // dk_len < 1
     }
-    match (try? @scrypt.derive_key(bad, pwds[i], salts[i])) {
-      Err(_) => ()
-      Ok(_) => fail("out-of-range scrypt params must reject")
+    try @scrypt.derive_key(bad, pwds[i], salts[i]) catch {
+      _ => ()
+    } noraise {
+      _ => fail("out-of-range scrypt params must reject")
     }
   }
 }
@@ -56,7 +57,7 @@ test "fuzz scrypt: small params never panic" {
     let out = @scrypt.derive_key(params, pwds[i], salts[i]) catch {
       _ => abort("unreachable: small params should succeed")
     }
-    assert_eq(out.length(), params.dk_len)
+    @debug.assert_eq(out.length(), params.dk_len)
   }
 }
 
@@ -98,9 +99,10 @@ test "fuzz scrypt: wrong password fails verify_encoded" {
         b'\xff'
       }
     })
-    match (try? @scrypt.verify_encoded(encoded, wrong)) {
-      Err(_) => () // expected
-      Ok(_) => fail("verify_encoded must reject a wrong password")
+    try @scrypt.verify_encoded(encoded, wrong) catch {
+      _ => () // expected
+    } noraise {
+      _ => fail("verify_encoded must reject a wrong password")
     }
   }
 }

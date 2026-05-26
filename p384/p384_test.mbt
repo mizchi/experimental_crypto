@@ -85,7 +85,7 @@ test "p384: verify openssl-generated raw r||s signature" {
 test "p384: SPKI and uncompressed agree" {
   let a = @p384.PublicKey::from_spki_der(vec_spki())
   let b = @p384.PublicKey::from_uncompressed(vec_uncompressed())
-  assert_eq(a.to_uncompressed(), b.to_uncompressed())
+  @debug.assert_eq(a.to_uncompressed(), b.to_uncompressed())
 }
 
 ///|
@@ -204,9 +204,9 @@ test "p384: SPKI rejects wrong namedCurve" {
 }
 
 ///|
-test "p384: SignatureFormat Show" {
-  inspect(@p384.SignatureFormat::Raw, content="Raw")
-  inspect(@p384.SignatureFormat::Der, content="Der")
+test "p384: SignatureFormat Debug" {
+  @debug.assert_eq(@debug.to_string(@p384.SignatureFormat::Raw), "Raw")
+  @debug.assert_eq(@debug.to_string(@p384.SignatureFormat::Der), "Der")
 }
 
 // -----------------------------------------------------------------------------
@@ -272,7 +272,7 @@ test "p384: sign+verify roundtrip is deterministic" {
   let msg : Bytes = b"hello p384 sign"
   let sig1 = sk.sign(msg)
   let sig2 = sk.sign(msg)
-  assert_eq(sig1, sig2)
+  @debug.assert_eq(sig1, sig2)
   assert_true(@p384.verify(pk, msg, sig1, Raw))
 }
 
@@ -284,6 +284,6 @@ test "p384: sign emits DER" {
   let sk = @p384.PrivateKey::from_bytes(scalar)
   let pk = sk.public_key()
   let der = sk.sign(b"hello p384 sign", format=Der)
-  assert_eq(der[0], b'\x30')
+  @debug.assert_eq(der[0], b'\x30')
   assert_true(@p384.verify(pk, b"hello p384 sign", der, Der))
 }

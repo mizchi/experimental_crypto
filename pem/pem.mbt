@@ -7,17 +7,16 @@ pub(all) struct PemBlock {
   label : String
   data : Bytes
   headers : Array[(String, String)] // RFC 1421 style; rare in 7468 but preserved
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror PemError {
   InvalidFormat(String)
-  UnexpectedEof
   InvalidBase64
   MissingBeginMarker
   MissingEndMarker
   LabelMismatch(begin~ : String, end~ : String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Default decoder. RFC 7468 lax mode: tolerates surrounding whitespace,
@@ -119,7 +118,7 @@ pub fn decode_strict(
         if line.length() > 64 {
           raise InvalidFormat("base64 line longer than 64 chars")
         }
-        if not(is_pure_base64_line(line)) {
+        if !is_pure_base64_line(line) {
           raise InvalidFormat("non-base64 character in PEM body")
         }
         b64.write_string(line)
@@ -137,7 +136,7 @@ pub fn decode_strict(
   // 3. Strict base64 decode: require padding. core's @base64.decode is
   // strict about padding when ignore_whitespace=false.
   let body_str = b64.to_string()
-  if not(has_proper_base64_padding(body_str)) {
+  if !has_proper_base64_padding(body_str) {
     raise InvalidBase64
   }
   let data = @base64.decode(body_str) catch { _ => raise InvalidBase64 }
@@ -201,7 +200,7 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
         i = i + 1
         break
       }
-      if contains_char(stripped, ':') && not(is_pure_base64_line(stripped)) {
+      if contains_char(stripped, ':') && !is_pure_base64_line(stripped) {
         let (k, v) = split_once(stripped, ':')
         headers.push((trim(k), trim(v)))
         saw_colon = true
@@ -209,7 +208,7 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
         continue
       }
       // No header section in this block; rewind to header_start.
-      if not(saw_colon) {
+      if !saw_colon {
         i = header_start
       }
       break
@@ -276,10 +275,7 @@ pub fn encode(block : PemBlock) -> String {
   let b64 = @base64.encode(block.data[:])
   let mut pos = 0
   while pos < b64.length() {
-    let take = @wrap.pem_next_chunk_len(
-      b64.length() - pos,
-      pem_strict_line_max,
-    )
+    let take = @wrap.pem_next_chunk_len(b64.length() - pos, pem_strict_line_max)
     buf.write_string(slice_string(b64, pos, pos + take))
     buf.write_char('\n')
     pos = pos + take
@@ -369,7 +365,7 @@ fn split_once(s : String, sep : Char) -> (String, String) {
   let tail = StringBuilder::new()
   let mut split = false
   for c in s {
-    if not(split) && c == sep {
+    if !split && c == sep {
       split = true
       continue
     }
@@ -386,10 +382,10 @@ fn split_once(s : String, sep : Char) -> (String, String) {
 fn parse_begin_marker(line : String) -> String? {
   let prefix = "-----BEGIN "
   let suffix = "-----"
-  if not(starts_with(line, prefix)) {
+  if !starts_with(line, prefix) {
     return None
   }
-  if not(ends_with(line, suffix)) {
+  if !ends_with(line, suffix) {
     return None
   }
   let inner_end = line.length() - suffix.length()
@@ -397,7 +393,7 @@ fn parse_begin_marker(line : String) -> String? {
     return None
   }
   let label = slice_string(line, prefix.length(), inner_end)
-  if not(is_valid_pem_label(label)) {
+  if !is_valid_pem_label(label) {
     return None
   }
   Some(label)
@@ -407,10 +403,10 @@ fn parse_begin_marker(line : String) -> String? {
 fn parse_end_marker(line : String) -> String? {
   let prefix = "-----END "
   let suffix = "-----"
-  if not(starts_with(line, prefix)) {
+  if !starts_with(line, prefix) {
     return None
   }
-  if not(ends_with(line, suffix)) {
+  if !ends_with(line, suffix) {
     return None
   }
   let inner_end = line.length() - suffix.length()
@@ -418,7 +414,7 @@ fn parse_end_marker(line : String) -> String? {
     return None
   }
   let label = slice_string(line, prefix.length(), inner_end)
-  if not(is_valid_pem_label(label)) {
+  if !is_valid_pem_label(label) {
     return None
   }
   Some(label)
@@ -431,7 +427,7 @@ fn is_valid_pem_label(label : String) -> Bool {
   }
   let mut idx = 0
   for c in label {
-    if not(is_pem_label_char(c)) {
+    if !is_pem_label_char(c) {
       return false
     }
     if (idx == 0 || idx == label.length() - 1) && (c == ' ' || c == '-') {
@@ -529,7 +525,7 @@ fn is_pure_base64_line(s : String) -> Bool {
     return false
   }
   for c in s {
-    if not(is_base64_char(c)) {
+    if !is_base64_char(c) {
       return false
     }
   }

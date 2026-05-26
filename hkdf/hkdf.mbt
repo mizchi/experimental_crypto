@@ -11,14 +11,14 @@ pub(all) enum HashAlg {
   Sha256
   Sha384
   Sha512
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror HkdfError {
   OutputTooLong
   InvalidLength
   UnsupportedHash(HashAlg)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub fn output_size(hash : HashAlg) -> Int {
@@ -27,14 +27,6 @@ pub fn output_size(hash : HashAlg) -> Int {
     Sha256 => 32
     Sha384 => 48
     Sha512 => 64
-  }
-}
-
-///|
-fn block_size(hash : HashAlg) -> Int {
-  match hash {
-    Sha224 | Sha256 => 64
-    Sha384 | Sha512 => 128
   }
 }
 

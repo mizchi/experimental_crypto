@@ -3,6 +3,7 @@ import {
 }
 
 import {
+  "moonbitlang/core/debug",
   "mizchi/pem",
   "moonbitlang/core/quickcheck",
 } for "test"

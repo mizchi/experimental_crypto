@@ -182,7 +182,7 @@ test "extract_public_key: Ed25519 SPKI" {
   let spki = ed25519_spki(pk)
   let key = @pkix_verify.extract_public_key(spki)
   match key {
-    Ed25519(got) => assert_eq(got.to_bytes(), pk.to_bytes())
+    Ed25519(got) => @debug.assert_eq(got.to_bytes(), pk.to_bytes())
     _ => assert_true(false)
   }
 }
@@ -194,8 +194,10 @@ test "extract_public_key: unsupported OID raises" {
     algorithm: { algorithm: bogus_oid, parameters: None },
     subject_public_key: { bytes: b"\x00", unused_bits: 0 },
   }
-  match (try? @pkix_verify.extract_public_key(spki)) {
-    Err(UnsupportedPublicKeyAlgorithm(_)) => ()
+  try @pkix_verify.extract_public_key(spki) catch {
+    UnsupportedPublicKeyAlgorithm(_) => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -256,9 +258,10 @@ test "verify_certificate: tampered signature fails" {
     signature_algorithm: cert.signature_algorithm,
     signature: { bytes: tampered, unused_bits: 0 },
   }
-  match
-    (try? @pkix_verify.verify_certificate(bad, Ed25519(pk), "250101000000Z")) {
-    Err(SignatureMismatch) => ()
+  try @pkix_verify.verify_certificate(bad, Ed25519(pk), "250101000000Z") catch {
+    SignatureMismatch => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -272,9 +275,12 @@ test "verify_certificate: NotYetValid before notBefore" {
     "400101000000Z",
     [basic_constraints_ca_ext()],
   )
-  match
-    (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
-    Err(NotYetValid) => ()
+  try
+    @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")
+  catch {
+    NotYetValid => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -288,9 +294,12 @@ test "verify_certificate: Expired after notAfter" {
     "200101000000Z",
     [basic_constraints_ca_ext()],
   )
-  match
-    (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
-    Err(Expired) => ()
+  try
+    @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")
+  catch {
+    Expired => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -353,14 +362,17 @@ test "verify_chain: IssuerSubjectMismatch when intermediate's subject != leaf's 
     [basic_constraints_non_ca_ext()],
     inter_seed,
   )
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [inter],
       Ed25519(anchor_pk),
       "250101000000Z",
-    )) {
-    Err(IssuerSubjectMismatch) => ()
+    )
+  catch {
+    IssuerSubjectMismatch => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -391,14 +403,17 @@ test "verify_chain: NotACA when intermediate lacks basicConstraints cA" {
     [basic_constraints_non_ca_ext()],
     inter_seed,
   )
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [inter],
       Ed25519(anchor_pk),
       "250101000000Z",
-    )) {
-    Err(NotACA) => ()
+    )
+  catch {
+    NotACA => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -443,14 +458,17 @@ test "verify_chain: PathLengthExceeded when intermediate's pathLen too small" {
     mid_seed,
   )
   // intermediates ordered leaf → root direction.
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [mid, top],
       Ed25519(anchor_pk),
       "250101000000Z",
-    )) {
-    Err(PathLengthExceeded) => ()
+    )
+  catch {
+    PathLengthExceeded => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -547,9 +565,10 @@ test "verify_certificate: LE R10 expired check fires before 2024-03-13" {
   let root_pubkey = @pkix_verify.extract_public_key(
     root.tbs.subject_public_key_info,
   )
-  match
-    (try? @pkix_verify.verify_certificate(r10, root_pubkey, "200101000000Z")) {
-    Err(NotYetValid) => ()
+  try @pkix_verify.verify_certificate(r10, root_pubkey, "200101000000Z") catch {
+    NotYetValid => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -576,10 +595,13 @@ test "ATTACK RFC 5280 §4.2: unknown critical extension rejected" {
     [bad_ext],
   )
   let issuer_pk = @pkix_verify.PublicKey::Ed25519(pk)
-  match
-    (try? @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z")) {
-    Err(UnknownCriticalExtension(oid)) => assert_eq(oid, unknown_oid)
-    other => abort("unknown critical extension NOT rejected: \{other}")
+  try @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z") catch {
+    UnknownCriticalExtension(oid) => @debug.assert_eq(oid, unknown_oid)
+    other =>
+      abort("unknown critical extension NOT rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("unknown critical extension NOT rejected: " + repr(other) + "")
   }
 }
 
@@ -728,10 +750,17 @@ test "ATTACK RFC 5280 §6.1.4(n): issuer keyUsage WITHOUT keyCertSign rejected" 
   let anchor = @pkix_verify.extract_public_key(
     inter.tbs.subject_public_key_info,
   )
-  match
-    (try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")) {
-    Err(KeyUsageMissingCertSign) => ()
-    other => abort("intermediate without keyCertSign NOT rejected: \{other}")
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    KeyUsageMissingCertSign => ()
+    other =>
+      abort(
+        "intermediate without keyCertSign NOT rejected: " + repr(other) + "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "intermediate without keyCertSign NOT rejected: " + repr(other) + "",
+      )
   }
 }
 
@@ -797,10 +826,11 @@ test "ATTACK RFC 5280 §4.2.1.10: nameConstraints excludedSubtrees blocks child 
   let anchor = @pkix_verify.extract_public_key(
     inter.tbs.subject_public_key_info,
   )
-  match
-    (try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")) {
-    Err(NameConstraintViolation(name)) => assert_eq(name, "x.evil.com")
-    other => abort("excludedSubtree DNS NOT enforced: \{other}")
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "x.evil.com")
+    other => abort("excludedSubtree DNS NOT enforced: " + repr(other) + "")
+  } noraise {
+    other => abort("excludedSubtree DNS NOT enforced: " + repr(other) + "")
   }
 }
 
@@ -911,16 +941,19 @@ test "required_eku: leaf with mismatching EKU is rejected" {
   let opts : @pkix_verify.VerifyChainOptions = {
     required_eku: Some(client_auth),
   }
-  match
-    (try? @pkix_verify.verify_chain_with_options(
+  try
+    @pkix_verify.verify_chain_with_options(
       leaf,
       [inter],
       anchor,
       "250601000000Z",
       opts,
-    )) {
-    Err(ExtendedKeyUsageMissing(oid)) => assert_eq(oid, client_auth)
-    other => abort("required_eku not enforced: \{other}")
+    )
+  catch {
+    ExtendedKeyUsageMissing(oid) => @debug.assert_eq(oid, client_auth)
+    other => abort("required_eku not enforced: " + repr(other) + "")
+  } noraise {
+    other => abort("required_eku not enforced: " + repr(other) + "")
   }
 }
 
@@ -1006,15 +1039,20 @@ test "ATTACK: pathLenConstraint=0 with intermediate before leaf must reject" {
   let anchor_pk = @pkix_verify.extract_public_key(
     i1_cert.tbs.subject_public_key_info,
   )
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [i0_cert, i1_cert],
       anchor_pk,
       "250601000000Z",
-    )) {
-    Err(PathLengthExceeded) => ()
-    other => abort("pathLen=0 + 1 intermediate NOT rejected: \{other}")
+    )
+  catch {
+    PathLengthExceeded => ()
+    other =>
+      abort("pathLen=0 + 1 intermediate NOT rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("pathLen=0 + 1 intermediate NOT rejected: " + repr(other) + "")
   }
 }
 

@@ -53,7 +53,7 @@ test "HOTP RFC 4226 Appendix D — 6-digit, counter 0..9" {
     "399871", "520489",
   ]
   for i = 0; i < expected.length(); i = i + 1 {
-    assert_eq(@totp.hotp(key, i.to_uint64()), expected[i])
+    @debug.assert_eq(@totp.hotp(key, i.to_uint64()), expected[i])
   }
 }
 
@@ -75,7 +75,7 @@ test "TOTP RFC 6238 Appendix B — SHA-1, 8 digits" {
   ]
   for c in cases {
     let (t, expected) = c
-    assert_eq(@totp.totp(key, t, digits=8, hash=Sha1), expected)
+    @debug.assert_eq(@totp.totp(key, t, digits=8, hash=Sha1), expected)
   }
 }
 
@@ -96,7 +96,7 @@ test "TOTP RFC 6238 Appendix B — SHA-256, 8 digits" {
   ]
   for c in cases {
     let (t, expected) = c
-    assert_eq(@totp.totp(key, t, digits=8, hash=Sha256), expected)
+    @debug.assert_eq(@totp.totp(key, t, digits=8, hash=Sha256), expected)
   }
 }
 
@@ -119,7 +119,7 @@ test "TOTP RFC 6238 Appendix B — SHA-512, 8 digits" {
   ]
   for c in cases {
     let (t, expected) = c
-    assert_eq(@totp.totp(key, t, digits=8, hash=Sha512), expected)
+    @debug.assert_eq(@totp.totp(key, t, digits=8, hash=Sha512), expected)
   }
 }
 
@@ -132,9 +132,9 @@ test "TOTP RFC 6238 Appendix B — SHA-512, 8 digits" {
 test "TOTP — 6-digit is suffix of 8-digit" {
   let key = ascii_to_bytes("12345678901234567890")
   // SHA-1 t=59: 8-digit = 94287082, expect 6-digit = 287082.
-  assert_eq(@totp.totp(key, 59L, digits=6), "287082")
+  @debug.assert_eq(@totp.totp(key, 59L, digits=6), "287082")
   // SHA-1 t=1111111109: 8-digit = 07081804, expect 6-digit = 081804.
-  assert_eq(@totp.totp(key, 1111111109L, digits=6), "081804")
+  @debug.assert_eq(@totp.totp(key, 1111111109L, digits=6), "081804")
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -185,10 +185,10 @@ test "verify_totp — invalid timing and skew parameters fail closed" {
 ///|
 test "TOTP — invalid generation parameters return empty code" {
   let key = ascii_to_bytes("12345678901234567890")
-  assert_eq(@totp.hotp(key, 0UL, digits=5), "")
-  assert_eq(@totp.hotp(key, 0UL, digits=9), "")
-  assert_eq(@totp.totp(key, 59L, step_seconds=0), "")
-  assert_eq(@totp.totp(key, 0L, t0=30L), "")
+  @debug.assert_eq(@totp.hotp(key, 0UL, digits=5), "")
+  @debug.assert_eq(@totp.hotp(key, 0UL, digits=9), "")
+  @debug.assert_eq(@totp.totp(key, 59L, step_seconds=0), "")
+  @debug.assert_eq(@totp.totp(key, 0L, t0=30L), "")
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ test "provisioning_uri — full URI for a known secret" {
     hash=Sha1,
   )
   // label percent-encoding: '@' -> %40
-  assert_true(uri.starts_with("otpauth://totp/alice%40example.com?"))
+  assert_true(uri.has_prefix("otpauth://totp/alice%40example.com?"))
   // base32 of ASCII "12345678901234567890" = GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
   assert_true(uri.contains("secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"))
   // issuer percent-encoding: space -> %20

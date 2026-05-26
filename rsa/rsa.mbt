@@ -6,15 +6,12 @@
 // path and side-channel discipline that is intentionally deferred.
 
 ///|
-// Hash algorithm tag carried in the public API. Only Sha256 is wired
-// today; Sha384 / Sha512 surface as `UnsupportedHash` so that callers
-// can detect the gap explicitly instead of getting a verification
-// false-negative.
+// Hash algorithm tag carried in the public API.
 pub(all) enum HashAlg {
   Sha256
   Sha384
   Sha512
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror RsaError {
@@ -28,14 +25,12 @@ pub suberror RsaError {
   // the caller wired the wrong key, so we surface it as a typed error
   // rather than rolling it into the boolean return.
   InvalidSignatureLength
-  // Hash variant is recognized in `HashAlg` but not implemented here.
-  UnsupportedHash(HashAlg)
   // Modulus too small to fit the PKCS#1 v1.5 padding for the chosen
   // hash. RFC 8017 §9.2 step 3: emLen must be ≥ tLen + 11.
   ModulusTooSmall
   // Underlying ASN.1 decoder rejected the bytes (truncated, bad tag, …).
   Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 // RSA public key (modulus + public exponent). `n_bytes_len` is cached
@@ -189,7 +184,7 @@ let digest_info_prefix_sha384 : Bytes = b"\x30\x41\x30\x0d\x06\x09\x60\x86\x48\x
 let digest_info_prefix_sha512 : Bytes = b"\x30\x51\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x03\x05\x00\x04\x40"
 
 ///|
-fn digest_info_prefix(hash : HashAlg) -> Bytes raise RsaError {
+fn digest_info_prefix(hash : HashAlg) -> Bytes {
   match hash {
     Sha256 => digest_info_prefix_sha256
     Sha384 => digest_info_prefix_sha384
@@ -198,7 +193,7 @@ fn digest_info_prefix(hash : HashAlg) -> Bytes raise RsaError {
 }
 
 ///|
-fn digest_length(hash : HashAlg) -> Int raise RsaError {
+fn digest_length(hash : HashAlg) -> Int {
   match hash {
     Sha256 => 32
     Sha384 => 48
@@ -207,7 +202,7 @@ fn digest_length(hash : HashAlg) -> Int raise RsaError {
 }
 
 ///|
-fn hash_message(hash : HashAlg, msg : Bytes) -> Bytes raise RsaError {
+fn hash_message(hash : HashAlg, msg : Bytes) -> Bytes {
   match hash {
     Sha256 => @hash.sha256(msg)
     Sha384 => @hash.sha384(msg)
@@ -278,7 +273,6 @@ fn ct_eq(a : Bytes, b : Bytes) -> Bool {
 ///
 /// Raises:
 /// - `InvalidSignatureLength` if `signature.length() ≠ modulus byte length`,
-/// - `UnsupportedHash` if `hash` is Sha384 / Sha512 (not wired yet),
 /// - `ModulusTooSmall` if the modulus is too short for the chosen hash's
 ///   DigestInfo + minimum padding.
 pub fn RsaPublicKey::verify(
@@ -429,7 +423,7 @@ pub fn RsaPrivateKey::from_pkcs8_der(
   der : Bytes,
 ) -> RsaPrivateKey raise RsaError {
   let info = @pkcs8.parse_der(der) catch {
-    e => raise InvalidEncoding("pkcs8: " + e.to_string())
+    e => raise InvalidEncoding("pkcs8: " + @debug.to_string(e))
   }
   if info.algorithm.algorithm != rsa_encryption_oid_for_pkcs8() {
     raise UnsupportedAlgorithm(info.algorithm.algorithm.to_string())
@@ -444,7 +438,7 @@ pub fn RsaPrivateKey::from_pkcs8_pem(
   pem_str : String,
 ) -> RsaPrivateKey raise RsaError {
   let block = @pem.decode(pem_str) catch {
-    e => raise InvalidEncoding("pem: " + e.to_string())
+    e => raise InvalidEncoding("pem: " + @debug.to_string(e))
   }
   if block.label != "PRIVATE KEY" {
     raise InvalidEncoding(
@@ -470,7 +464,7 @@ pub fn RsaPrivateKey::from_pkcs8_pem(
 //
 // The "ceil(mask_len / hLen)" upper bound is enforced implicitly via the
 // loop termination check `out.length() >= mask_len`.
-fn mgf1(hash : HashAlg, seed : Bytes, mask_len : Int) -> Bytes raise RsaError {
+fn mgf1(hash : HashAlg, seed : Bytes, mask_len : Int) -> Bytes {
   let h_len = digest_length(hash)
   let out = FixedArray::make(mask_len, b'\x00')
   let mut written = 0
@@ -596,7 +590,7 @@ fn emsa_pss_verify(
   em : Bytes,
   s_len : Int,
   em_bits : Int,
-) -> Bool raise RsaError {
+) -> Bool {
   let h_len = digest_length(hash)
   let em_len = (em_bits + 7) / 8
   // §9.1.2 step 3: emLen < hLen + sLen + 2 → inconsistent.

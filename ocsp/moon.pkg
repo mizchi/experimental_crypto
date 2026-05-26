@@ -6,5 +6,6 @@ import {
 }
 
 import {
+  "moonbitlang/core/debug",
   "mizchi/ed25519",
 } for "test"

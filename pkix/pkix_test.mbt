@@ -199,34 +199,34 @@ test "pkix: roundtrip minimal v3 certificate" {
   let bytes1 = @pkix.serialize_certificate(original)
   let parsed = @pkix.parse_certificate(bytes1)
   let bytes2 = @pkix.serialize_certificate(parsed)
-  assert_eq(bytes1, bytes2)
+  @debug.assert_eq(bytes1, bytes2)
 }
 
 ///|
 test "pkix: parse fields back from minimal v3 certificate" {
   let bytes = @pkix.serialize_certificate(sample_cert())
   let cert = @pkix.parse_certificate(bytes)
-  assert_eq(cert.tbs.version, 2)
-  assert_eq(cert.tbs.serial_number, b"\x01")
-  assert_eq(cert.tbs.signature.algorithm, sha256_with_rsa())
-  assert_eq(cert.tbs.validity.not_before, "230101000000Z")
-  assert_eq(cert.tbs.validity.not_after, "330101000000Z")
-  assert_eq(cert.tbs.extensions.length(), 0)
-  assert_eq(cert.signature_algorithm.algorithm, sha256_with_rsa())
-  assert_eq(cert.signature.bytes, b"\xde\xad\xbe\xef")
+  @debug.assert_eq(cert.tbs.version, 2)
+  @debug.assert_eq(cert.tbs.serial_number, b"\x01")
+  @debug.assert_eq(cert.tbs.signature.algorithm, sha256_with_rsa())
+  @debug.assert_eq(cert.tbs.validity.not_before, "230101000000Z")
+  @debug.assert_eq(cert.tbs.validity.not_after, "330101000000Z")
+  @debug.assert_eq(cert.tbs.extensions.length(), 0)
+  @debug.assert_eq(cert.signature_algorithm.algorithm, sha256_with_rsa())
+  @debug.assert_eq(cert.signature.bytes, b"\xde\xad\xbe\xef")
 }
 
 ///|
 test "pkix: parse subject CN" {
   let bytes = @pkix.serialize_certificate(sample_cert())
   let cert = @pkix.parse_certificate(bytes)
-  assert_eq(cert.tbs.subject.rdns.length(), 1)
-  assert_eq(cert.tbs.subject.rdns[0].length(), 1)
+  @debug.assert_eq(cert.tbs.subject.rdns.length(), 1)
+  @debug.assert_eq(cert.tbs.subject.rdns[0].length(), 1)
   let av = cert.tbs.subject.rdns[0][0]
-  assert_eq(av.oid, cn_oid())
+  @debug.assert_eq(av.oid, cn_oid())
   match av.value.value {
-    Utf8String(s) => assert_eq(s, "Test Cert")
-    _ => assert_eq(true, false, msg="expected Utf8String CN")
+    Utf8String(s) => @debug.assert_eq(s, "Test Cert")
+    _ => @debug.assert_eq(true, false, msg="expected Utf8String CN")
   }
 }
 
@@ -245,11 +245,11 @@ test "pkix: roundtrip with extensions (subjectKeyIdentifier)" {
   let bytes1 = @pkix.serialize_certificate(new_cert)
   let parsed = @pkix.parse_certificate(bytes1)
   let bytes2 = @pkix.serialize_certificate(parsed)
-  assert_eq(bytes1, bytes2)
-  assert_eq(parsed.tbs.extensions.length(), 1)
-  assert_eq(parsed.tbs.extensions[0].oid, ski_oid)
-  assert_eq(parsed.tbs.extensions[0].critical, false)
-  assert_eq(parsed.tbs.extensions[0].value, ski_inner)
+  @debug.assert_eq(bytes1, bytes2)
+  @debug.assert_eq(parsed.tbs.extensions.length(), 1)
+  @debug.assert_eq(parsed.tbs.extensions[0].oid, ski_oid)
+  @debug.assert_eq(parsed.tbs.extensions[0].critical, false)
+  @debug.assert_eq(parsed.tbs.extensions[0].value, ski_inner)
 }
 
 ///|
@@ -260,9 +260,9 @@ test "pkix: v1 cert has version field elided" {
   }
   let bytes = @pkix.serialize_certificate(v1_cert)
   let parsed = @pkix.parse_certificate(bytes)
-  assert_eq(parsed.tbs.version, 0)
+  @debug.assert_eq(parsed.tbs.version, 0)
   // v1 certs have no [0] EXPLICIT version wrapper, and no extensions allowed.
-  assert_eq(parsed.tbs.extensions.length(), 0)
+  @debug.assert_eq(parsed.tbs.extensions.length(), 0)
 }
 
 ///|
@@ -271,7 +271,7 @@ test "pkix: serialize_name + parse_name roundtrip" {
   let bytes1 = @pkix.serialize_name(name)
   let parsed = @pkix.parse_name(bytes1)
   let bytes2 = @pkix.serialize_name(parsed)
-  assert_eq(bytes1, bytes2)
+  @debug.assert_eq(bytes1, bytes2)
 }
 
 ///|
@@ -286,31 +286,45 @@ test "pkix: serialize_subject_public_key_info + parse roundtrip" {
   let bytes1 = @pkix.serialize_subject_public_key_info(spki)
   let parsed = @pkix.parse_subject_public_key_info(bytes1)
   let bytes2 = @pkix.serialize_subject_public_key_info(parsed)
-  assert_eq(bytes1, bytes2)
+  @debug.assert_eq(bytes1, bytes2)
 }
 
 ///|
 test "pkix: parse_certificate rejects non-SEQUENCE input" {
-  match (try? @pkix.parse_certificate(b"\x05\x00")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected error on NULL input")
+  try @pkix.parse_certificate(b"\x05\x00") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected error on NULL input")
   }
 }
 
 ///|
 test "pkix: parse_certificate rejects truncated input" {
-  match (try? @pkix.parse_certificate(b"\x30\x82")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected error on truncated input")
+  try @pkix.parse_certificate(b"\x30\x82") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected error on truncated input")
   }
 }
 
 ///|
 test "ATTACK pkix: explicit DEFAULT v1 version is rejected" {
   let der = cert_der_from_tbs_items(base_tbs_items(version_bytes=b"\x00"))
-  match (try? @pkix.parse_certificate(der)) {
-    Err(@pkix.UnexpectedStructure(_)) => ()
-    other => abort("expected explicit default version rejection, got \{other}")
+  try @pkix.parse_certificate(der) catch {
+    @pkix.UnexpectedStructure(_) => ()
+    other =>
+      abort(
+        "expected explicit default version rejection, got " +
+        @debug.to_string(other) +
+        "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "expected explicit default version rejection, got " +
+        @debug.to_string(other) +
+        "",
+      )
   }
 }
 
@@ -318,9 +332,13 @@ test "ATTACK pkix: explicit DEFAULT v1 version is rejected" {
 test "ATTACK pkix: serial number must be positive" {
   for serial in [b"\x00", b"\xff"] {
     let der = cert_der_from_tbs_items(base_tbs_items(serial~))
-    match (try? @pkix.parse_certificate(der)) {
-      Err(@pkix.UnexpectedStructure(_)) => ()
-      other => abort("expected serial rejection, got \{other}")
+    try @pkix.parse_certificate(der) catch {
+      @pkix.UnexpectedStructure(_) => ()
+      other =>
+        abort("expected serial rejection, got " + @debug.to_string(other) + "")
+    } noraise {
+      other =>
+        abort("expected serial rejection, got " + @debug.to_string(other) + "")
     }
   }
 }
@@ -337,10 +355,12 @@ test "ATTACK pkix: invalid validity time syntax is rejected at parse" {
     ),
   )
   let der = cert_der_from_tbs_items(base_tbs_items(validity=bad_validity))
-  match (try? @pkix.parse_certificate(der)) {
-    Err(@pkix.Asn1(@asn1.InvalidEncoding(_))) => ()
-    Err(@pkix.InvalidTime(_)) => ()
-    other => abort("expected InvalidTime, got \{other}")
+  try @pkix.parse_certificate(der) catch {
+    @pkix.Asn1(@asn1.InvalidEncoding(_)) => ()
+    @pkix.InvalidTime(_) => ()
+    other => abort("expected InvalidTime, got " + @debug.to_string(other) + "")
+  } noraise {
+    other => abort("expected InvalidTime, got " + @debug.to_string(other) + "")
   }
 }
 
@@ -361,9 +381,21 @@ test "ATTACK pkix: duplicate optional TBSCertificate fields are rejected" {
     ),
   )
   let der = cert_der_from_tbs_items(items)
-  match (try? @pkix.parse_certificate(der)) {
-    Err(@pkix.UnexpectedStructure(_)) => ()
-    other => abort("expected duplicate extensions rejection, got \{other}")
+  try @pkix.parse_certificate(der) catch {
+    @pkix.UnexpectedStructure(_) => ()
+    other =>
+      abort(
+        "expected duplicate extensions rejection, got " +
+        @debug.to_string(other) +
+        "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "expected duplicate extensions rejection, got " +
+        @debug.to_string(other) +
+        "",
+      )
   }
 }
 
@@ -372,9 +404,21 @@ test "ATTACK pkix: IMPLICIT uniqueID BIT STRING tail padding is checked" {
   let items = base_tbs_items(version_bytes=b"\x01")
   items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x01\x01")))
   let der = cert_der_from_tbs_items(items)
-  match (try? @pkix.parse_certificate(der)) {
-    Err(@pkix.UnexpectedStructure(_)) => ()
-    other => abort("expected BIT STRING padding rejection, got \{other}")
+  try @pkix.parse_certificate(der) catch {
+    @pkix.UnexpectedStructure(_) => ()
+    other =>
+      abort(
+        "expected BIT STRING padding rejection, got " +
+        @debug.to_string(other) +
+        "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "expected BIT STRING padding rejection, got " +
+        @debug.to_string(other) +
+        "",
+      )
   }
 }
 
@@ -402,9 +446,17 @@ test "ATTACK pkix: RDN SET order must be DER canonical" {
     concat_der([@asn1.encode_der(country_av), @asn1.encode_der(cn_av)]),
   )
   let noncanonical_name = raw_short_tlv(0x30, noncanonical_set)
-  match (try? @pkix.parse_name(noncanonical_name)) {
-    Err(@pkix.Asn1(@asn1.InvalidEncoding(_))) => ()
-    Err(@pkix.UnexpectedStructure(_)) => ()
-    other => abort("expected RDN SET order rejection, got \{other}")
+  try @pkix.parse_name(noncanonical_name) catch {
+    @pkix.Asn1(@asn1.InvalidEncoding(_)) => ()
+    @pkix.UnexpectedStructure(_) => ()
+    other =>
+      abort(
+        "expected RDN SET order rejection, got " + @debug.to_string(other) + "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "expected RDN SET order rejection, got " + @debug.to_string(other) + "",
+      )
   }
 }

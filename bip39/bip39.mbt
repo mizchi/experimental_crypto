@@ -21,7 +21,7 @@ pub suberror Bip39Error {
   InvalidMnemonicWordCount(Int)
   UnknownWord(String)
   InvalidChecksum
-} derive(Show)
+} derive(Debug)
 
 ///|
 fn entropy_bits_to_word_count(ent_bits : Int) -> Int {

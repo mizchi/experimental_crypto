@@ -28,18 +28,7 @@ pub(all) enum CoseAlg {
   ES384
   EdDSA
   RS256
-} derive(Eq, Show)
-
-///|
-// COSE algorithm identifiers from the IANA registry (RFC 9053 §2).
-fn alg_id(a : CoseAlg) -> Int64 {
-  match a {
-    ES256 => -7L
-    ES384 => -35L
-    EdDSA => -8L
-    RS256 => -257L
-  }
-}
+} derive(Eq, Debug)
 
 ///|
 fn alg_from_id(id : Int64) -> CoseAlg raise CoseError {
@@ -82,11 +71,7 @@ pub suberror CoseError {
   InvalidKey(String)
   // The signature was structurally invalid (e.g. wrong length for the alg).
   InvalidSignature(String)
-  // The signature did not verify.
-  VerificationFailed
-  // Forwarded error from a lower-level primitive.
-  Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 // --- Public API ----------------------------------------------------------
 
@@ -114,7 +99,7 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
       }
       let x = require_bytes(v, -2L, "OKP x")
       let pk = @ed25519.PublicKey::from_bytes(x) catch {
-        e => raise InvalidKey("Ed25519: \{e}")
+        e => raise InvalidKey("Ed25519: " + @debug.to_string(e) + "")
       }
       OkpEd25519(pubkey=pk)
     }
@@ -131,7 +116,7 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
           }
           let uncompressed = concat3(b"\x04", x, y)
           let pk = @p256.PublicKey::from_uncompressed(uncompressed) catch {
-            e => raise InvalidKey("P-256: \{e}")
+            e => raise InvalidKey("P-256: " + @debug.to_string(e) + "")
           }
           Ec2P256(pubkey=pk)
         }
@@ -142,11 +127,11 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
           }
           let uncompressed = concat3(b"\x04", x, y)
           let pk = @p384.PublicKey::from_uncompressed(uncompressed) catch {
-            e => raise InvalidKey("P-384: \{e}")
+            e => raise InvalidKey("P-384: " + @debug.to_string(e) + "")
           }
           Ec2P384(pubkey=pk)
         }
-        other => raise InvalidKey("EC2 curve \{other} not supported")
+        other => raise InvalidKey("EC2 curve " + repr(other) + " not supported")
       }
     }
     // kty = 3 (RSA, RFC 8230 §4)
@@ -155,11 +140,11 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
       let e = require_bytes(v, -2L, "RSA e")
       let der = encode_rsa_pkcs1_der(n, e)
       let pk = @rsa.RsaPublicKey::from_pkcs1_der(der) catch {
-        e => raise InvalidKey("RSA: \{e}")
+        e => raise InvalidKey("RSA: " + @debug.to_string(e) + "")
       }
       Rsa(pubkey=pk)
     }
-    other => raise InvalidKey("kty \{other} not supported")
+    other => raise InvalidKey("kty " + repr(other) + " not supported")
   }
 }
 
@@ -300,13 +285,14 @@ fn resolve_alg(
 ) -> CoseAlg? {
   // First try the protected header.
   if protected_bytes.length() > 0 {
-    match (try? @cbor.decode(protected_bytes)) {
-      Ok(m) =>
+    try @cbor.decode(protected_bytes) catch {
+      _ => ()
+    } noraise {
+      m =>
         match alg_from_map(m) {
           Some(a) => return Some(a)
           None => ()
         }
-      Err(_) => ()
     }
   }
   // Fallback to the unprotected header.
@@ -325,9 +311,10 @@ fn alg_from_map(m : @cbor.CborValue) -> CoseAlg? {
     Some(Nint(n)) => -1L - n.reinterpret_as_int64()
     _ => return None
   }
-  match (try? alg_from_id(id)) {
-    Ok(a) => Some(a)
-    Err(_) => None
+  try alg_from_id(id) catch {
+    _ => None
+  } noraise {
+    a => Some(a)
   }
 }
 
@@ -380,7 +367,7 @@ fn concat3(a : Bytes, b : Bytes, c : Bytes) -> Bytes {
     out[i] = c[j]
     i = i + 1
   }
-  Bytes::from_fixedarray(out)
+  Bytes::from_array(out)
 }
 
 ///|
@@ -416,7 +403,7 @@ fn pad_integer_msb(b : Bytes) -> Bytes {
   for i = 0; i < b.length(); i = i + 1 {
     out[i + 1] = b[i]
   }
-  Bytes::from_fixedarray(out)
+  Bytes::from_array(out)
 }
 
 // --- WebAuthn / FIDO2 convenience ---------------------------------------

@@ -38,19 +38,19 @@ pub(all) struct ExtendedPublicKey {
 ///|
 pub suberror Bip32Error {
   InvalidSeedLength(Int)
-  InvalidChildIndex
   DerivationFailed(String)
   HardenedFromPublic(UInt)
   InvalidPath(String)
   Secp256k1(@secp256k1.Secp256k1Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 // secp256k1 curve order n. We re-declare it here rather than calling into
 // @secp256k1 (which keeps `k1_n()` package-private); the value is fixed.
 fn k1_n() -> @bigint.BigInt {
-  @bigint.BigInt::from_hex(
+  @bigint.BigInt::from_string(
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+    radix=16,
   )
 }
 

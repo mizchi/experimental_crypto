@@ -1,8 +1,17 @@
 {
-  description = "mizchi/moonbit-crypto — MoonBit + Why3 (via opam) for moon prove";
+  description = "mizchi/moonbit-crypto — MoonBit + Why3 (all-nix, no opam) for moon prove";
 
   inputs = {
+    # Main pinned to unstable for cvc5 1.3.x / z3 4.16.x and the moonbit
+    # overlay. Anything that doesn't need to match Why3's recognized-prover
+    # database goes here.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Why3 was 1.7.2 on nixos-24.05; after that nixpkgs bumped to 1.8.x,
+    # which `moon prove` does not accept. Pin Why3 (and Alt-Ergo, which
+    # Why3 1.7.2 only recognizes up to 2.5.x) to this branch.
+    nixpkgs-why3.url = "github:NixOS/nixpkgs/nixos-24.05";
+
     flake-utils.url = "github:numtide/flake-utils";
     moonbit-overlay.url = "github:moonbit-community/moonbit-overlay";
   };
@@ -11,6 +20,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-why3,
       flake-utils,
       moonbit-overlay,
       ...
@@ -21,16 +31,17 @@
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ moonbit-overlay.overlays.default ];
-          # darwin: nixpkgs marks tinycc broken, which makes the moonbit-overlay
-          # toolchains derivation fail at eval time. Allow the broken tcc through
-          # so we can override install-phase to keep the tarball-shipped tcc.
-          # alt-ergo's "ocamlpro_nc" license is unfree on nixpkgs; allow it for
-          # non-commercial verification use.
           config = {
             problems.handlers.tcc.broken = "ignore";
             allowUnfreePredicate =
               pkg: builtins.elem (nixpkgs.lib.getName pkg) [ "alt-ergo" ];
           };
+        };
+
+        pkgs-why3 = import nixpkgs-why3 {
+          inherit system;
+          config.allowUnfreePredicate =
+            pkg: builtins.elem (nixpkgs-why3.lib.getName pkg) [ "alt-ergo" ];
         };
 
         # darwin moonbit-overlay toolchains install-phase tries to substitute
@@ -55,8 +66,6 @@
           else
             pkgs.moonbit-bin.toolchains.latest;
 
-        # symlinkJoin of fixed toolchains + core, replacing the upstream
-        # `paths` so the bundled tcc is preserved.
         moonbit = pkgs.moonbit-bin.moonbit.latest.overrideAttrs (_old: {
           paths = [
             toolchainsFixed
@@ -74,51 +83,27 @@
           packages = [
             moonbit
 
-            # opam + OCaml build deps (why3 1.7.2 is installed into a
-            # project-local opam switch — see proofs/setup.sh).
-            pkgs.opam
-            pkgs.gnumake
-            pkgs.m4
-            pkgs.gmp # zarith (why3 transitive dep)
-            pkgs.zlib
-            pkgs.pkg-config
-            pkgs.unzip
-            pkgs.rsync
-          ]
-          ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            # darwin: opam-installed dune needs fsevents → CoreFoundation /
-            # CoreServices from apple-sdk.
-            pkgs.apple-sdk
-          ]
-          ++ [
-            # SMT solvers why3 will detect. z3 alone is enough for the
-            # current proof goals; alt-ergo + cvc5 widen coverage for
-            # future quantified-VC work.
+            # Why3 1.7.2 (the only version `moon prove` accepts) + Alt-Ergo
+            # 2.5.4 (which Why3 1.7.2 recognizes natively). Both from
+            # nixos-24.05.
+            pkgs-why3.why3
+            pkgs-why3.alt-ergo
+
+            # Newer Z3 / CVC5 from unstable. Why3 1.7.2 marks them as
+            # "unrecognized version" but still dispatches via the closest
+            # driver; the custom strategy in proofs/why3.conf names the
+            # exact versions so this is fine.
             pkgs.z3
-            pkgs.alt-ergo
             pkgs.cvc5
           ];
 
           shellHook = ''
-            export OPAMROOT="$PWD/.opam"
-            export MOON_HOME="${moonbit}"
-
-            if [ -d "$OPAMROOT" ] && opam var --root="$OPAMROOT" root >/dev/null 2>&1; then
-              eval "$(opam env --root="$OPAMROOT" --set-root --set-switch 2>/dev/null || true)"
-              if command -v why3 >/dev/null 2>&1; then
-                echo "[moonbit-crypto] dev shell ready: moon=${moonbit}, why3=$(why3 --version 2>/dev/null | head -1)"
-              else
-                echo "[moonbit-crypto] opam switch present but why3 missing; run: bash proofs/setup.sh"
-              fi
+            export MOON_HOME=${moonbit}
+            if [ ! -f proofs/why3.conf ]; then
+              echo "[moonbit-crypto] First time: generate the multi-solver Why3 config:"
+              echo "    bash proofs/setup.sh"
             else
-              cat <<'EOS'
-[moonbit-crypto] First time: install Why3 1.7.2 into the project-local
-opam switch:
-
-    bash proofs/setup.sh
-
-Subsequent shells will auto-activate the switch via this shellHook.
-EOS
+              echo "[moonbit-crypto] dev shell ready: why3=$(why3 --version 2>/dev/null | head -1)"
             fi
           '';
         };

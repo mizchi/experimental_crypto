@@ -8,4 +8,5 @@ import {
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/bigint",
   "moonbitlang/core/json",
+  "moonbitlang/core/debug",
 }

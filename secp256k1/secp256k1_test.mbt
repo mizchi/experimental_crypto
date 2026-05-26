@@ -37,8 +37,8 @@ test "secp256k1: PrivateKey(1).public_key == G" {
   let sk = @secp256k1.PrivateKey::from_bytes(one)
   let pk = sk.public_key()
   let bytes = pk.to_uncompressed()
-  assert_eq(bytes.length(), 65)
-  assert_eq(bytes[0], b'\x04')
+  @debug.assert_eq(bytes.length(), 65)
+  @debug.assert_eq(bytes[0], b'\x04')
   // SEC 2 §2.4.1 Gx / Gy.
   let gx = hex(
     "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
@@ -47,10 +47,10 @@ test "secp256k1: PrivateKey(1).public_key == G" {
     "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
   )
   for i = 0; i < 32; i = i + 1 {
-    assert_eq(bytes[1 + i], gx[i])
+    @debug.assert_eq(bytes[1 + i], gx[i])
   }
   for i = 0; i < 32; i = i + 1 {
-    assert_eq(bytes[33 + i], gy[i])
+    @debug.assert_eq(bytes[33 + i], gy[i])
   }
 }
 
@@ -72,7 +72,7 @@ test "secp256k1: sign+verify roundtrip is deterministic" {
   let sig1 = sk.sign(msg)
   let sig2 = sk.sign(msg)
   // Determinism: same input ⇒ same signature.
-  assert_eq(sig1, sig2)
+  @debug.assert_eq(sig1, sig2)
   assert_true(@secp256k1.verify(pk, msg, sig1, Raw))
 }
 
@@ -108,7 +108,7 @@ test "secp256k1: sign emits a DER signature when requested" {
   let sk = @secp256k1.PrivateKey::from_bytes(hex(test_scalar))
   let pk = sk.public_key()
   let der_sig = sk.sign(b"sample", format=Der)
-  assert_eq(der_sig[0], b'\x30')
+  @debug.assert_eq(der_sig[0], b'\x30')
   assert_true(@secp256k1.verify(pk, b"sample", der_sig, Der))
 }
 
@@ -117,8 +117,8 @@ test "secp256k1: roundtrip uncompressed" {
   let sk = @secp256k1.PrivateKey::from_bytes(hex(test_scalar))
   let pk = sk.public_key()
   let bytes = pk.to_uncompressed()
-  assert_eq(bytes.length(), 65)
-  assert_eq(bytes[0], b'\x04')
+  @debug.assert_eq(bytes.length(), 65)
+  @debug.assert_eq(bytes[0], b'\x04')
   let pk2 = @secp256k1.PublicKey::from_uncompressed(bytes)
   let msg : Bytes = b"sample"
   let sig = sk.sign(msg)
@@ -202,13 +202,13 @@ test "secp256k1: sign and sign_no_low_s share r; s differs only by low-s flip" {
   // s_low = n - s_high.
   let sk = @secp256k1.PrivateKey::from_bytes(hex(test_scalar))
   let n_hex = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
-  let n = BigInt::from_hex(n_hex)
+  let n = BigInt::from_string(n_hex, radix=16)
   for msg in try_messages() {
     let sig_low = sk.sign(msg)
     let sig_raw = sk.sign_no_low_s(msg)
     // r is the first 32 bytes — should be identical.
     for i = 0; i < 32; i = i + 1 {
-      assert_eq(sig_low[i], sig_raw[i])
+      @debug.assert_eq(sig_low[i], sig_raw[i])
     }
     let s_low_bytes = Bytes::makei(32, fn(i) { sig_low[i + 32] })
     let s_raw_bytes = Bytes::makei(32, fn(i) { sig_raw[i + 32] })
@@ -246,10 +246,11 @@ test "secp256k1: verify accepts both low-s and high-s signatures" {
 ///|
 test "secp256k1: from_bytes rejects all-zero scalar" {
   let zero = Bytes::makei(32, fn(_) { b'\x00' })
-  match (try? @secp256k1.PrivateKey::from_bytes(zero)) {
-    Err(InvalidPrivateKey(_)) => ()
-    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
-    Ok(_) => abort("expected raise on zero scalar, got Ok")
+  try @secp256k1.PrivateKey::from_bytes(zero) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected raise on zero scalar, got Ok")
   }
 }
 
@@ -259,10 +260,11 @@ test "secp256k1: from_bytes rejects scalar = n" {
   let scalar_eq_n = hex(
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
   )
-  match (try? @secp256k1.PrivateKey::from_bytes(scalar_eq_n)) {
-    Err(InvalidPrivateKey(_)) => ()
-    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
-    Ok(_) => abort("expected raise on scalar = n, got Ok")
+  try @secp256k1.PrivateKey::from_bytes(scalar_eq_n) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected raise on scalar = n, got Ok")
   }
 }
 
@@ -270,20 +272,22 @@ test "secp256k1: from_bytes rejects scalar = n" {
 test "secp256k1: from_bytes rejects scalar > n" {
   // 0xFF..FF (32 bytes) is > n.
   let scalar = Bytes::makei(32, fn(_) { b'\xff' })
-  match (try? @secp256k1.PrivateKey::from_bytes(scalar)) {
-    Err(InvalidPrivateKey(_)) => ()
-    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
-    Ok(_) => abort("expected raise on scalar > n, got Ok")
+  try @secp256k1.PrivateKey::from_bytes(scalar) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected raise on scalar > n, got Ok")
   }
 }
 
 ///|
 test "secp256k1: from_bytes rejects wrong-length input" {
   let short = Bytes::makei(31, fn(_) { b'\x01' })
-  match (try? @secp256k1.PrivateKey::from_bytes(short)) {
-    Err(InvalidPrivateKey(_)) => ()
-    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
-    Ok(_) => abort("expected raise on short input, got Ok")
+  try @secp256k1.PrivateKey::from_bytes(short) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected raise on short input, got Ok")
   }
 }
 
@@ -374,9 +378,9 @@ test "secp256k1: wrong signature length rejected (Raw)" {
 }
 
 ///|
-test "secp256k1: SignatureFormat Show" {
-  inspect(@secp256k1.SignatureFormat::Raw, content="Raw")
-  inspect(@secp256k1.SignatureFormat::Der, content="Der")
+test "secp256k1: SignatureFormat Debug" {
+  @debug.assert_eq(@debug.to_string(@secp256k1.SignatureFormat::Raw), "Raw")
+  @debug.assert_eq(@debug.to_string(@secp256k1.SignatureFormat::Der), "Der")
 }
 
 // -----------------------------------------------------------------------------

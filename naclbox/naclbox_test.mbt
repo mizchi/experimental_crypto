@@ -64,9 +64,9 @@ test "secretbox round-trip" {
   let msg_bytes = Bytes::makei(msg.length(), fn(i) { msg[i] })
   let sealed_box = @naclbox.secretbox(key, nonce, msg_bytes)
   // tag(16) + ciphertext (len(msg))
-  assert_eq(sealed_box.length(), 16 + msg.length())
+  @debug.assert_eq(sealed_box.length(), 16 + msg.length())
   let recovered = @naclbox.secretbox_open(key, nonce, sealed_box)
-  assert_eq(to_hex(recovered), to_hex(msg_bytes))
+  @debug.assert_eq(to_hex(recovered), to_hex(msg_bytes))
 }
 
 ///|
@@ -90,7 +90,7 @@ test "secretbox rejects tag tamper" {
   match result {
     Ok(_) => abort("expected AuthenticationFailed")
     Err(@naclbox.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
   }
 }
 
@@ -99,9 +99,9 @@ test "secretbox empty message round-trip" {
   let key = Bytes::makei(32, fn(_) { b'\x00' })
   let nonce = Bytes::makei(24, fn(_) { b'\x00' })
   let sealed_box = @naclbox.secretbox(key, nonce, b"")
-  assert_eq(sealed_box.length(), 16) // just the tag
+  @debug.assert_eq(sealed_box.length(), 16) // just the tag
   let recovered = @naclbox.secretbox_open(key, nonce, sealed_box)
-  assert_eq(recovered.length(), 0)
+  @debug.assert_eq(recovered.length(), 0)
 }
 
 ///|
@@ -114,7 +114,7 @@ test "secretbox rejects wrong key size" {
   match result {
     Err(@naclbox.InvalidKeyLength(16)) => ()
     Ok(_) => abort("expected InvalidKeyLength")
-    Err(e) => abort("expected InvalidKeyLength but got " + e.to_string())
+    Err(e) => abort("expected InvalidKeyLength but got " + repr(e))
   }
 }
 
@@ -128,7 +128,7 @@ test "secretbox rejects wrong nonce size" {
   match result {
     Err(@naclbox.InvalidNonceLength(12)) => ()
     Ok(_) => abort("expected InvalidNonceLength")
-    Err(e) => abort("expected InvalidNonceLength but got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceLength but got " + repr(e))
   }
 }
 
@@ -143,7 +143,7 @@ test "secretbox_open rejects short ciphertext" {
   match result {
     Err(@naclbox.InvalidCiphertextLength(8)) => ()
     Ok(_) => abort("expected InvalidCiphertextLength")
-    Err(e) => abort("expected InvalidCiphertextLength but got " + e.to_string())
+    Err(e) => abort("expected InvalidCiphertextLength but got " + repr(e))
   }
 }
 
@@ -184,7 +184,7 @@ test "box round-trip Alice -> Bob" {
     nonce,
     sealed_box,
   )
-  assert_eq(to_hex(recovered), to_hex(msg_bytes))
+  @debug.assert_eq(to_hex(recovered), to_hex(msg_bytes))
 }
 
 ///|
@@ -195,7 +195,7 @@ test "box_beforenm is commutative" {
   let bob = bob_keypair()
   let alice_view = @naclbox.box_beforenm(bob.public_key, alice.secret_key)
   let bob_view = @naclbox.box_beforenm(alice.public_key, bob.secret_key)
-  assert_eq(to_hex(alice_view.to_bytes()), to_hex(bob_view.to_bytes()))
+  @debug.assert_eq(to_hex(alice_view.to_bytes()), to_hex(bob_view.to_bytes()))
 }
 
 ///|
@@ -212,12 +212,12 @@ test "box_afternm round-trip equals box_/box_open" {
   // Path B: derive shared key once, then afternm.
   let sk = @naclbox.box_beforenm(bob.public_key, alice.secret_key)
   let ct_b = @naclbox.box_afternm(sk, nonce, msg_bytes)
-  assert_eq(to_hex(ct_a), to_hex(ct_b))
+  @debug.assert_eq(to_hex(ct_a), to_hex(ct_b))
 
   // Path B decrypt via box_open_afternm using Bob's side.
   let sk_bob = @naclbox.box_beforenm(alice.public_key, bob.secret_key)
   let pt = @naclbox.box_open_afternm(sk_bob, nonce, ct_b)
-  assert_eq(to_hex(pt), to_hex(msg_bytes))
+  @debug.assert_eq(to_hex(pt), to_hex(msg_bytes))
 }
 
 ///|
@@ -243,7 +243,7 @@ test "box rejects tag tamper" {
   match result {
     Err(@naclbox.AuthenticationFailed) => ()
     Ok(_) => abort("expected AuthenticationFailed")
-    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
   }
 }
 
@@ -256,7 +256,7 @@ test "KeyPair::from_seed rejects wrong length" {
   match result {
     Err(@naclbox.InvalidKeyLength(16)) => ()
     Ok(_) => abort("expected InvalidKeyLength")
-    Err(e) => abort("expected InvalidKeyLength but got " + e.to_string())
+    Err(e) => abort("expected InvalidKeyLength but got " + repr(e))
   }
 }
 
@@ -269,10 +269,13 @@ test "KeyPair public key matches RFC 7748 §6.1 Alice/Bob" {
   let expected_alice_pk = hex(
     "8520f0098930a754748b7ddcb43ef75a" + "0dbf3a0d26381af4eba4a98eaa9b4e6a",
   )
-  assert_eq(to_hex(alice.public_key.to_bytes()), to_hex(expected_alice_pk))
+  @debug.assert_eq(
+    to_hex(alice.public_key.to_bytes()),
+    to_hex(expected_alice_pk),
+  )
   let bob = bob_keypair()
   let expected_bob_pk = hex(
     "de9edb7d7b7dc1b4d35b61c2ece43537" + "3f8343c85b78674dadfc7e146f882b4f",
   )
-  assert_eq(to_hex(bob.public_key.to_bytes()), to_hex(expected_bob_pk))
+  @debug.assert_eq(to_hex(bob.public_key.to_bytes()), to_hex(expected_bob_pk))
 }

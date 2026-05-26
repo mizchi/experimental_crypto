@@ -50,7 +50,7 @@ fn cms_message() -> Bytes {
 ///|
 test "cms: parse_signed_data extracts signer cert + signer info" {
   let sd = @cms.parse_signed_data(cms_signature_der())
-  assert_eq(sd.extra_certs.length(), 0)
+  @debug.assert_eq(sd.extra_certs.length(), 0)
   // Issuer DN should contain our test CN ASCII bytes.
   let cn = sd.signer_cert.tbs.subject
   let _ = cn
@@ -67,11 +67,12 @@ test "cms: verify_detached against real openssl signature" {
 test "cms: tampered message fails (messageDigest mismatch)" {
   let sd = @cms.parse_signed_data(cms_signature_der())
   let bad : Bytes = b"hello cms signinG"
-  match (try? @cms.verify_detached(sd, bad)) {
-    Err(MessageDigestMismatch) => ()
-    Ok(false) => ()
-    Ok(true) => abort("tampered message accepted")
-    Err(_) => () // any error path counts as reject
+  try @cms.verify_detached(sd, bad) catch {
+    MessageDigestMismatch => ()
+    _ => () // any error path counts as reject
+  } noraise {
+    false => ()
+    true => abort("tampered message accepted")
   }
 }
 
@@ -132,7 +133,7 @@ test "cms: verify_with_chain end-to-end with real openssl root CA + signer chain
   // `certificates`. The signer's IssuerAndSerialNumber selects the signer
   // as `signer_cert`; the root falls into `extra_certs`.
   let sd = @cms.parse_signed_data(chained_cms_signature_der())
-  assert_eq(sd.extra_certs.length(), 1)
+  @debug.assert_eq(sd.extra_certs.length(), 1)
   // Pull anchor pubkey from the standalone root.der fixture (this is what
   // a real trust store would do — never trust the CMS-embedded copy).
   let root_cert = @pkix.parse_certificate(chained_root_cert_der())
@@ -171,10 +172,11 @@ test "cms: verify_with_chain rejects tampered message (messageDigest mismatch)" 
   )
   let now = "260601000000Z"
   let tampered : Bytes = b"hello chained cmS" // last byte flipped
-  match (try? @cms.verify_with_chain(sd, tampered, anchor_pk, now)) {
-    Err(MessageDigestMismatch) => ()
-    Ok(false) => ()
-    Ok(true) => abort("tampered message accepted")
-    Err(_) => () // any error path counts as reject
+  try @cms.verify_with_chain(sd, tampered, anchor_pk, now) catch {
+    MessageDigestMismatch => ()
+    _ => () // any error path counts as reject
+  } noraise {
+    false => ()
+    true => abort("tampered message accepted")
   }
 }

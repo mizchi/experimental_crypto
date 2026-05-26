@@ -1,40 +1,19 @@
 #!/usr/bin/env bash
-# Provision a project-local opam switch with Why3 1.7.2 and Alt-Ergo, and
-# emit a `proofs/why3.conf` so `moon prove --why3-config proofs/why3.conf`
-# dispatches through Z3 → CVC5 → Alt-Ergo. Idempotent; safe to re-run.
+# Generate `proofs/why3.conf` from the solvers on the current PATH so
+# `moon prove --why3-config proofs/why3.conf` dispatches through
+# Z3 → CVC5 → Alt-Ergo. Idempotent.
 #
-# Inside the nix devShell (`nix develop --impure`): gcc / zlib / cvc5 / z3 /
-# opam come from nix and the heavy native deps build cleanly. Outside the
-# nix shell: you need brew opam + brew z3 at minimum, and the install will
-# fail if your system gcc / zlib aren't visible.
+# Inside the nix devShell (`nix develop --impure`) the four provers are
+# already on PATH — this script just emits the config and exits. Outside
+# nix you need why3 1.7.2 + alt-ergo + z3 + cvc5 installed by other means
+# (brew opam, homebrew taps, etc.) and visible on PATH.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export OPAMROOT="$REPO_ROOT/.opam"
-SWITCH=moonbit-crypto
-OCAML_VERSION=4.14.2
-WHY3_VERSION=1.7.2
-
-if [ ! -d "$OPAMROOT" ]; then
-  opam init --bare --no-setup --disable-sandboxing -y
-fi
-
-if ! opam switch list --short 2>/dev/null | grep -qx "$SWITCH"; then
-  opam switch create "$SWITCH" "ocaml-base-compiler.$OCAML_VERSION" -y
-fi
-
-eval "$(opam env --switch="$SWITCH" --set-switch)"
-opam install -y --assume-depexts "why3.$WHY3_VERSION" zarith alt-ergo
-why3 config detect
-
-# Regenerate proofs/why3.conf with the actually-detected solver paths +
-# versions, plus a MoonBit_Auto strategy that tries Z3 → CVC5 → Alt-Ergo.
-# `moon prove` defaults to a Z3-only strategy that times out on modular
-# arithmetic goals; CVC5 discharges them in well under a second.
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
-    echo "[proofs/setup.sh] missing prover: $1 — install it (nix devShell provides z3 / cvc5; alt-ergo comes from opam above)" >&2
+    echo "[proofs/setup.sh] missing: $1 — enter the nix devShell with 'nix develop --impure'" >&2
     return 1
   }
 }
@@ -43,9 +22,17 @@ prover_version() {
   "$1" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
 }
 
+require why3
 require z3
 require cvc5
 require alt-ergo
+
+# Refresh Why3's prover detection cache so subsequent direct `why3 prove`
+# calls have a populated ~/.why3.conf. moon prove ignores this file (it
+# uses --why3-config), but it makes ad-hoc debugging via `why3 prove -P …`
+# work without surprises.
+rm -f "${WHY3_CONFIG:-$HOME/.why3.conf}"
+why3 config detect >/dev/null 2>&1 || true
 
 Z3=$(command -v z3)
 CVC5=$(command -v cvc5)
@@ -95,23 +82,15 @@ EOF
 
 cat <<EOM
 
-[proofs/setup.sh] done.
+[proofs/setup.sh] generated proofs/why3.conf
 
-Provers detected:
+  Why3      $(why3 --version 2>&1 | head -1 | sed 's/Why3 platform, //')
   Z3        $Z3_V   $Z3
   CVC5      $CVC5_V $CVC5
   Alt-Ergo  $ALT_V  $ALT_ERGO
 
-Use the wrapper to prove a package:
+Run prove via the wrapper (picks up --why3-config automatically):
 
-    bash proofs/prove.sh <subpackage>     # e.g. aead/wrap
-
-Or invoke moon prove directly:
-
-    cd <subpackage>
-    moon prove --why3-config $REPO_ROOT/proofs/why3.conf
-
-(The custom config is what makes CVC5 / Alt-Ergo available; without it,
-moon prove falls back to a Z3-only strategy that times out on modular-
-arithmetic postconditions.)
+    bash proofs/prove.sh                  # every wrap package + proofs/
+    bash proofs/prove.sh aead/wrap        # one sub-package
 EOM

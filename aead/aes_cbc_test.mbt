@@ -49,9 +49,9 @@ test "aes-128-cbc: NIST SP 800-38A §F.2.1/F.2.2 round trip" {
     "3ff1caa1681fac09120eca307586e1a7",
   )
   let ct = @aead.aes_cbc_encrypt(key, iv, plaintext)
-  assert_eq(ct, expected_ct)
+  @debug.assert_eq(ct, expected_ct)
   let pt = @aead.aes_cbc_decrypt(key, iv, ct)
-  assert_eq(pt, plaintext)
+  @debug.assert_eq(pt, plaintext)
 }
 
 ///|
@@ -74,20 +74,22 @@ test "aes-256-cbc: NIST SP 800-38A §F.2.5/F.2.6 round trip" {
     "b2eb05e2c39be9fcda6c19078c6a9d1b",
   )
   let ct = @aead.aes_cbc_encrypt(key, iv, plaintext)
-  assert_eq(ct, expected_ct)
+  @debug.assert_eq(ct, expected_ct)
   let pt = @aead.aes_cbc_decrypt(key, iv, ct)
-  assert_eq(pt, plaintext)
+  @debug.assert_eq(pt, plaintext)
 }
 
 ///|
 test "aes-cbc: rejects bad IV length" {
   let key = cbc_hex("2b7e151628aed2a6abf7158809cf4f3c")
-  match
-    (try? @aead.aes_cbc_encrypt(
+  try
+    @aead.aes_cbc_encrypt(
       key, b"\x00", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
-    )) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidNonceSize")
+    )
+  catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidNonceSize")
   }
 }
 
@@ -95,8 +97,9 @@ test "aes-cbc: rejects bad IV length" {
 test "aes-cbc: rejects non-multiple-of-16 plaintext" {
   let key = cbc_hex("2b7e151628aed2a6abf7158809cf4f3c")
   let iv = cbc_hex("000102030405060708090a0b0c0d0e0f")
-  match (try? @aead.aes_cbc_encrypt(key, iv, b"\x00\x01\x02")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected PlaintextTooLong")
+  try @aead.aes_cbc_encrypt(key, iv, b"\x00\x01\x02") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected PlaintextTooLong")
   }
 }

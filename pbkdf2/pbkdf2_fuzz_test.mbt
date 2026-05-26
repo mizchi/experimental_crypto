@@ -22,9 +22,10 @@ test "fuzz pbkdf2: non-positive iterations rejected" {
     // Force the iteration count to be <= 0 by negating positives. Zero or
     // negatives are all expected to reject.
     let iter = if raw > 0 { -raw } else { raw }
-    match (try? @pbkdf2.pbkdf2(Sha256, pwds[i], salts[i], iter, 32)) {
-      Err(_) => ()
-      Ok(_) => fail("non-positive iterations must reject")
+    try @pbkdf2.pbkdf2(Sha256, pwds[i], salts[i], iter, 32) catch {
+      _ => ()
+    } noraise {
+      _ => fail("non-positive iterations must reject")
     }
   }
 }
@@ -53,7 +54,7 @@ test "fuzz pbkdf2: same params produce same output (determinism)" {
     let b = @pbkdf2.pbkdf2(Sha256, pwds[i], salts[i], 100, 32) catch {
       _ => abort("unreachable")
     }
-    assert_eq(a, b)
+    @debug.assert_eq(a, b)
   }
 }
 
@@ -86,6 +87,6 @@ test "fuzz pbkdf2: dk_len ∈ [1..96] never panics and length matches" {
     let out = @pbkdf2.pbkdf2(Sha256, pwds[i], salts[i], 1, dk_len) catch {
       _ => abort("unreachable: small dk_len should succeed")
     }
-    assert_eq(out.length(), dk_len)
+    @debug.assert_eq(out.length(), dk_len)
   }
 }

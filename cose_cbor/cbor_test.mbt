@@ -213,7 +213,7 @@ test "decode: roundtrip uint" {
   let encoded = @cose_cbor.encode(original)
   let decoded = @cose_cbor.decode(encoded)
   match decoded {
-    Uint(n) => assert_eq(n, 1000000UL)
+    Uint(n) => @debug.assert_eq(n, 1000000UL)
     _ => abort("expected Uint")
   }
 }
@@ -223,7 +223,7 @@ test "decode: roundtrip nint" {
   let original : @cose_cbor.CborValue = Nint(999UL)
   let decoded = @cose_cbor.decode(@cose_cbor.encode(original))
   match decoded {
-    Nint(n) => assert_eq(n, 999UL)
+    Nint(n) => @debug.assert_eq(n, 999UL)
     _ => abort("expected Nint")
   }
 }
@@ -233,7 +233,7 @@ test "decode: roundtrip bytes" {
   let encoded = @cose_cbor.encode(Bytes(b"\xde\xad\xbe\xef"))
   let decoded = @cose_cbor.decode(encoded)
   match decoded {
-    Bytes(b) => assert_eq(b, b"\xde\xad\xbe\xef")
+    Bytes(b) => @debug.assert_eq(b, b"\xde\xad\xbe\xef")
     _ => abort("expected Bytes")
   }
 }
@@ -243,7 +243,7 @@ test "decode: roundtrip text" {
   let encoded = @cose_cbor.encode(Text("hello 世界"))
   let decoded = @cose_cbor.decode(encoded)
   match decoded {
-    Text(s) => assert_eq(s, "hello 世界")
+    Text(s) => @debug.assert_eq(s, "hello 世界")
     _ => abort("expected Text")
   }
 }
@@ -259,7 +259,7 @@ test "decode: roundtrip nested array+map" {
   let decoded = @cose_cbor.decode(encoded)
   match decoded {
     Array(items) => {
-      assert_eq(items.length(), 3)
+      @debug.assert_eq(items.length(), 3)
       match items[1] {
         Bool(b) => assert_true(b)
         _ => abort("items[1] not bool")
@@ -279,9 +279,9 @@ test "decode: tag 0 date-time" {
   let decoded = @cose_cbor.decode(bytes)
   match decoded {
     Tag(t, inner) => {
-      assert_eq(t, 0UL)
+      @debug.assert_eq(t, 0UL)
       match inner {
-        Text(s) => assert_eq(s, "2013-03-21T20:04:00Z")
+        Text(s) => @debug.assert_eq(s, "2013-03-21T20:04:00Z")
         _ => abort("inner not text")
       }
     }
@@ -293,7 +293,7 @@ test "decode: tag 0 date-time" {
 test "decode: trailing bytes raises" {
   let r = try? @cose_cbor.decode(b"\x00\x00")
   match r {
-    Err(TrailingBytes(n)) => assert_eq(n, 1)
+    Err(TrailingBytes(n)) => @debug.assert_eq(n, 1)
     _ => abort("expected TrailingBytes(1)")
   }
 }
@@ -327,7 +327,7 @@ test "map_get_int: positive key hit" {
   ])
   let r = @cose_cbor.map_get_int(m, 2L)
   match r {
-    Some(Text(s)) => assert_eq(s, "beta")
+    Some(Text(s)) => @debug.assert_eq(s, "beta")
     _ => abort("expected Some(Text(\"beta\"))")
   }
 }
@@ -339,7 +339,7 @@ test "map_get_int: negative key hit" {
   // Key 1 → Nint(6) which is -7
   let r = @cose_cbor.map_get_int(m, 1L)
   match r {
-    Some(Nint(n)) => assert_eq(n, 6UL)
+    Some(Nint(n)) => @debug.assert_eq(n, 6UL)
     _ => abort("expected Nint(6)")
   }
 }
@@ -361,7 +361,7 @@ test "map_get_int: nint key" {
     (Nint(2UL), Bytes(b"\x02")), // key -3
   ])
   match @cose_cbor.map_get_int(m, -3L) {
-    Some(Bytes(b)) => assert_eq(b, b"\x02")
+    Some(Bytes(b)) => @debug.assert_eq(b, b"\x02")
     _ => abort("expected Bytes(\"\\x02\")")
   }
 }

@@ -29,7 +29,7 @@ fn fuzz_message() -> Bytes {
 ///|
 fn fuzz_pubkey_blob() -> Bytes {
   let parsed = @ssh.parse_ssh_pubkey_text(fuzz_pubkey_text) catch {
-    e => abort("fuzz fixture pubkey failed: \{e}")
+    e => abort("fuzz fixture pubkey failed: " + repr(e) + "")
   }
   parsed.blob
 }
@@ -37,17 +37,17 @@ fn fuzz_pubkey_blob() -> Bytes {
 ///|
 fn fuzz_ed25519_pubkey() -> @ed25519.PublicKey {
   @ssh.parse_ed25519_pubkey(fuzz_pubkey_blob()) catch {
-    e => abort("fuzz fixture ed25519 pubkey failed: \{e}")
+    e => abort("fuzz fixture ed25519 pubkey failed: " + repr(e) + "")
   }
 }
 
 ///|
 fn fuzz_signature_blob() -> Bytes {
   let blob = @ssh.decode_sshsig_armor(fuzz_armored_signature) catch {
-    e => abort("fuzz fixture armor failed: \{e}")
+    e => abort("fuzz fixture armor failed: " + repr(e) + "")
   }
   let sig = @ssh.decode_sshsig_blob(blob) catch {
-    e => abort("fuzz fixture sshsig failed: \{e}")
+    e => abort("fuzz fixture sshsig failed: " + repr(e) + "")
   }
   sig.signature_blob
 }
@@ -125,7 +125,7 @@ test "fuzz allowed_signers: structured options preserve or narrow trust" {
     let text = "fuzz@example.com " + opt + " " + fuzz_key_field
     let signers = @ssh.parse_allowed_signers(text)
     if opt == "namespaces=\"file\"" {
-      assert_eq(signers.length(), 1)
+      @debug.assert_eq(signers.length(), 1)
       assert_false(
         @ssh.verify_with_allowed_signers(
           text,
@@ -135,7 +135,7 @@ test "fuzz allowed_signers: structured options preserve or narrow trust" {
         ),
       )
     } else if opt == "namespaces=\"git,file\"" {
-      assert_eq(signers.length(), 1)
+      @debug.assert_eq(signers.length(), 1)
       assert_true(
         @ssh.verify_with_allowed_signers(
           text,
@@ -145,7 +145,7 @@ test "fuzz allowed_signers: structured options preserve or narrow trust" {
         ),
       )
     } else {
-      assert_eq(signers.length(), 0)
+      @debug.assert_eq(signers.length(), 0)
     }
   }
 }

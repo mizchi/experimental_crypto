@@ -26,11 +26,11 @@ fn fixture_message() -> Bytes {
 ///|
 test "ssh: parse pubkey text" {
   let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
-  assert_eq(parsed.algorithm, "ssh-ed25519")
-  assert_eq(parsed.comment, Some("mizchi@misc-test"))
+  @debug.assert_eq(parsed.algorithm, "ssh-ed25519")
+  @debug.assert_eq(parsed.comment, Some("mizchi@misc-test"))
   let pk = @ssh.parse_ed25519_pubkey(parsed.blob)
   let rebuilt = @ssh.format_ssh_pubkey_text(pk, comment="mizchi@misc-test")
-  assert_eq(
+  @debug.assert_eq(
     rebuilt, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV mizchi@misc-test",
   )
 }
@@ -48,11 +48,11 @@ test "ssh: verify_armor_anonymous returns embedded pubkey" {
     armored_signature,
     fixture_message(),
   )
-  assert_eq(ns, "git")
+  @debug.assert_eq(ns, "git")
   let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
   let expected_pk = @ssh.parse_ed25519_pubkey(parsed.blob)
   match pk_from_sig {
-    Ed25519(pk) => assert_eq(pk.to_bytes(), expected_pk.to_bytes())
+    Ed25519(pk) => @debug.assert_eq(pk.to_bytes(), expected_pk.to_bytes())
     _ => abort("expected Ed25519")
   }
 }
@@ -66,7 +66,7 @@ test "ssh: tampered message fails" {
 }
 
 ///|
-test "ssh: wrong namespace returns false" {
+test "ssh: wrong sig_namespace returns false" {
   let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
   let pk = @ssh.parse_ed25519_pubkey(parsed.blob)
   assert_false(
@@ -74,7 +74,7 @@ test "ssh: wrong namespace returns false" {
       armored_signature,
       fixture_message(),
       pk,
-      namespace="file",
+      sig_namespace="file",
     ),
   )
 }
@@ -106,10 +106,10 @@ test "ssh: sign + verify roundtrip" {
 test "ssh: sshsig binary decode reveals fields" {
   let blob = @ssh.decode_sshsig_armor(armored_signature)
   let sig = @ssh.decode_sshsig_blob(blob)
-  assert_eq(sig.namespace, "git")
-  assert_eq(sig.hash_algorithm, "sha512")
+  @debug.assert_eq(sig.sig_namespace, "git")
+  @debug.assert_eq(sig.hash_algorithm, "sha512")
   match sig.publickey {
-    Ed25519(pk) => assert_eq(pk.to_bytes().length(), 32)
+    Ed25519(pk) => @debug.assert_eq(pk.to_bytes().length(), 32)
     _ => abort("expected Ed25519")
   }
 }
@@ -119,7 +119,7 @@ test "ssh: encode_sshsig_armor roundtrips through decode" {
   let original_blob = @ssh.decode_sshsig_armor(armored_signature)
   let reencoded = @ssh.encode_sshsig_armor(original_blob)
   let rebuilt_blob = @ssh.decode_sshsig_armor(reencoded)
-  assert_eq(original_blob, rebuilt_blob)
+  @debug.assert_eq(original_blob, rebuilt_blob)
 }
 
 // -----------------------------------------------------------------------------
@@ -136,11 +136,11 @@ let allowed_signers_text : String =
 ///|
 test "ssh: parse_allowed_signers reads two entries" {
   let signers = @ssh.parse_allowed_signers(allowed_signers_text)
-  assert_eq(signers.length(), 2)
-  assert_eq(signers[0].principals[0], "mizchi@misc-test")
-  assert_eq(signers[1].principals[0], "other@example.com")
+  @debug.assert_eq(signers.length(), 2)
+  @debug.assert_eq(signers[0].principals[0], "mizchi@misc-test")
+  @debug.assert_eq(signers[1].principals[0], "other@example.com")
   match signers[1].namespaces {
-    Some(ns) => assert_eq(ns[0], "file")
+    Some(ns) => @debug.assert_eq(ns[0], "file")
     None => abort("namespaces option not parsed")
   }
 }
@@ -149,14 +149,14 @@ test "ssh: parse_allowed_signers reads two entries" {
 test "ssh: find_signers honours glob and literal principals" {
   let signers = @ssh.parse_allowed_signers(allowed_signers_text)
   let found = @ssh.find_signers(signers, "mizchi@misc-test")
-  assert_eq(found.length(), 1)
+  @debug.assert_eq(found.length(), 1)
   let none = @ssh.find_signers(signers, "nobody@elsewhere")
-  assert_eq(none.length(), 0)
+  @debug.assert_eq(none.length(), 0)
   // Glob support: add a wildcard line and re-test.
   let glob_text =
     #|* ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let glob_signers = @ssh.parse_allowed_signers(glob_text)
-  assert_eq(@ssh.find_signers(glob_signers, "anyone").length(), 1)
+  @debug.assert_eq(@ssh.find_signers(glob_signers, "anyone").length(), 1)
 }
 
 ///|
@@ -182,9 +182,9 @@ test "ssh: verify_with_allowed_signers rejects unknown principal" {
 }
 
 ///|
-test "ATTACK: namespace-scoped entry refuses cross-namespace use" {
+test "ATTACK: sig_namespace-scoped entry refuses cross-sig_namespace use" {
   // The 'other@example.com' entry restricts to namespaces="file". Even if
-  // the signer's key matched, a "git"-namespace signature must not satisfy it.
+  // the signer's key matched, a "git"-sig_namespace signature must not satisfy it.
   let restricted_text =
     #|attacker@evil.invalid namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let ok = @ssh.verify_with_allowed_signers(
@@ -197,9 +197,9 @@ test "ATTACK: namespace-scoped entry refuses cross-namespace use" {
 }
 
 ///|
-test "ATTACK: comma-separated allowed_signers options keep namespace restriction" {
+test "ATTACK: comma-separated allowed_signers options keep sig_namespace restriction" {
   // A preceding option must not hide namespaces="file" and accidentally
-  // make the signer valid for every namespace.
+  // make the signer valid for every sig_namespace.
   let restricted_text =
     #|attacker@evil.invalid unknown=ignored,namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let ok = @ssh.verify_with_allowed_signers(
@@ -216,7 +216,7 @@ test "ATTACK: validity-window allowed_signers entries fail closed" {
   let time_scoped_text =
     #|time@example.com valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let signers = @ssh.parse_allowed_signers(time_scoped_text)
-  assert_eq(signers.length(), 0)
+  @debug.assert_eq(signers.length(), 0)
 }
 
 ///|
@@ -224,7 +224,7 @@ test "ATTACK: cert-authority allowed_signers entries fail closed" {
   let ca_text =
     #|*@example.com cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let signers = @ssh.parse_allowed_signers(ca_text)
-  assert_eq(signers.length(), 0)
+  @debug.assert_eq(signers.length(), 0)
 }
 
 // -----------------------------------------------------------------------------
@@ -381,11 +381,11 @@ test "ssh: sign_armor_with Ed25519 (backward compat smoke)" {
 }
 
 ///|
-test "ATTACK: empty SSHSIG namespace is rejected" {
+test "ATTACK: empty SSHSIG sig_namespace is rejected" {
   let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let raised = try {
-    let _ = @ssh.sign_armor(sk, b"empty namespace", namespace="")
+    let _ = @ssh.sign_armor(sk, b"empty sig_namespace", sig_namespace="")
     false
   } catch {
     InvalidEncoding(_) => true

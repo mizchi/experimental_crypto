@@ -20,7 +20,7 @@ pub(all) struct SshPublicKeyText {
   algorithm : String
   blob : Bytes // wire-format pubkey (algorithm-prefixed)
   comment : String?
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub let ed25519_algo : String = "ssh-ed25519"
@@ -136,7 +136,7 @@ pub fn parse_ed25519_pubkey(blob : Bytes) -> @ed25519.PublicKey raise SshError {
       key_bytes.length().to_string(),
     )
   }
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after ssh-ed25519 pubkey")
   }
   @ed25519.PublicKey::from_bytes(key_bytes) catch {
@@ -154,7 +154,7 @@ pub fn parse_ecdsa_pubkey(blob : Bytes) -> SshPublicKey raise SshError {
   let algo = reader.read_string_ascii()
   let curve_label = reader.read_string_ascii()
   let q = reader.read_string()
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after ECDSA pubkey")
   }
   if algo == ecdsa_p256_algo {
@@ -194,7 +194,7 @@ pub fn parse_rsa_pubkey(blob : Bytes) -> @rsa.RsaPublicKey raise SshError {
   }
   let e_bytes = reader.read_string()
   let n_bytes = reader.read_string()
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after ssh-rsa pubkey")
   }
   let e_mag = mpint_magnitude(e_bytes)

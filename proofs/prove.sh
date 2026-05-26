@@ -8,16 +8,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export OPAMROOT="$REPO_ROOT/.opam"
-SWITCH=moonbit-crypto
 CONF="$REPO_ROOT/proofs/why3.conf"
 
 if [ ! -f "$CONF" ]; then
   echo "[proofs/prove.sh] $CONF missing; run: bash proofs/setup.sh" >&2
   exit 1
 fi
-
-eval "$(opam env --switch="$SWITCH" --set-switch 2>/dev/null || true)"
 
 # When invoked inside `nix develop`, MOON_HOME points at the nix-bundled
 # moonbit-core which doesn't carry moonbitlang/x. Fall back to the user's

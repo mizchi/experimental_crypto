@@ -12,7 +12,7 @@ pub(all) enum HashAlg {
   Sha256
   Sha384
   Sha512
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror Pbkdf2Error {
@@ -20,17 +20,7 @@ pub suberror Pbkdf2Error {
   OutputTooLong
   InvalidLength
   UnsupportedHash(HashAlg)
-} derive(Show)
-
-///|
-fn output_size(hash : HashAlg) -> Int {
-  match hash {
-    Sha1 => 20
-    Sha256 => 32
-    Sha384 => 48
-    Sha512 => 64
-  }
-}
+} derive(Debug)
 
 ///|
 let sha256_h0 : FixedArray[UInt] = [
@@ -223,7 +213,7 @@ fn sha256_hash_bytes(data : Bytes, out : FixedArray[Byte]) -> Unit {
 // Precomputed HMAC-SHA256 context: the digest state after compressing
 // the ipad and opad blocks once. Each HMAC iteration clones one of these
 // states and adds only the message.
-struct HmacSha256Ctx {
+priv struct HmacSha256Ctx {
   inner_state : FixedArray[UInt] // state after compressing ipad (64 bytes)
   outer_state : FixedArray[UInt] // state after compressing opad (64 bytes)
 }

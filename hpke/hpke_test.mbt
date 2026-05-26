@@ -76,25 +76,25 @@ let test_export_testcontext : Bytes = b"\x5a\xcb\x09\x21\x11\x39\xc4\x3b\x30\x90
 ///|
 test "hpke: RFC 9180 A.1.1 — setup_base_s derives key/base_nonce/enc/exporter" {
   let (enc, ctx) = @hpke.setup_base_s(test_pk_r, test_info, sk_e=test_sk_e)
-  assert_eq(enc, test_enc)
-  assert_eq(ctx.key, test_key)
-  assert_eq(ctx.base_nonce, test_base_nonce)
-  assert_eq(ctx.exporter_secret, test_exporter_secret)
+  @debug.assert_eq(enc, test_enc)
+  @debug.assert_eq(ctx.key, test_key)
+  @debug.assert_eq(ctx.base_nonce, test_base_nonce)
+  @debug.assert_eq(ctx.exporter_secret, test_exporter_secret)
 }
 
 ///|
 test "hpke: RFC 9180 A.1.1 — setup_base_r recovers same context" {
   let ctx_r = @hpke.setup_base_r(test_enc, test_sk_r, test_info)
-  assert_eq(ctx_r.key, test_key)
-  assert_eq(ctx_r.base_nonce, test_base_nonce)
-  assert_eq(ctx_r.exporter_secret, test_exporter_secret)
+  @debug.assert_eq(ctx_r.key, test_key)
+  @debug.assert_eq(ctx_r.base_nonce, test_base_nonce)
+  @debug.assert_eq(ctx_r.exporter_secret, test_exporter_secret)
 }
 
 ///|
 test "hpke: RFC 9180 A.1.1 — Seal #0 matches published ciphertext" {
   let (_, ctx) = @hpke.setup_base_s(test_pk_r, test_info, sk_e=test_sk_e)
   let ct0 = ctx.seal(test_aad0, test_pt)
-  assert_eq(ct0, test_ct0)
+  @debug.assert_eq(ct0, test_ct0)
 }
 
 ///|
@@ -103,16 +103,16 @@ test "hpke: RFC 9180 A.1.1 — three consecutive Seals increment counter" {
   let ct0 = ctx.seal(test_aad0, test_pt)
   let ct1 = ctx.seal(test_aad1, test_pt)
   let ct2 = ctx.seal(test_aad2, test_pt)
-  assert_eq(ct0, test_ct0)
-  assert_eq(ct1, test_ct1)
-  assert_eq(ct2, test_ct2)
+  @debug.assert_eq(ct0, test_ct0)
+  @debug.assert_eq(ct1, test_ct1)
+  @debug.assert_eq(ct2, test_ct2)
 }
 
 ///|
 test "hpke: RFC 9180 A.1.1 — Open #0 on the receiver recovers plaintext" {
   let ctx_r = @hpke.setup_base_r(test_enc, test_sk_r, test_info)
   let pt = ctx_r.open(test_aad0, test_ct0)
-  assert_eq(pt, test_pt)
+  @debug.assert_eq(pt, test_pt)
 }
 
 ///|
@@ -121,30 +121,30 @@ test "hpke: RFC 9180 A.1.1 — three Opens on the receiver in order" {
   let p0 = ctx_r.open(test_aad0, test_ct0)
   let p1 = ctx_r.open(test_aad1, test_ct1)
   let p2 = ctx_r.open(test_aad2, test_ct2)
-  assert_eq(p0, test_pt)
-  assert_eq(p1, test_pt)
-  assert_eq(p2, test_pt)
+  @debug.assert_eq(p0, test_pt)
+  @debug.assert_eq(p1, test_pt)
+  @debug.assert_eq(p2, test_pt)
 }
 
 ///|
 test "hpke: RFC 9180 A.1.1 — Export with empty context, L=32" {
   let (_, ctx) = @hpke.setup_base_s(test_pk_r, test_info, sk_e=test_sk_e)
-  let exp = ctx.export(b"", 32)
-  assert_eq(exp, test_export_empty)
+  let exp = ctx.export_secret(b"", 32)
+  @debug.assert_eq(exp, test_export_empty)
 }
 
 ///|
 test "hpke: RFC 9180 A.1.1 — Export with context = 0x00, L=32" {
   let (_, ctx) = @hpke.setup_base_s(test_pk_r, test_info, sk_e=test_sk_e)
-  let exp = ctx.export(b"\x00", 32)
-  assert_eq(exp, test_export_00)
+  let exp = ctx.export_secret(b"\x00", 32)
+  @debug.assert_eq(exp, test_export_00)
 }
 
 ///|
 test "hpke: RFC 9180 A.1.1 — Export with context = 'TestContext', L=32" {
   let (_, ctx) = @hpke.setup_base_s(test_pk_r, test_info, sk_e=test_sk_e)
-  let exp = ctx.export(test_export_ctx_testcontext, 32)
-  assert_eq(exp, test_export_testcontext)
+  let exp = ctx.export_secret(test_export_ctx_testcontext, 32)
+  @debug.assert_eq(exp, test_export_testcontext)
 }
 
 // ─── Roundtrip + behavioural tests ────────────────────────────────────────
@@ -157,16 +157,16 @@ test "hpke: roundtrip Seal/Open with arbitrary message" {
   let pt : Bytes = b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f"
   let ct = ctx_s.seal(aad, pt)
   let pt2 = ctx_r.open(aad, ct)
-  assert_eq(pt2, pt)
+  @debug.assert_eq(pt2, pt)
 }
 
 ///|
 test "hpke: export gives the same output on both sides" {
   let (enc, ctx_s) = @hpke.setup_base_s(test_pk_r, test_info, sk_e=test_sk_e)
   let ctx_r = @hpke.setup_base_r(enc, test_sk_r, test_info)
-  let exp_s = ctx_s.export(b"app1", 32)
-  let exp_r = ctx_r.export(b"app1", 32)
-  assert_eq(exp_s, exp_r)
+  let exp_s = ctx_s.export_secret(b"app1", 32)
+  let exp_r = ctx_r.export_secret(b"app1", 32)
+  @debug.assert_eq(exp_s, exp_r)
   inspect(exp_s.length(), content="32")
 }
 

@@ -17,8 +17,8 @@ fn make_uint(limb_count : Int, limbs : Array[UInt64]) -> @crypto_bigint.Uint {
 test "zero and one constructors" {
   let z = @crypto_bigint.Uint::zero(4)
   let o = @crypto_bigint.Uint::one(4)
-  assert_eq(z.bit_len(), 0)
-  assert_eq(o.bit_len(), 1)
+  @debug.assert_eq(z.bit_len(), 0)
+  @debug.assert_eq(o.bit_len(), 1)
   assert_true(z != o)
   assert_true(@crypto_bigint.Uint::ct_eq(z, @crypto_bigint.Uint::zero(4)))
   assert_true(@crypto_bigint.Uint::ct_eq(o, @crypto_bigint.Uint::one(4)))
@@ -26,16 +26,16 @@ test "zero and one constructors" {
 
 ///|
 test "bit_len" {
-  assert_eq(@crypto_bigint.Uint::zero(4).bit_len(), 0)
-  assert_eq(@crypto_bigint.Uint::one(4).bit_len(), 1)
+  @debug.assert_eq(@crypto_bigint.Uint::zero(4).bit_len(), 0)
+  @debug.assert_eq(@crypto_bigint.Uint::one(4).bit_len(), 1)
   // 0x80 in the lowest limb → 8 bits.
   let v = make_uint(2, [0x80UL])
-  assert_eq(v.bit_len(), 8)
+  @debug.assert_eq(v.bit_len(), 8)
   // bit in second limb.
   let v2 = make_uint(2, [0UL, 1UL])
-  assert_eq(v2.bit_len(), 65)
+  @debug.assert_eq(v2.bit_len(), 65)
   let v3 = make_uint(2, [0UL, 0x8000_0000_0000_0000UL])
-  assert_eq(v3.bit_len(), 128)
+  @debug.assert_eq(v3.bit_len(), 128)
 }
 
 ///|
@@ -46,9 +46,9 @@ test "from_be_bytes / to_be_bytes round-trip" {
   ]
   let u = @crypto_bigint.Uint::from_be_bytes(bytes, 2)
   let out = u.to_be_bytes()
-  assert_eq(out.length(), 16)
+  @debug.assert_eq(out.length(), 16)
   for i in 0..<16 {
-    assert_eq(out[i], bytes[i])
+    @debug.assert_eq(out[i], bytes[i])
   }
 }
 
@@ -60,9 +60,9 @@ test "from_le_bytes / to_le_bytes round-trip" {
   ]
   let u = @crypto_bigint.Uint::from_le_bytes(bytes, 2)
   let out = u.to_le_bytes()
-  assert_eq(out.length(), 16)
+  @debug.assert_eq(out.length(), 16)
   for i in 0..<16 {
-    assert_eq(out[i], bytes[i])
+    @debug.assert_eq(out[i], bytes[i])
   }
 }
 
@@ -86,17 +86,17 @@ test "from_be_bytes shorter than limb capacity" {
   // 3 bytes => 0x010203, still fits in 1 limb.
   let bytes : Bytes = [0x01, 0x02, 0x03]
   let u = @crypto_bigint.Uint::from_be_bytes(bytes, 2)
-  assert_eq(u.bit_len(), 17)
+  @debug.assert_eq(u.bit_len(), 17)
   // to_be_bytes always pads to full limb width.
   let out = u.to_be_bytes()
-  assert_eq(out.length(), 16)
+  @debug.assert_eq(out.length(), 16)
   // The low 3 bytes should be 0x01,0x02,0x03 and the rest zero.
   for i in 0..<13 {
-    assert_eq(out[i], b'\x00')
+    @debug.assert_eq(out[i], b'\x00')
   }
-  assert_eq(out[13], b'\x01')
-  assert_eq(out[14], b'\x02')
-  assert_eq(out[15], b'\x03')
+  @debug.assert_eq(out[13], b'\x01')
+  @debug.assert_eq(out[14], b'\x02')
+  @debug.assert_eq(out[15], b'\x03')
 }
 
 ///|
@@ -228,7 +228,7 @@ test "Show prints hex" {
   let s = u.to_string()
   // Top limb (limb 1) is 0 -> printed unpadded as "0".
   // Bottom limb (limb 0) is 0xdeadbeef -> printed padded to 16 hex chars.
-  assert_eq(s, "0x000000000deadbeef")
+  @debug.assert_eq(s, "0x000000000deadbeef")
 }
 
 ///|
@@ -236,5 +236,5 @@ test "Show prints zero" {
   let z = @crypto_bigint.Uint::zero(2)
   let s = z.to_string()
   // Top limb 0 unpadded -> "0"; second limb padded to 16 zeros.
-  assert_eq(s, "0x00000000000000000")
+  @debug.assert_eq(s, "0x00000000000000000")
 }

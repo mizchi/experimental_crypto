@@ -4,11 +4,11 @@
 
 ///|
 test "getrandom: bytes() returns the requested length" {
-  assert_eq(@getrandom.bytes(0).length(), 0)
-  assert_eq(@getrandom.bytes(1).length(), 1)
-  assert_eq(@getrandom.bytes(16).length(), 16)
-  assert_eq(@getrandom.bytes(32).length(), 32)
-  assert_eq(@getrandom.bytes(1024).length(), 1024)
+  @debug.assert_eq(@getrandom.bytes(0).length(), 0)
+  @debug.assert_eq(@getrandom.bytes(1).length(), 1)
+  @debug.assert_eq(@getrandom.bytes(16).length(), 16)
+  @debug.assert_eq(@getrandom.bytes(32).length(), 32)
+  @debug.assert_eq(@getrandom.bytes(1024).length(), 1024)
 }
 
 ///|
@@ -25,14 +25,14 @@ test "getrandom: fill() writes into a FixedArray" {
       break
     }
   }
-  assert_eq(all_zero, false)
+  @debug.assert_eq(all_zero, false)
 }
 
 ///|
 test "getrandom: empty buffer is a no-op" {
   let empty = FixedArray::make(0, b'\x00')
   @getrandom.fill(empty)
-  assert_eq(empty.length(), 0)
+  @debug.assert_eq(empty.length(), 0)
 }
 
 ///|
@@ -54,7 +54,7 @@ test "getrandom: uint32 / uint64 return varying values" {
       break
     }
   }
-  assert_eq(seen_different_u32, true)
+  @debug.assert_eq(seen_different_u32, true)
 
   let mut seen_different_u64 = false
   let first_u64 = @getrandom.uint64()
@@ -64,13 +64,14 @@ test "getrandom: uint32 / uint64 return varying values" {
       break
     }
   }
-  assert_eq(seen_different_u64, true)
+  @debug.assert_eq(seen_different_u64, true)
 }
 
 ///|
 test "getrandom: rejects negative length" {
-  match (try? @getrandom.bytes(-1)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected error for negative length")
+  try @getrandom.bytes(-1) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected error for negative length")
   }
 }

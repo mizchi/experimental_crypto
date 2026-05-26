@@ -62,8 +62,7 @@ let blake3_chunk_len_bytes : Int = 1024
 ///|
 pub suberror Blake3Error {
   InvalidBlake3KeyLength
-  InvalidBlake3OutputLength
-} derive(Show)
+} derive(Debug)
 
 // ─── 2. Compression function ─────────────────────────────────────────────────
 
@@ -150,8 +149,8 @@ fn blake3_compress(
   }
   state.unsafe_set(12, counter.to_uint())
   state.unsafe_set(13, (counter >> 32).to_uint())
-  state.unsafe_set(14, block_len.to_uint())
-  state.unsafe_set(15, flags.to_uint())
+  state.unsafe_set(14, block_len.reinterpret_as_uint())
+  state.unsafe_set(15, flags.reinterpret_as_uint())
 
   // Working message; blake3_round_fn reads from it then blake3_permute is applied between rounds.
   let m = FixedArray::make(16, 0U)

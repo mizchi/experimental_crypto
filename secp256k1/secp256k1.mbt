@@ -23,8 +23,9 @@
 ///|
 fn k1_p() -> BigInt {
   // 2^256 - 2^32 - 977
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F",
+    radix=16,
   )
 }
 
@@ -36,8 +37,9 @@ fn k1_b() -> BigInt {
 ///|
 fn k1_n() -> BigInt {
   // Order of the base point.
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+    radix=16,
   )
 }
 
@@ -45,22 +47,25 @@ fn k1_n() -> BigInt {
 fn k1_half_n() -> BigInt {
   // n / 2 (floor). Used by BIP-62 low-s test: s is canonical iff s ≤ n/2.
   // Computed once and embedded so we don't recompute on every sign call.
-  BigInt::from_hex(
+  BigInt::from_string(
     "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0",
+    radix=16,
   )
 }
 
 ///|
 fn k1_gx() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
+    radix=16,
   )
 }
 
 ///|
 fn k1_gy() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
+    radix=16,
   )
 }
 
@@ -113,15 +118,6 @@ fn is_on_curve(p_pt : Point) -> Bool {
   let x3 = p_pt.x * p_pt.x % p * p_pt.x % p
   let rhs = mod_pos(x3 + k1_b(), p)
   lhs == rhs
-}
-
-///|
-fn point_neg(pt : Point) -> Point {
-  if pt.inf {
-    return pt
-  }
-  let p = k1_p()
-  { x: pt.x, y: mod_pos(p - pt.y, p), inf: false }
 }
 
 ///|
@@ -217,7 +213,7 @@ pub suberror Secp256k1Error {
   UnexpectedSpkiOid(String)
   InvalidPrivateKey(String)
   Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parse an uncompressed SEC1 point `04 || X(32) || Y(32)` (65 bytes total).
@@ -235,7 +231,7 @@ pub fn PublicKey::from_uncompressed(
   let x = BigInt::from_octets(x_bytes[:])
   let y = BigInt::from_octets(y_bytes[:])
   let point : Point = { x, y, inf: false }
-  if not(is_on_curve(point)) {
+  if !is_on_curve(point) {
     raise PointNotOnCurve
   }
   { point, }
@@ -345,7 +341,7 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise Secp256k1Error {
 pub(all) enum SignatureFormat {
   Raw
   Der
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 fn integer_to_bigint(bytes : Bytes) -> BigInt raise Secp256k1Error {
@@ -415,7 +411,7 @@ pub fn verify(
   signature : Bytes,
   format : SignatureFormat,
 ) -> Bool raise Secp256k1Error {
-  if not(is_on_curve(pubkey.point)) {
+  if !is_on_curve(pubkey.point) {
     return false
   }
   let (r, s) = parse_signature(signature, format)
@@ -495,11 +491,11 @@ fn sign_core(d : BigInt, message : Bytes, low_s : Bool) -> (BigInt, BigInt) {
   let max_iter = 16
   let mut found = false
   let mut nonce_state = rfc6979_init(d, e_bytes, 32, n)
-  while not(found) && k_ctr < max_iter {
+  while !found && k_ctr < max_iter {
     let (k, next_state) = rfc6979_next(nonce_state, 32, n)
     nonce_state = next_state
     let r_point = scalar_mult(k, generator())
-    if not(r_point.inf) {
+    if !r_point.inf {
       r = r_point.x % n
       if r.compare_int(0) > 0 {
         let k_inv = mod_inverse(k, n)
@@ -512,7 +508,7 @@ fn sign_core(d : BigInt, message : Bytes, low_s : Bool) -> (BigInt, BigInt) {
     }
     k_ctr = k_ctr + 1
   }
-  if not(found) {
+  if !found {
     abort("ECDSA secp256k1 sign: nonce loop diverged (should be impossible)")
   }
   if low_s && s.compare(k1_half_n()) > 0 {

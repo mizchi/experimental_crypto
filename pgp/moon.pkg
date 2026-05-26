@@ -6,3 +6,7 @@ import {
   "mizchi/p384",
   "moonbitlang/core/encoding/base64",
 }
+
+import {
+  "moonbitlang/core/debug",
+} for "test"

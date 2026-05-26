@@ -59,7 +59,7 @@ pub suberror JwkError {
   CryptoError(String)
   // `serialise_private` asked for but the private slot was None.
   PrivateKeyMissing
-} derive(Show)
+} derive(Debug)
 
 // -----------------------------------------------------------------------------
 // base64url helpers (no padding, '-'/'_' substitutions per RFC 4648 §5)
@@ -218,7 +218,7 @@ fn make_ec_pub_p256(x : Bytes, y : Bytes) -> @p256.PublicKey raise JwkError {
   }
   let uncompressed = Bytes::makei(65, fn(j) { buf.unsafe_get(j) })
   @p256.PublicKey::from_uncompressed(uncompressed) catch {
-    e => raise CryptoError("P-256 public key: " + e.to_string())
+    e => raise CryptoError("P-256 public key: " + @debug.to_string(e))
   }
 }
 
@@ -240,7 +240,7 @@ fn make_ec_pub_p384(x : Bytes, y : Bytes) -> @p384.PublicKey raise JwkError {
   }
   let uncompressed = Bytes::makei(97, fn(j) { buf.unsafe_get(j) })
   @p384.PublicKey::from_uncompressed(uncompressed) catch {
-    e => raise CryptoError("P-384 public key: " + e.to_string())
+    e => raise CryptoError("P-384 public key: " + @debug.to_string(e))
   }
 }
 
@@ -265,7 +265,7 @@ fn make_ec_pub_secp256k1(
   }
   let uncompressed = Bytes::makei(65, fn(j) { buf.unsafe_get(j) })
   @secp256k1.PublicKey::from_uncompressed(uncompressed) catch {
-    e => raise CryptoError("secp256k1 public key: " + e.to_string())
+    e => raise CryptoError("secp256k1 public key: " + @debug.to_string(e))
   }
 }
 
@@ -350,7 +350,8 @@ fn parse_inner(
               Some(d_bytes) => {
                 let d_padded = pad_left(d_bytes, 32)
                 let p = @p256.PrivateKey::from_bytes(d_padded) catch {
-                  e => raise CryptoError("P-256 private: " + e.to_string())
+                  e =>
+                    raise CryptoError("P-256 private: " + @debug.to_string(e))
                 }
                 if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
                   raise CryptoError("P-256 public/private mismatch")
@@ -371,7 +372,8 @@ fn parse_inner(
               Some(d_bytes) => {
                 let d_padded = pad_left(d_bytes, 48)
                 let p = @p384.PrivateKey::from_bytes(d_padded) catch {
-                  e => raise CryptoError("P-384 private: " + e.to_string())
+                  e =>
+                    raise CryptoError("P-384 private: " + @debug.to_string(e))
                 }
                 if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
                   raise CryptoError("P-384 public/private mismatch")
@@ -392,7 +394,10 @@ fn parse_inner(
               Some(d_bytes) => {
                 let d_padded = pad_left(d_bytes, 32)
                 let p = @secp256k1.PrivateKey::from_bytes(d_padded) catch {
-                  e => raise CryptoError("secp256k1 private: " + e.to_string())
+                  e =>
+                    raise CryptoError(
+                      "secp256k1 private: " + @debug.to_string(e),
+                    )
                 }
                 if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
                   raise CryptoError("secp256k1 public/private mismatch")
@@ -418,7 +423,7 @@ fn parse_inner(
             raise InvalidFieldLength("Ed25519 x must be 32 bytes")
           }
           let pub_key = @ed25519.PublicKey::from_bytes(x_bytes) catch {
-            e => raise CryptoError("Ed25519 public: " + e.to_string())
+            e => raise CryptoError("Ed25519 public: " + @debug.to_string(e))
           }
           let priv_key : @ed25519.PrivateKey? = if allow_private {
             match opt_b64url(m, "d") {
@@ -427,7 +432,7 @@ fn parse_inner(
                   raise InvalidFieldLength("Ed25519 d (seed) must be 32 bytes")
                 }
                 let p = @ed25519.PrivateKey::from_seed(d_bytes) catch {
-                  e => raise CryptoError("Ed25519 seed: " + e.to_string())
+                  e => raise CryptoError("Ed25519 seed: " + @debug.to_string(e))
                 }
                 if p.public_key().to_bytes() != pub_key.to_bytes() {
                   raise CryptoError("Ed25519 public/private mismatch")
@@ -475,7 +480,7 @@ pub fn parse_private(json : String) -> Jwk raise JwkError {
 
 ///|
 fn jwk_to_public_map(jwk : Jwk) -> Map[String, Json] {
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   match jwk {
     Rsa(pubkey~, ..) => {
       let (n, e) = rsa_n_e_bytes(pubkey)

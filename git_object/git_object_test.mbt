@@ -99,9 +99,11 @@ test "git_object: tampering the signed content breaks verification" {
 test "git_object: unsigned commit raises NotSigned" {
   // Hand-craft a minimal unsigned commit body.
   let plain : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\n\nhi\n"
-  match (try? @git_object.parse_signed_commit(plain)) {
-    Err(NotSigned) => ()
-    other => abort("expected NotSigned, got \{other}")
+  try @git_object.parse_signed_commit(plain) catch {
+    NotSigned => ()
+    other => abort("expected NotSigned, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected NotSigned, got " + repr(other) + "")
   }
 }
 
@@ -143,8 +145,10 @@ fn contains(s : String, needle : String) -> Bool {
 test "ATTACK: commit object with two gpgsig headers must be rejected" {
   // Two gpgsig lines (one truncated) in a single commit.
   let bad : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\ngpgsig first\ngpgsig second\n\nhi\n"
-  match (try? @git_object.parse_signed_commit(bad)) {
-    Err(Malformed(_)) => ()
-    other => abort("multi-gpgsig NOT rejected: \{other}")
+  try @git_object.parse_signed_commit(bad) catch {
+    Malformed(_) => ()
+    other => abort("multi-gpgsig NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("multi-gpgsig NOT rejected: " + repr(other) + "")
   }
 }

@@ -49,24 +49,27 @@ test "pbes2: decrypt openssl RSA fixture with correct password recovers RSA Priv
   let key = @pkcs8.decrypt_pem(enc_rsa_pem, b"testpassword")
   // RSA PKCS#1 PrivateKey is wrapped in PKCS#8 with version 0 (v1 has no
   // public key field) and the rsaEncryption OID.
-  assert_eq(key.version, 0)
+  @debug.assert_eq(key.version, 0)
   let rsa_oid = @asn1.ObjectIdentifier::from_string(rsa_oid_str)
-  assert_eq(key.algorithm.algorithm, rsa_oid)
+  @debug.assert_eq(key.algorithm.algorithm, rsa_oid)
   // The inner privateKey bytes are an RSAPrivateKey SEQUENCE starting
   // with 0x30 (SEQUENCE) and decoding cleanly.
   assert_true(key.private_key.length() > 100)
   let inner = @asn1.decode_der(key.private_key)
   match inner.value {
     Sequence(items) => assert_true(items.length() >= 9) // RFC 8017 §A.1.2
-    _ => assert_eq(true, false, msg="expected inner RSAPrivateKey SEQUENCE")
+    _ =>
+      @debug.assert_eq(true, false, msg="expected inner RSAPrivateKey SEQUENCE")
   }
 }
 
 ///|
 test "pbes2: wrong password fails (InvalidPadding or downstream parse error)" {
-  match (try? @pkcs8.decrypt_pem(enc_rsa_pem, b"wrong-password")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="wrong password must not produce a key")
+  try @pkcs8.decrypt_pem(enc_rsa_pem, b"wrong-password") catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(true, false, msg="wrong password must not produce a key")
   }
 }
 
@@ -89,9 +92,11 @@ test "pbes2: tampered ciphertext fails" {
     ..original,
     encrypted_data: tampered_bytes,
   }
-  match (try? @pkcs8.decrypt(tampered, b"testpassword")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="tampered ciphertext must not decrypt")
+  try @pkcs8.decrypt(tampered, b"testpassword") catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(true, false, msg="tampered ciphertext must not decrypt")
   }
 }
 
@@ -99,7 +104,7 @@ test "pbes2: tampered ciphertext fails" {
 test "pbes2: parse_encrypted_pem still works without decryption (regression)" {
   let enc = @pkcs8.parse_encrypted_pem(enc_rsa_pem)
   let pbes2_oid = @asn1.ObjectIdentifier::from_string("1.2.840.113549.1.5.13")
-  assert_eq(enc.algorithm.algorithm, pbes2_oid)
+  @debug.assert_eq(enc.algorithm.algorithm, pbes2_oid)
   assert_true(enc.encrypted_data.length() > 0)
   assert_true(enc.encrypted_data.length() % 16 == 0)
 }

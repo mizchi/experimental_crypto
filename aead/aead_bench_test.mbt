@@ -33,7 +33,7 @@ test "bench aead ChaCha20-Poly1305 seal 16 KiB" (it : @bench.T) {
 ///|
 test "bench aead ChaCha20-Poly1305 open 1 KiB" (it : @bench.T) {
   let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
-  let sealed = @aead.seal(
+  let sealed_bytes = @aead.seal(
     ChaCha20Poly1305,
     bench_key,
     bench_nonce,
@@ -44,7 +44,7 @@ test "bench aead ChaCha20-Poly1305 open 1 KiB" (it : @bench.T) {
   }
   it.bench(name="open 1KiB", count=200, () => {
     it.keep(
-      @aead.open(ChaCha20Poly1305, bench_key, bench_nonce, b"", sealed) catch {
+      @aead.open(ChaCha20Poly1305, bench_key, bench_nonce, b"", sealed_bytes) catch {
         _ => abort("unreachable")
       },
     )
@@ -87,7 +87,7 @@ test "bench aead AES-128-GCM seal 16 KiB" (it : @bench.T) {
 ///|
 test "bench aead AES-128-GCM open 1 KiB" (it : @bench.T) {
   let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
-  let sealed = @aead.seal(
+  let sealed_bytes = @aead.seal(
     Aes128Gcm,
     bench_aes128_key,
     bench_gcm_nonce,
@@ -98,7 +98,13 @@ test "bench aead AES-128-GCM open 1 KiB" (it : @bench.T) {
   }
   it.bench(name="AES-128-GCM open 1KiB", count=200, () => {
     it.keep(
-      @aead.open(Aes128Gcm, bench_aes128_key, bench_gcm_nonce, b"", sealed) catch {
+      @aead.open(
+        Aes128Gcm,
+        bench_aes128_key,
+        bench_gcm_nonce,
+        b"",
+        sealed_bytes,
+      ) catch {
         _ => abort("unreachable")
       },
     )
@@ -132,7 +138,7 @@ test "bench aead AES-256-GCM seal 16 KiB" (it : @bench.T) {
 ///|
 test "bench aead AES-256-GCM open 1 KiB" (it : @bench.T) {
   let plaintext = Bytes::makei(1024, fn(i) { (i % 251).to_byte() })
-  let sealed = @aead.seal(
+  let sealed_bytes = @aead.seal(
     Aes256Gcm,
     bench_aes256_key,
     bench_gcm_nonce,
@@ -143,7 +149,13 @@ test "bench aead AES-256-GCM open 1 KiB" (it : @bench.T) {
   }
   it.bench(name="AES-256-GCM open 1KiB", count=200, () => {
     it.keep(
-      @aead.open(Aes256Gcm, bench_aes256_key, bench_gcm_nonce, b"", sealed) catch {
+      @aead.open(
+        Aes256Gcm,
+        bench_aes256_key,
+        bench_gcm_nonce,
+        b"",
+        sealed_bytes,
+      ) catch {
         _ => abort("unreachable")
       },
     )

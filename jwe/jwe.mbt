@@ -44,13 +44,13 @@ pub(all) enum JweAlg {
   Dir
   Rsa_oaep_256
   A256kw
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) enum JweEnc {
   A128gcm
   A256gcm
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 /// Encryption key. The variant selects the key-management ("alg") path.
@@ -98,7 +98,7 @@ pub impl Show for JweError with fn output(self, logger) {
     AuthenticationFailed => logger.write_string("AuthenticationFailed")
     InvalidKeySize(s) => logger.write_string("InvalidKeySize(" + s + ")")
     InvalidIvSize(s) => logger.write_string("InvalidIvSize(" + s + ")")
-    Aead(e) => logger.write_string("Aead(" + e.to_string() + ")")
+    Aead(e) => logger.write_string("Aead(" + @debug.to_string(e) + ")")
     RsaOaepError(s) => logger.write_string("RsaOaepError(" + s + ")")
   }
 }
@@ -180,7 +180,7 @@ fn base64url_decode(s : String) -> Bytes raise JweError {
       (c >= '0' && c <= '9') ||
       c == '-' ||
       c == '_'
-    if not(is_valid) {
+    if !is_valid {
       raise InvalidToken("invalid base64url character")
     }
     let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
@@ -200,7 +200,7 @@ fn base64url_decode(s : String) -> Bytes raise JweError {
 
 ///|
 fn build_header(alg : JweAlg, enc : JweEnc, extra : Map[String, Json]?) -> Json {
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   // RFC 7516 §4.1.1 / §4.1.2: alg + enc are the only two required.
   m["alg"] = Json::string(alg_to_str(alg))
   m["enc"] = Json::string(enc_to_str(enc))

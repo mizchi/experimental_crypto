@@ -4,14 +4,14 @@
 //   byte[6]  MAGIC_PREAMBLE  = "SSHSIG"
 //   uint32   SIG_VERSION     = 1
 //   string   publickey         (wire-format pubkey, with algorithm prefix)
-//   string   namespace         ("git" for git commits/tags)
+//   string   sig_namespace         ("git" for git commits/tags)
 //   string   reserved          (empty)
 //   string   hash_algorithm    ("sha256", "sha384", or "sha512" here)
 //   string   signature         (wire-format signature, with algorithm prefix)
 //
 // The signature value is computed over `signed_data`:
 //   byte[6]  MAGIC_PREAMBLE   "SSHSIG"
-//   string   namespace
+//   string   sig_namespace
 //   string   reserved
 //   string   hash_algorithm
 //   string   H(message)        (sha256 or sha512 of the original payload)
@@ -30,7 +30,7 @@ pub let sshsig_version : UInt = 1U
 ///|
 pub(all) struct SshSignature {
   publickey : SshPublicKey
-  namespace : String
+  sig_namespace : String
   hash_algorithm : String // "sha256" or "sha512"
   // Inner signature blob (still in SSH wire format: algorithm + sig bytes).
   signature_blob : Bytes
@@ -56,34 +56,34 @@ pub fn decode_sshsig_blob(blob : Bytes) -> SshSignature raise SshError {
     raise UnsupportedSigVersion(version)
   }
   let pubkey_blob = reader.read_string()
-  let namespace = read_string_utf8(reader)
+  let sig_namespace = read_string_utf8(reader)
   let reserved = reader.read_string()
   if reserved.length() != 0 {
     raise InvalidEncoding("SSHSIG reserved field must be empty")
   }
   let hash_alg = read_string_utf8(reader)
   let signature_blob = reader.read_string()
-  if not(reader.is_empty()) {
+  if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after sshsig signature field")
   }
-  validate_namespace(namespace)
+  validate_namespace(sig_namespace)
   let publickey = decode_pubkey(pubkey_blob)
-  { publickey, namespace, hash_algorithm: hash_alg, signature_blob }
+  { publickey, sig_namespace, hash_algorithm: hash_alg, signature_blob }
 }
 
 ///|
 // Compute the bytes-to-be-signed: the `signed_data` blob from PROTOCOL.sshsig.
 // Hashes `message` with the chosen algorithm before wrapping.
 pub fn compute_signed_data(
-  namespace : String,
+  sig_namespace : String,
   hash_algorithm : String,
   message : Bytes,
 ) -> Bytes raise SshError {
-  validate_namespace(namespace)
+  validate_namespace(sig_namespace)
   let h = hash_message(hash_algorithm, message)
   let w = WireWriter::new()
   w.write_bytes_raw(sshsig_magic)
-  w.write_string_ascii(namespace)
+  w.write_string_ascii(sig_namespace)
   w.write_string(b"") // reserved
   w.write_string_ascii(hash_algorithm)
   w.write_string(h)
@@ -103,12 +103,12 @@ fn hash_message(alg : String, message : Bytes) -> Bytes raise SshError {
 ///|
 fn validate_namespace(ns : String) -> Unit raise SshError {
   if ns == "" {
-    raise InvalidEncoding("SSHSIG namespace must not be empty")
+    raise InvalidEncoding("SSHSIG sig_namespace must not be empty")
   }
   for c in ns {
     let v = c.to_int()
     if v < 0 || v > 0x7f {
-      raise InvalidEncoding("SSHSIG namespace must be ASCII")
+      raise InvalidEncoding("SSHSIG sig_namespace must be ASCII")
     }
   }
 }
@@ -132,7 +132,7 @@ fn decode_pubkey(blob : Bytes) -> SshPublicKey raise SshError {
 
 ///|
 fn read_string_utf8(reader : WireReader) -> String raise SshError {
-  // For namespace / hash_algorithm we expect ASCII; the SSH spec calls them
+  // For sig_namespace / hash_algorithm we expect ASCII; the SSH spec calls them
   // UTF-8 but in practice these fields are ASCII-only ("git", "sha256",
   // "sha512", "file"). Reuse the ASCII reader.
   let bytes = reader.read_string()
@@ -183,7 +183,7 @@ pub fn decode_sshsig_armor(input : String) -> Bytes raise SshError {
     }
     b64.write_string(line)
   }
-  if not(found_end) {
+  if !found_end {
     raise InvalidEncoding("missing -----END SSH SIGNATURE-----")
   }
   @base64.decode(b64.to_string()) catch {

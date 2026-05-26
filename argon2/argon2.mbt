@@ -19,7 +19,7 @@ pub(all) enum Variant {
   Argon2d
   Argon2i
   Argon2id
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) struct Params {
@@ -28,7 +28,7 @@ pub(all) struct Params {
   t_cost : Int // time cost (number of passes). >= 1
   parallelism : Int // 1 .. 2^24 - 1
   output_len : Int // 4 .. 2^32 - 1
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 // ─── 2. Recommended params ───────────────────────────────────────────────────
 
@@ -65,10 +65,9 @@ pub fn Params::default_id() -> Params {
 ///|
 pub suberror Argon2Error {
   InvalidParams(String)
-  InvalidOutputLength
   InvalidEncoded(String)
   VerifyFailed
-} derive(Show)
+} derive(Debug)
 
 // ─── 3. Public entry points ──────────────────────────────────────────────────
 
@@ -140,7 +139,7 @@ pub fn verify_encoded(
 ) -> Unit raise Argon2Error {
   let parsed = parse_phc(encoded)
   let expected = hash_raw(parsed.params, password, parsed.salt)
-  if not(ct_eq_bytes(expected, parsed.hash)) {
+  if !ct_eq_bytes(expected, parsed.hash) {
     raise VerifyFailed
   }
 }
@@ -212,12 +211,12 @@ fn parse_phc(encoded : String) -> ParsedPhc raise Argon2Error {
   for kv in parts[3].split(",") {
     match kv.split_once("=") {
       Some((k, v)) => {
-        if not(is_canonical_decimal(v.to_string())) {
+        if !is_canonical_decimal(v.to_owned()) {
           raise InvalidEncoded(
             "non-canonical parameter value (expected unsigned decimal)",
           )
         }
-        let num = @strconv.parse_int(v) catch {
+        let num = @string.parse_int(v) catch {
           _ => raise InvalidEncoded("non-integer parameter value")
         }
         if k == "m" {

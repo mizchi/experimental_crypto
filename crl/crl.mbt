@@ -28,7 +28,7 @@ pub(all) struct CrlEntry {
   /// `revocationDate` — UTCTime or GeneralizedTime, normalized to the
   /// original wire encoding (YYMMDDHHMMSSZ or YYYYMMDDHHMMSSZ).
   revocation_date : String
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parsed CertificateList (RFC 5280 §5.1).
@@ -37,7 +37,7 @@ pub(all) struct Crl {
   this_update : String
   next_update : String?
   revoked : Array[CrlEntry]
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub suberror CrlError {
@@ -54,7 +54,7 @@ pub suberror CrlError {
   Asn1(@asn1.Asn1Error)
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
-} derive(Show)
+} derive(Debug)
 
 // ─── small helpers ──────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ fn match_context_explicit(
   if elem.tag.class_ != ContextSpecific || elem.tag.number != number {
     return None
   }
-  if not(elem.tag.constructed) {
+  if !elem.tag.constructed {
     raise Malformed("context [" + number.to_string() + "] not constructed")
   }
   match elem.value {
@@ -337,7 +337,7 @@ pub fn verify(
 ) -> Crl raise CrlError {
   let p = parse_certificate_list(crl_der)
   // DN linkage.
-  if not(names_match(p.tbs.issuer, issuer_cert.tbs.subject)) {
+  if !names_match(p.tbs.issuer, issuer_cert.tbs.subject) {
     raise IssuerMismatch
   }
   // Signature.
@@ -363,7 +363,7 @@ pub fn verify(
   match p.tbs.next_update {
     Some(nu) => {
       let next_n = normalize_time(nu)
-      if not(now_n < next_n) {
+      if !(now_n < next_n) {
         raise StaleCrl("now >= nextUpdate")
       }
     }

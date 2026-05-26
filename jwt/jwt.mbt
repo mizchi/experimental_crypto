@@ -37,7 +37,7 @@ pub(all) enum Algorithm {
   PS384
   PS512
   EdDSA
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) enum Key {
@@ -87,7 +87,7 @@ pub suberror JwtError {
   InvalidAudience
   InvalidIssuer
   ClaimsParseError(String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct VerifiedJwt {
@@ -95,7 +95,7 @@ pub(all) struct VerifiedJwt {
   claims : Map[String, Json]
   alg : Algorithm
   kid : String?
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct VerifyOptions {
@@ -104,7 +104,7 @@ pub(all) struct VerifyOptions {
   require_exp : Bool
   issuer : String?
   audience : String?
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub fn VerifyOptions::default(now : Int64) -> VerifyOptions {
@@ -141,7 +141,7 @@ fn base64url_decode(s : String) -> Bytes raise JwtError {
       (c >= '0' && c <= '9') ||
       c == '-' ||
       c == '_'
-    if not(is_valid) {
+    if !is_valid {
       raise InvalidToken("invalid base64url character")
     }
     let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
@@ -233,7 +233,7 @@ fn build_header_json(alg : Algorithm, kid : String?) -> Json {
   // Header order is irrelevant for verification (the signing input is the
   // exact base64url-encoded bytes we produce here), so we just emit the
   // fields we care about.
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["alg"] = Json::string(alg_to_str(alg))
   m["typ"] = Json::string("JWT")
   match kid {
@@ -271,22 +271,34 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
     EdDsa(privkey~) => privkey.sign(signing_bytes)
     Rs256(privkey~) =>
       privkey.sign(signing_bytes, @rsa.HashAlg::Sha256) catch {
-        e => raise UnsupportedAlgorithm("RS256 sign failed: " + e.to_string())
+        e =>
+          raise UnsupportedAlgorithm(
+            "RS256 sign failed: " + @debug.to_string(e),
+          )
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
     Es384(privkey~) => privkey.sign(signing_bytes)
     // PSS with sLen = 0 (deterministic) — see module comment.
     Ps256(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, b"") catch {
-        e => raise UnsupportedAlgorithm("PS256 sign failed: " + e.to_string())
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS256 sign failed: " + @debug.to_string(e),
+          )
       }
     Ps384(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha384, b"") catch {
-        e => raise UnsupportedAlgorithm("PS384 sign failed: " + e.to_string())
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS384 sign failed: " + @debug.to_string(e),
+          )
       }
     Ps512(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha512, b"") catch {
-        e => raise UnsupportedAlgorithm("PS512 sign failed: " + e.to_string())
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS512 sign failed: " + @debug.to_string(e),
+          )
       }
   }
   signing_input + "." + base64url_encode(signature)
@@ -464,7 +476,7 @@ pub fn verify(
       // we hit a key shape we never wired up. Both are spec-side gaps.
       raise UnsupportedAlgorithm(alg_to_str(alg))
   }
-  if not(ok) {
+  if !ok {
     raise InvalidSignature
   }
 
@@ -479,10 +491,10 @@ pub fn verify(
   let claims : Map[String, Json] = try {
     match @json.parse(payload_str[:]) {
       Object(m) => m
-      _ => Map::new()
+      _ => Map([])
     }
   } catch {
-    _ => Map::new()
+    _ => Map([])
   }
 
   // ---- exp / nbf / iss / aud ----
@@ -509,10 +521,7 @@ pub fn verify(
   match opts.audience {
     Some(expected) =>
       match claims.get("aud") {
-        Some(v) =>
-          if not(audience_matches(v, expected)) {
-            raise InvalidAudience
-          }
+        Some(v) => if !audience_matches(v, expected) { raise InvalidAudience }
         None => raise InvalidAudience
       }
     None => ()

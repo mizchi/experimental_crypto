@@ -57,7 +57,7 @@ pub suberror PkixVerifyError {
   P256(@p256.P256Error)
   P384(@p384.P384Error)
   Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 // ─── OIDs ────────────────────────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ fn check_critical_extensions(
   cert : @pkix.Certificate,
 ) -> Unit raise PkixVerifyError {
   for ext in cert.tbs.extensions {
-    if ext.critical && not(is_recognised_critical_extension(ext.oid)) {
+    if ext.critical && !is_recognised_critical_extension(ext.oid) {
       raise UnknownCriticalExtension(ext.oid)
     }
   }
@@ -242,7 +242,7 @@ fn extract_dns_names_from_san_value(
     // dNSName is [2] IMPLICIT IA5String — context-specific tag 2, primitive.
     if item.tag.class_ == @asn1.TagClass::ContextSpecific &&
       item.tag.number == 2U &&
-      not(item.tag.constructed) {
+      !item.tag.constructed {
       match item.value {
         Unknown(raw) => dns.push(bytes_to_ascii(raw))
         _ => ()
@@ -327,7 +327,7 @@ fn parse_dns_name_constraints(
     // contents directly (since the implicit tag replaced SEQUENCE's tag).
     // Re-wrap with a SEQUENCE header and decode.
     let inner_dec = @asn1.Decoder::new(subtrees_bytes)
-    while not(inner_dec.is_empty()) {
+    while !inner_dec.is_empty() {
       let gst = inner_dec.read_element() catch { e => raise Asn1(e) }
       let gst_items = match gst.value {
         Sequence(xs) => xs
@@ -339,7 +339,7 @@ fn parse_dns_name_constraints(
       let base = gst_items[0]
       if base.tag.class_ == @asn1.TagClass::ContextSpecific &&
         base.tag.number == 2U &&
-        not(base.tag.constructed) {
+        !base.tag.constructed {
         match base.value {
           Unknown(raw) => target_array.push(bytes_to_ascii(raw))
           _ => ()
@@ -498,7 +498,7 @@ fn enforce_name_constraints(
 ) -> Unit raise PkixVerifyError {
   let dns_names = extract_dns_san(child)
   for dns in dns_names {
-    if not(dns_within_constraints(dns, parent_constraints)) {
+    if !dns_within_constraints(dns, parent_constraints) {
       raise NameConstraintViolation(dns)
     }
   }
@@ -642,7 +642,7 @@ pub fn verify_signature(
           raise SignatureMismatch
         }
         let ok = pk.verify(message, sig_bytes)
-        if not(ok) {
+        if !ok {
           raise SignatureMismatch
         }
       }
@@ -654,7 +654,7 @@ pub fn verify_signature(
         let ok = pk.verify(message, sig_bytes, @rsa.HashAlg::Sha256) catch {
           e => raise Rsa(e)
         }
-        if not(ok) {
+        if !ok {
           raise SignatureMismatch
         }
       }
@@ -673,7 +673,7 @@ pub fn verify_signature(
         ) catch {
           e => raise P256(e)
         }
-        if not(ok) {
+        if !ok {
           raise SignatureMismatch
         }
       }
@@ -690,7 +690,7 @@ pub fn verify_signature(
         ) catch {
           e => raise P384(e)
         }
-        if not(ok) {
+        if !ok {
           raise SignatureMismatch
         }
       }
@@ -938,7 +938,7 @@ pub fn verify_chain_with_options(
   for i = n - 1; i >= 0; i = i - 1 {
     let inter = intermediates[i]
     let (is_ca, _) = find_basic_constraints(inter)
-    if not(is_ca) {
+    if !is_ca {
       raise NotACA
     }
     let (_, this_path_len) = find_basic_constraints(inter)
@@ -947,7 +947,7 @@ pub fn verify_chain_with_options(
       None => ()
     }
     // Issuer keyUsage must allow cert signing (RFC 5280 §6.1.4(n)).
-    if not(issuer_allows_cert_sign(inter)) {
+    if !issuer_allows_cert_sign(inter) {
       raise KeyUsageMissingCertSign
     }
     // Active nameConstraints from any ancestor must hold for THIS cert's
@@ -961,7 +961,7 @@ pub fn verify_chain_with_options(
     verify_certificate(inter, current_pubkey, now)
     if i < n - 1 {
       let parent = intermediates[i + 1]
-      if not(names_match(inter.tbs.issuer, parent.tbs.subject)) {
+      if !names_match(inter.tbs.issuer, parent.tbs.subject) {
         raise IssuerSubjectMismatch
       }
     }
@@ -988,7 +988,7 @@ pub fn verify_chain_with_options(
   verify_certificate(leaf, current_pubkey, now)
   if n > 0 {
     let direct_parent = intermediates[0]
-    if not(names_match(leaf.tbs.issuer, direct_parent.tbs.subject)) {
+    if !names_match(leaf.tbs.issuer, direct_parent.tbs.subject) {
       raise IssuerSubjectMismatch
     }
   }

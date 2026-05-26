@@ -44,7 +44,7 @@ test "fuzz ed25519: sign / verify round-trip" {
     let pk = sk.public_key()
     let sig = sk.sign(message)
     // Every honest signature must verify.
-    assert_eq(pk.verify(message, sig), true)
+    @debug.assert_eq(pk.verify(message, sig), true)
   }
 }
 
@@ -69,7 +69,7 @@ test "fuzz ed25519: bit-flipped signature does not verify" {
     // Either verify rejects, or — if the bit landed in a no-op position —
     // the property still holds because EdDSA encodes (R, S) and any bit
     // change in either half breaks the equation.
-    assert_eq(pk.verify(message, tampered), false)
+    @debug.assert_eq(pk.verify(message, tampered), false)
   }
 }
 
@@ -90,7 +90,7 @@ test "fuzz ed25519: tampered message does not verify" {
         b'\xff'
       }
     })
-    assert_eq(pk.verify(tampered, sig), false)
+    @debug.assert_eq(pk.verify(tampered, sig), false)
   }
 }
 
@@ -108,15 +108,16 @@ test "fuzz ed25519: verify on arbitrary signature bytes does not panic" {
     // Boolean verify: must never panic. Wrong-length sig returns false.
     let v = pk.verify(message, sig)
     if sig.length() != 64 {
-      assert_eq(v, false)
+      @debug.assert_eq(v, false)
     }
     // Strict verify: wrong length must raise InvalidSignatureLength.
     if sig.length() != 64 {
-      match (try? pk.verify_strict(message, sig)) {
-        Err(@ed25519.InvalidSignatureLength(got)) =>
-          assert_eq(got, sig.length())
-        Err(_) => () // other shape-related errors are acceptable too
-        Ok(_) => abort("verify_strict accepted non-64-byte signature")
+      try pk.verify_strict(message, sig) catch {
+        @ed25519.InvalidSignatureLength(got) =>
+          @debug.assert_eq(got, sig.length())
+        _ => () // other shape-related errors are acceptable too
+      } noraise {
+        _ => abort("verify_strict accepted non-64-byte signature")
       }
     } else {
       // For 64-byte random sig, verify_strict may raise InvalidEncoding for
@@ -134,10 +135,11 @@ test "fuzz ed25519: from_seed rejects non-32-byte input" {
     if raw.length() == 32 {
       continue
     }
-    match (try? @ed25519.PrivateKey::from_seed(raw)) {
-      Err(@ed25519.InvalidSeedLength(got)) => assert_eq(got, raw.length())
-      Err(other) => abort("unexpected seed error: \{other}")
-      Ok(_) => abort("from_seed accepted non-32-byte input")
+    try @ed25519.PrivateKey::from_seed(raw) catch {
+      @ed25519.InvalidSeedLength(got) => @debug.assert_eq(got, raw.length())
+      _ => abort("unexpected seed error")
+    } noraise {
+      _ => abort("from_seed accepted non-32-byte input")
     }
   }
 }

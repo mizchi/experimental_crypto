@@ -13,37 +13,42 @@
 
 ///|
 fn p384_p() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFF",
+    radix=16,
   )
 }
 
 ///|
 fn p384_b() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "B3312FA7E23EE7E4988E056BE3F82D19181D9C6EFE8141120314088F5013875AC656398D8A2ED19D2A85C8EDD3EC2AEF",
+    radix=16,
   )
 }
 
 ///|
 fn p384_n() -> BigInt {
   // Order of the base point.
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973",
+    radix=16,
   )
 }
 
 ///|
 fn p384_gx() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A385502F25DBF55296C3A545E3872760AB7",
+    radix=16,
   )
 }
 
 ///|
 fn p384_gy() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "3617DE4A96262C6F5D9E98BF9292DC29F8F41DBD289A147CE9DA3113B5F0B8C00A60B1CE1D7E819D7A431D7C90EA0E5F",
+    radix=16,
   )
 }
 
@@ -198,7 +203,7 @@ pub suberror P384Error {
   UnexpectedSpkiOid(String)
   InvalidPrivateKey(String)
   Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parse an uncompressed SEC1 point `04 || X(48) || Y(48)` (97 bytes total).
@@ -214,7 +219,7 @@ pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise P384Error {
   let x = BigInt::from_octets(x_bytes[:])
   let y = BigInt::from_octets(y_bytes[:])
   let point : Point = { x, y, inf: false }
-  if not(is_on_curve(point)) {
+  if !is_on_curve(point) {
     raise PointNotOnCurve
   }
   { point, }
@@ -307,7 +312,7 @@ pub(all) enum SignatureFormat {
   Raw
   // X.509 / CMS / PKIX: ASN.1 DER SEQUENCE { INTEGER r, INTEGER s }.
   Der
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 fn integer_to_bigint(bytes : Bytes) -> BigInt raise P384Error {
@@ -371,7 +376,7 @@ pub fn verify(
   signature : Bytes,
   format : SignatureFormat,
 ) -> Bool raise P384Error {
-  if not(is_on_curve(pubkey.point)) {
+  if !is_on_curve(pubkey.point) {
     return false
   }
   let (r, s) = parse_signature(signature, format)
@@ -456,11 +461,11 @@ pub fn PrivateKey::sign(
   let max_iter = 16
   let mut found = false
   let mut nonce_state = rfc6979_init_384(self.d, e_bytes, 48, n)
-  while not(found) && k_ctr < max_iter {
+  while !found && k_ctr < max_iter {
     let (k, next_state) = rfc6979_next_384(nonce_state, 48, n)
     nonce_state = next_state
     let r_point = scalar_mult(k, generator())
-    if not(r_point.inf) {
+    if !r_point.inf {
       r = r_point.x % n
       if r.compare(BigInt::from_int(0)) > 0 {
         let k_inv = mod_inverse(k, n)
@@ -473,7 +478,7 @@ pub fn PrivateKey::sign(
     }
     k_ctr = k_ctr + 1
   }
-  if not(found) {
+  if !found {
     abort("ECDSA P-384 sign: nonce loop diverged")
   }
   encode_signature_p384(r, s, format)
@@ -703,7 +708,7 @@ fn ec_public_key_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
 ///|
 pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P384Error {
   let info = @pkcs8.parse_der(der) catch {
-    e => raise InvalidPrivateKey("pkcs8: " + e.to_string())
+    e => raise InvalidPrivateKey("pkcs8: " + @debug.to_string(e))
   }
   if info.algorithm.algorithm != ec_public_key_oid_for_pkcs8() {
     raise InvalidPrivateKey(

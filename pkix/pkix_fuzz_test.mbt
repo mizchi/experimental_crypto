@@ -33,16 +33,18 @@ test "fuzz pkix: generated CERTIFICATE PEM data matches direct DER parse" {
   for der in (@quickcheck.samples(n) : Array[Bytes]) {
     let pem = @pem.encode_simple("CERTIFICATE", der)
     let block = @pem.decode(pem)
-    assert_eq(block.label, "CERTIFICATE")
-    assert_eq(block.data, der)
-    let direct_ok = match (try? @pkix.parse_certificate(der)) {
-      Ok(_) => true
-      Err(_) => false
+    @debug.assert_eq(block.label, "CERTIFICATE")
+    @debug.assert_eq(block.data, der)
+    let direct_ok = try @pkix.parse_certificate(der) catch {
+      _ => false
+    } noraise {
+      _ => true
     }
-    let via_pem_ok = match (try? @pkix.parse_certificate(block.data)) {
-      Ok(_) => true
-      Err(_) => false
+    let via_pem_ok = try @pkix.parse_certificate(block.data) catch {
+      _ => false
+    } noraise {
+      _ => true
     }
-    assert_eq(via_pem_ok, direct_ok)
+    @debug.assert_eq(via_pem_ok, direct_ok)
   }
 }

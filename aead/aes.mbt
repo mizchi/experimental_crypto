@@ -336,14 +336,6 @@ fn aes_encrypt_block(
 }
 
 ///|
-/// Public test hook: encrypt one block under the given key. The key length
-/// must be 16 or 32 bytes; the block must be 16 bytes.
-fn aes_encrypt(key : Bytes, block : Bytes) -> Bytes raise AeadError {
-  let (rk, nr) = aes_key_schedule(key)
-  aes_encrypt_block(block, rk, nr)
-}
-
-///|
 /// AES single-block encrypt (one 16-byte block under the given key). This is
 /// the raw block cipher with no mode: it does NOT chain, pad, or authenticate.
 /// Exposed for higher-level constructions that need the block primitive

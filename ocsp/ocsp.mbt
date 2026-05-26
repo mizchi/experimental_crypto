@@ -36,7 +36,7 @@ pub(all) enum CertStatus {
   Revoked(revocation_time~ : String, reason~ : Int?)
   /// `unknown [2] IMPLICIT UnknownInfo` — responder does not know this cert.
   Unknown
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 ///|
 /// One entry inside `ResponseData.responses`.
@@ -55,7 +55,7 @@ pub(all) struct OcspSingleResponse {
   /// thisUpdate / nextUpdate are GeneralizedTime (YYYYMMDDHHMMSSZ).
   this_update : String
   next_update : String?
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parsed top-level OCSP response (after unwrapping BasicOCSPResponse).
@@ -66,7 +66,7 @@ pub(all) struct OcspResponse {
   /// responder certificate in its `certs [0] EXPLICIT` field. Direct-signed
   /// responses (signed by the issuer key itself) have None here.
   signer_cert : @pkix.Certificate?
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub suberror OcspError {
@@ -99,7 +99,7 @@ pub suberror OcspError {
   Asn1(@asn1.Asn1Error)
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
-} derive(Show)
+} derive(Debug)
 
 // ─── OIDs ────────────────────────────────────────────────────────────────
 
@@ -228,7 +228,7 @@ fn match_context_explicit(
   if elem.tag.class_ != ContextSpecific || elem.tag.number != number {
     return None
   }
-  if not(elem.tag.constructed) {
+  if !elem.tag.constructed {
     raise Malformed("context [" + number.to_string() + "] not constructed")
   }
   match elem.value {
@@ -328,7 +328,7 @@ fn parse_cert_status(elem : @asn1.Element) -> CertStatus raise OcspError {
       // re-wrap with a SEQUENCE tag and decode.
       let dec = @asn1.Decoder::new(raw)
       let items : Array[@asn1.Element] = []
-      while not(dec.is_empty()) {
+      while !dec.is_empty() {
         items.push(dec.read_element() catch { e => raise Asn1(e) })
       }
       if items.length() < 1 {
@@ -422,7 +422,7 @@ fn parse_responder_id(elem : @asn1.Element) -> ResponderId raise OcspError {
   if elem.tag.class_ != ContextSpecific {
     raise Malformed("responderID: expected context tag")
   }
-  if not(elem.tag.constructed) {
+  if !elem.tag.constructed {
     raise Malformed("responderID: must be EXPLICIT (constructed)")
   }
   let raw = match elem.value {
@@ -653,15 +653,15 @@ fn find_matching_single(
 ) -> OcspSingleResponse raise OcspError {
   let cert_serial = cert.tbs.serial_number
   for sr in responses {
-    if not(bytes_equal(sr.cert_id_serial_number, cert_serial)) {
+    if !bytes_equal(sr.cert_id_serial_number, cert_serial) {
       continue
     }
     let computed_name = hash_issuer_name(sr.cert_id_hash_alg, issuer_cert)
-    if not(bytes_equal(computed_name, sr.cert_id_issuer_name_hash)) {
+    if !bytes_equal(computed_name, sr.cert_id_issuer_name_hash) {
       continue
     }
     let computed_key = hash_issuer_key(sr.cert_id_hash_alg, issuer_cert)
-    if not(bytes_equal(computed_key, sr.cert_id_issuer_key_hash)) {
+    if !bytes_equal(computed_key, sr.cert_id_issuer_key_hash) {
       continue
     }
     return sr
@@ -741,7 +741,7 @@ fn verify_basic_signature(
   let signer_pubkey = if basic.certs.length() > 0 {
     // Delegated responder.
     let resp_cert = basic.certs[0]
-    if not(cert_has_ocsp_signing_eku(resp_cert)) {
+    if !cert_has_ocsp_signing_eku(resp_cert) {
       raise ResponderMissingOcspSigningEku
     }
     // The responder cert itself must be signed by the issuer cert.
@@ -758,11 +758,9 @@ fn verify_basic_signature(
     }
   } else {
     // Direct: responderID must match the issuer cert.
-    if not(
-        responder_id_matches_issuer(
-          basic.response_data.responder_id,
-          issuer_cert,
-        ),
+    if !responder_id_matches_issuer(
+        basic.response_data.responder_id,
+        issuer_cert,
       ) {
       raise ResponderIdMismatch
     }
@@ -844,7 +842,7 @@ pub fn verify(
   match single.next_update {
     Some(nu) => {
       let next_n = normalize_time(nu)
-      if not(now_n < next_n) {
+      if !(now_n < next_n) {
         raise StaleResponse("nextUpdate <= now")
       }
     }

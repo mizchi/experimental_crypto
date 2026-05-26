@@ -5,18 +5,18 @@
 pub(all) struct AlgorithmIdentifier {
   algorithm : @asn1.ObjectIdentifier
   parameters : Bytes? // DER-encoded ANY DEFINED BY algorithm; None means absent
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) struct AttributeTypeAndValue {
   oid : @asn1.ObjectIdentifier
   value : @asn1.Element // ANY
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct Name {
   rdns : Array[Array[AttributeTypeAndValue]]
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct Validity {
@@ -24,20 +24,20 @@ pub(all) struct Validity {
   not_after : String
   not_before_tag : @asn1.Tag // remember which CHOICE branch we parsed
   not_after_tag : @asn1.Tag
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) struct SubjectPublicKeyInfo {
   algorithm : AlgorithmIdentifier
   subject_public_key : @asn1.BitString
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct Extension {
   oid : @asn1.ObjectIdentifier
   critical : Bool
   value : Bytes // DER-encoded extnValue OCTET STRING content
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct TbsCertificate {
@@ -51,23 +51,22 @@ pub(all) struct TbsCertificate {
   issuer_unique_id : @asn1.BitString? // v2+
   subject_unique_id : @asn1.BitString? // v2+
   extensions : Array[Extension] // v3 only
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct Certificate {
   tbs : TbsCertificate
   signature_algorithm : AlgorithmIdentifier
   signature : @asn1.BitString
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub suberror PkixError {
   Asn1(@asn1.Asn1Error)
   UnexpectedStructure(String)
   UnsupportedVersion(Int)
-  UnsupportedAlgorithm(@asn1.ObjectIdentifier)
   InvalidTime(String)
-} derive(Show)
+} derive(Debug)
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -234,7 +233,7 @@ fn match_context_explicit(
   if elem.tag.class_ != ContextSpecific || elem.tag.number != number {
     return None
   }
-  if not(elem.tag.constructed) {
+  if !elem.tag.constructed {
     raise UnexpectedStructure(
       "context [" + number.to_string() + "] not constructed",
     )
@@ -670,10 +669,10 @@ fn name_to_element(name : Name) -> @asn1.Element {
 ///|
 fn validity_to_element(v : Validity) -> @asn1.Element {
   validate_time_string(v.not_before, v.not_before_tag) catch {
-    e => abort("invalid notBefore: \{e}")
+    e => abort("invalid notBefore: " + repr(e))
   }
   validate_time_string(v.not_after, v.not_after_tag) catch {
-    e => abort("invalid notAfter: \{e}")
+    e => abort("invalid notAfter: " + repr(e))
   }
   let nb_value = if v.not_before_tag == @asn1.tag_utc_time {
     @asn1.Value::UtcTime(v.not_before)
@@ -739,7 +738,7 @@ fn wrap_context_implicit_bit_string(
   bs : @asn1.BitString,
 ) -> @asn1.Element {
   validate_bit_string_tail(bs.bytes, bs.unused_bits) catch {
-    e => abort("invalid context BIT STRING: \{e}")
+    e => abort("invalid context BIT STRING: " + repr(e))
   }
   let buf = Buffer()
   buf.write_byte(bs.unused_bits.to_byte())

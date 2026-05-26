@@ -77,9 +77,10 @@ test "fuzz argon2: invalid params rejected" {
           output_len: 2,
         } // output_len < 4
     }
-    match (try? @argon2.hash_raw(bad, pwds[i], salts[i])) {
-      Err(_) => ()
-      Ok(_) => fail("out-of-range argon2 params must reject")
+    try @argon2.hash_raw(bad, pwds[i], salts[i]) catch {
+      _ => ()
+    } noraise {
+      _ => fail("out-of-range argon2 params must reject")
     }
   }
 }
@@ -94,7 +95,7 @@ test "fuzz argon2: small params never panic" {
     let out = @argon2.hash_raw(params, pwds[i], pad_salt(salts[i])) catch {
       _ => abort("unreachable: small params should succeed")
     }
-    assert_eq(out.length(), params.output_len)
+    @debug.assert_eq(out.length(), params.output_len)
   }
 }
 
@@ -136,9 +137,10 @@ test "fuzz argon2: wrong password fails verify_encoded" {
         b'\xff'
       }
     })
-    match (try? @argon2.verify_encoded(encoded, wrong)) {
-      Err(_) => () // expected
-      Ok(_) => fail("verify_encoded must reject a wrong password")
+    try @argon2.verify_encoded(encoded, wrong) catch {
+      _ => () // expected
+    } noraise {
+      _ => fail("verify_encoded must reject a wrong password")
     }
   }
 }

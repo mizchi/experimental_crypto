@@ -37,7 +37,7 @@ pub(all) enum CborValue {
   Null
   Undefined
   Float(Double)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub suberror CborError {
@@ -51,7 +51,7 @@ pub suberror CborError {
   // Reserved-for-future / illegal additional-info value (28..30 in any
   // major type, or simple values 24 with payload < 32).
   InvalidEncoding(String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 const MAX_DEPTH : Int = 64
@@ -215,7 +215,7 @@ fn Decoder::read_bytes(self : Decoder, n : Int) -> Bytes raise CborError {
     out[i] = self.input[self.pos + i]
   }
   self.pos = self.pos + n
-  Bytes::from_fixedarray(out)
+  Bytes::from_array(out)
 }
 
 ///|
@@ -305,7 +305,7 @@ fn decode_value(dec : Decoder, depth : Int) -> CborValue raise CborError {
         // Single-precision float.
         26 => {
           let bits = arg.to_uint()
-          Float(bits.reinterpret_as_float().to_double())
+          Float(Float::reinterpret_from_uint(bits).to_double())
         }
         // Double-precision float.
         27 => Float(arg.reinterpret_as_double())
@@ -403,11 +403,14 @@ pub fn map_get_int(v : CborValue, key : Int64) -> CborValue? {
       for pair in pairs {
         let (k, val) = pair
         match k {
-          Uint(n) => if key >= 0L && n == key.to_uint64() { return Some(val) }
+          Uint(n) =>
+            if key >= 0L && n == key.reinterpret_as_uint64() {
+              return Some(val)
+            }
           Nint(n) =>
             // Nint(n) = -1 - n  ⇒  n = -1 - key  (valid only when key<0)
             if key < 0L {
-              let expected = (-1L - key).to_uint64()
+              let expected = (-1L - key).reinterpret_as_uint64()
               if n == expected {
                 return Some(val)
               }

@@ -122,7 +122,7 @@ test "jwe: dir + A256GCM roundtrip" {
   let parts = token.split(".").to_array()
   inspect(parts[1].to_string(), content="")
   let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecDir(cek~))
-  assert_eq(decoded, plaintext)
+  @debug.assert_eq(decoded, plaintext)
 }
 
 ///|
@@ -138,7 +138,7 @@ test "jwe: dir + A128GCM roundtrip" {
     iv~,
   )
   let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecDir(cek~))
-  assert_eq(decoded, plaintext)
+  @debug.assert_eq(decoded, plaintext)
 }
 
 // ─── Roundtrip: A256KW + A256GCM ──────────────────────────────────────────
@@ -163,7 +163,7 @@ test "jwe: A256KW + A256GCM roundtrip" {
   // it's non-empty.
   assert_true(parts[1].length() > 0)
   let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecAes256Kw(kek~))
-  assert_eq(decoded, plaintext)
+  @debug.assert_eq(decoded, plaintext)
 }
 
 // ─── Roundtrip: RSA-OAEP-256 + A256GCM ────────────────────────────────────
@@ -185,7 +185,7 @@ test "jwe: RSA-OAEP-256 + A256GCM roundtrip" {
     oaep_seed=fixed_oaep_seed(),
   )
   let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecRsa(privkey=sk))
-  assert_eq(decoded, plaintext)
+  @debug.assert_eq(decoded, plaintext)
 }
 
 // ─── Tamper resistance ────────────────────────────────────────────────────
@@ -357,8 +357,8 @@ test "jwe: produced header has alg + enc" {
   let parsed = @json.parse(header_str[:])
   match parsed {
     Object(m) => {
-      assert_eq(m.get("alg"), Some(Json::string("dir")))
-      assert_eq(m.get("enc"), Some(Json::string("A256GCM")))
+      @debug.assert_eq(m.get("alg"), Some(Json::string("dir")))
+      @debug.assert_eq(m.get("enc"), Some(Json::string("A256GCM")))
     }
     _ => assert_true(false)
   }

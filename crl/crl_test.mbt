@@ -228,12 +228,12 @@ test "crl: parse a CRL with two revoked entries" {
     issuer_seed_hex,
   )
   let crl = @crl.parse(der)
-  assert_eq(crl.this_update, "240101000000Z")
-  assert_eq(crl.next_update, Some("300101000000Z"))
-  assert_eq(crl.revoked.length(), 2)
-  assert_eq(crl.revoked[0].serial, b"\x10")
-  assert_eq(crl.revoked[0].revocation_date, "240501000000Z")
-  assert_eq(crl.revoked[1].serial, b"\x42")
+  @debug.assert_eq(crl.this_update, "240101000000Z")
+  @debug.assert_eq(crl.next_update, Some("300101000000Z"))
+  @debug.assert_eq(crl.revoked.length(), 2)
+  @debug.assert_eq(crl.revoked[0].serial, b"\x10")
+  @debug.assert_eq(crl.revoked[0].revocation_date, "240501000000Z")
+  @debug.assert_eq(crl.revoked[1].serial, b"\x42")
 }
 
 ///|
@@ -249,7 +249,7 @@ test "crl: verify signature with correct issuer" {
     issuer_seed_hex,
   )
   let crl = @crl.verify(der, issuer, "250601000000Z")
-  assert_eq(crl.revoked.length(), 1)
+  @debug.assert_eq(crl.revoked.length(), 1)
 }
 
 ///|
@@ -307,9 +307,11 @@ test "crl: wrong issuer rejected with BadSignature" {
     [{ serial: b"\x10", date: "240501000000Z" }],
     wrong_seed,
   )
-  match (try? @crl.verify(der, issuer, "250601000000Z")) {
-    Err(BadSignature) => ()
-    other => abort("expected BadSignature, got \{other}")
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    BadSignature => ()
+    other => abort("expected BadSignature, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected BadSignature, got " + repr(other) + "")
   }
 }
 
@@ -325,9 +327,11 @@ test "crl: stale CRL (now >= nextUpdate) rejected" {
     [{ serial: b"\x10", date: "240115000000Z" }],
     issuer_seed_hex,
   )
-  match (try? @crl.verify(der, issuer, "250601000000Z")) {
-    Err(StaleCrl(_)) => ()
-    other => abort("expected StaleCrl, got \{other}")
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    StaleCrl(_) => ()
+    other => abort("expected StaleCrl, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected StaleCrl, got " + repr(other) + "")
   }
 }
 
@@ -344,7 +348,7 @@ test "crl: CRL without nextUpdate parses and verifies" {
     issuer_seed_hex,
   )
   let crl = @crl.verify(der, issuer, "250601000000Z")
-  assert_eq(crl.next_update, None)
+  @debug.assert_eq(crl.next_update, None)
 }
 
 ///|
@@ -360,7 +364,7 @@ test "crl: empty revoked list" {
     issuer_seed_hex,
   )
   let crl = @crl.verify(der, issuer, "250601000000Z")
-  assert_eq(crl.revoked.length(), 0)
+  @debug.assert_eq(crl.revoked.length(), 0)
   assert_false(@crl.is_revoked(crl, b"\x10"))
 }
 
@@ -381,8 +385,10 @@ test "crl: IssuerMismatch when issuer_cert.subject != CRL.issuer" {
     issuer_seed_hex,
   )
   // verify() will reject before signature check because subjects don't match.
-  match (try? @crl.verify(der, issuer, "250601000000Z")) {
-    Err(IssuerMismatch) => ()
-    other => abort("expected IssuerMismatch, got \{other}")
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    IssuerMismatch => ()
+    other => abort("expected IssuerMismatch, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected IssuerMismatch, got " + repr(other) + "")
   }
 }

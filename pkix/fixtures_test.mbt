@@ -60,13 +60,13 @@ fn lets_encrypt_r10_der() -> Bytes raise {
 ///|
 test "pkix fixture: Let's Encrypt R10 v3 cert parses with expected version + algorithm" {
   let cert = @pkix.parse_certificate(lets_encrypt_r10_der())
-  assert_eq(cert.tbs.version, 2) // v3 -- the most common case for real certs
-  assert_eq(cert.signature_algorithm.algorithm, sha256_with_rsa_oid())
-  assert_eq(cert.tbs.signature.algorithm, sha256_with_rsa_oid())
+  @debug.assert_eq(cert.tbs.version, 2) // v3 -- the most common case for real certs
+  @debug.assert_eq(cert.signature_algorithm.algorithm, sha256_with_rsa_oid())
+  @debug.assert_eq(cert.tbs.signature.algorithm, sha256_with_rsa_oid())
   // Issuer signing alg must match the outer signatureAlgorithm per RFC 5280.
-  assert_eq(cert.tbs.signature, cert.signature_algorithm)
+  @debug.assert_eq(cert.tbs.signature, cert.signature_algorithm)
   // SPKI: RSA public key
-  assert_eq(
+  @debug.assert_eq(
     cert.tbs.subject_public_key_info.algorithm.algorithm,
     rsa_encryption_oid(),
   )
@@ -80,14 +80,14 @@ test "pkix fixture: Let's Encrypt R10 subject CN is 'R10'" {
   let rdns = cert.tbs.subject.rdns
   assert_true(rdns.length() >= 3)
   let last_rdn = rdns[rdns.length() - 1]
-  assert_eq(last_rdn.length(), 1)
+  @debug.assert_eq(last_rdn.length(), 1)
   let av = last_rdn[0]
-  assert_eq(av.oid, common_name_oid())
+  @debug.assert_eq(av.oid, common_name_oid())
   // The value is a PrintableString here.
   match av.value.value {
-    PrintableString(s) => assert_eq(s, "R10")
-    Utf8String(s) => assert_eq(s, "R10")
-    _ => assert_eq(true, false, msg="expected R10 CN")
+    PrintableString(s) => @debug.assert_eq(s, "R10")
+    Utf8String(s) => @debug.assert_eq(s, "R10")
+    _ => @debug.assert_eq(true, false, msg="expected R10 CN")
   }
 }
 
@@ -99,11 +99,11 @@ test "pkix fixture: Let's Encrypt R10 issuer is ISRG Root X1" {
   assert_true(rdns.length() >= 3)
   let last_rdn = rdns[rdns.length() - 1]
   let av = last_rdn[0]
-  assert_eq(av.oid, common_name_oid())
+  @debug.assert_eq(av.oid, common_name_oid())
   match av.value.value {
-    PrintableString(s) => assert_eq(s, "ISRG Root X1")
-    Utf8String(s) => assert_eq(s, "ISRG Root X1")
-    _ => assert_eq(true, false, msg="expected ISRG Root X1 CN")
+    PrintableString(s) => @debug.assert_eq(s, "ISRG Root X1")
+    Utf8String(s) => @debug.assert_eq(s, "ISRG Root X1")
+    _ => @debug.assert_eq(true, false, msg="expected ISRG Root X1 CN")
   }
 }
 
@@ -111,10 +111,10 @@ test "pkix fixture: Let's Encrypt R10 issuer is ISRG Root X1" {
 test "pkix fixture: Let's Encrypt R10 validity is UTCTime-encoded" {
   let cert = @pkix.parse_certificate(lets_encrypt_r10_der())
   // Cert issued 2024-03-13, expires 2027-03-12.
-  assert_eq(cert.tbs.validity.not_before_tag, @asn1.tag_utc_time)
-  assert_eq(cert.tbs.validity.not_after_tag, @asn1.tag_utc_time)
-  assert_eq(cert.tbs.validity.not_before, "240313000000Z")
-  assert_eq(cert.tbs.validity.not_after, "270312235959Z")
+  @debug.assert_eq(cert.tbs.validity.not_before_tag, @asn1.tag_utc_time)
+  @debug.assert_eq(cert.tbs.validity.not_after_tag, @asn1.tag_utc_time)
+  @debug.assert_eq(cert.tbs.validity.not_before, "240313000000Z")
+  @debug.assert_eq(cert.tbs.validity.not_after, "270312235959Z")
 }
 
 ///|
@@ -130,10 +130,10 @@ test "pkix fixture: Let's Encrypt R10 carries v3 extensions including basicConst
   for ext in cert.tbs.extensions {
     if ext.oid == basic_constraints_oid {
       found = true
-      assert_eq(ext.critical, true)
+      @debug.assert_eq(ext.critical, true)
     }
   }
-  assert_eq(found, true)
+  @debug.assert_eq(found, true)
 }
 
 ///|
@@ -141,5 +141,5 @@ test "pkix fixture: Let's Encrypt R10 DER roundtrip is byte-stable" {
   let der1 = lets_encrypt_r10_der()
   let cert = @pkix.parse_certificate(der1)
   let der2 = @pkix.serialize_certificate(cert)
-  assert_eq(der1, der2)
+  @debug.assert_eq(der1, der2)
 }

@@ -16,6 +16,8 @@ pub let pem_max_input_size : Int
 
 pub let pem_max_line_length : Int
 
+pub let pem_strict_line_max : Int
+
 // Errors
 pub suberror PemError {
   InvalidFormat(String)

@@ -52,9 +52,9 @@ test "RFC 8032 §7.1 TEST 1 (empty message)" {
   let expected_sig = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk = sk.public_key()
-  assert_eq(bytes_to_hex(pk.to_bytes()), expected_pk)
+  @debug.assert_eq(bytes_to_hex(pk.to_bytes()), expected_pk)
   let sig = sk.sign(b"")
-  assert_eq(bytes_to_hex(sig), expected_sig)
+  @debug.assert_eq(bytes_to_hex(sig), expected_sig)
   assert_true(pk.verify(b"", sig))
 }
 
@@ -67,10 +67,10 @@ test "RFC 8032 §7.1 TEST 2 (one-byte message)" {
   let expected_sig = "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk = sk.public_key()
-  assert_eq(bytes_to_hex(pk.to_bytes()), expected_pk)
+  @debug.assert_eq(bytes_to_hex(pk.to_bytes()), expected_pk)
   let msg = hex_to_bytes("72")
   let sig = sk.sign(msg)
-  assert_eq(bytes_to_hex(sig), expected_sig)
+  @debug.assert_eq(bytes_to_hex(sig), expected_sig)
   assert_true(pk.verify(msg, sig))
 }
 
@@ -83,10 +83,10 @@ test "RFC 8032 §7.1 TEST 3 (two-byte message)" {
   let expected_sig = "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk = sk.public_key()
-  assert_eq(bytes_to_hex(pk.to_bytes()), expected_pk)
+  @debug.assert_eq(bytes_to_hex(pk.to_bytes()), expected_pk)
   let msg = hex_to_bytes("af82")
   let sig = sk.sign(msg)
-  assert_eq(bytes_to_hex(sig), expected_sig)
+  @debug.assert_eq(bytes_to_hex(sig), expected_sig)
   assert_true(pk.verify(msg, sig))
 }
 
@@ -139,7 +139,7 @@ test "PrivateKey::from_seed rejects wrong length" {
   )
   match r {
     Ok(_) => fail("expected error")
-    Err(@ed25519.InvalidSeedLength(n)) => assert_eq(n, 3)
+    Err(@ed25519.InvalidSeedLength(n)) => @debug.assert_eq(n, 3)
     Err(_) => fail("unexpected error")
   }
 }
@@ -151,7 +151,7 @@ test "PublicKey::from_bytes rejects wrong length" {
   )
   match r {
     Ok(_) => fail("expected error")
-    Err(@ed25519.InvalidPublicKeyLength(n)) => assert_eq(n, 2)
+    Err(@ed25519.InvalidPublicKeyLength(n)) => @debug.assert_eq(n, 2)
     Err(_) => fail("unexpected error")
   }
 }
@@ -168,7 +168,7 @@ test "verify_strict raises on wrong-length signature" {
   )
   match r {
     Ok(_) => fail("expected error")
-    Err(@ed25519.InvalidSignatureLength(n)) => assert_eq(n, 5)
+    Err(@ed25519.InvalidSignatureLength(n)) => @debug.assert_eq(n, 5)
     Err(_) => fail("wrong error variant")
   }
 }
@@ -190,7 +190,7 @@ test "PublicKey::from_bytes roundtrip and external verify" {
   let pk_hex = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
   let sig_hex = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
   let pk = @ed25519.PublicKey::from_bytes(hex_to_bytes(pk_hex))
-  assert_eq(bytes_to_hex(pk.to_bytes()), pk_hex)
+  @debug.assert_eq(bytes_to_hex(pk.to_bytes()), pk_hex)
   assert_true(pk.verify(b"", hex_to_bytes(sig_hex)))
 }
 

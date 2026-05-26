@@ -46,7 +46,7 @@ fn bytes_to_hex(b : Bytes) -> String {
 test "entropy_to_mnemonic: all-zero 128-bit" {
   let entropy = hex_to_bytes("00000000000000000000000000000000")
   let m = entropy_to_mnemonic(entropy)
-  assert_eq(
+  @debug.assert_eq(
     m, "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
   )
 }
@@ -57,7 +57,7 @@ test "entropy_to_mnemonic: all-zero 256-bit" {
     "0000000000000000000000000000000000000000000000000000000000000000",
   )
   let m = entropy_to_mnemonic(entropy)
-  assert_eq(
+  @debug.assert_eq(
     m, "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
   )
 }
@@ -69,7 +69,7 @@ test "entropy_to_mnemonic: all-ones 256-bit" {
     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   )
   let m = entropy_to_mnemonic(entropy)
-  assert_eq(
+  @debug.assert_eq(
     m, "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote",
   )
 }
@@ -79,7 +79,7 @@ test "entropy_to_mnemonic: all-ones 128-bit" {
   // 16-byte 0xFF entropy → "...zoo wrong" (12 words).
   let entropy = hex_to_bytes("ffffffffffffffffffffffffffffffff")
   let m = entropy_to_mnemonic(entropy)
-  assert_eq(m, "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong")
+  @debug.assert_eq(m, "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong")
 }
 
 ///|
@@ -88,7 +88,7 @@ test "entropy_to_mnemonic: trezor vector 0x80808080..." {
   // → "letter advice cage absurd amount doctor acoustic avoid letter advice cage above"
   let entropy = hex_to_bytes("80808080808080808080808080808080")
   let m = entropy_to_mnemonic(entropy)
-  assert_eq(
+  @debug.assert_eq(
     m, "letter advice cage absurd amount doctor acoustic avoid letter advice cage above",
   )
 }
@@ -98,7 +98,7 @@ test "mnemonic_to_entropy: round trip 128-bit" {
   let entropy = hex_to_bytes("0c1e24e5917779d297e14d45f14e1a1a")
   let m = entropy_to_mnemonic(entropy)
   let back = mnemonic_to_entropy(m)
-  assert_eq(bytes_to_hex(back), bytes_to_hex(entropy))
+  @debug.assert_eq(bytes_to_hex(back), bytes_to_hex(entropy))
 }
 
 ///|
@@ -108,15 +108,17 @@ test "mnemonic_to_entropy: round trip 256-bit" {
   )
   let m = entropy_to_mnemonic(entropy)
   let back = mnemonic_to_entropy(m)
-  assert_eq(bytes_to_hex(back), bytes_to_hex(entropy))
+  @debug.assert_eq(bytes_to_hex(back), bytes_to_hex(entropy))
 }
 
 ///|
 test "mnemonic_to_entropy: rejects unknown word" {
   let m = "notaword abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-  match (try? mnemonic_to_entropy(m)) {
-    Err(UnknownWord(_)) => ()
-    other => abort("expected UnknownWord, got " + other.to_string())
+  try mnemonic_to_entropy(m) catch {
+    UnknownWord(_) => ()
+    other => abort("expected UnknownWord, got " + repr(other))
+  } noraise {
+    other => abort("expected UnknownWord, got " + repr(other))
   }
 }
 
@@ -125,19 +127,22 @@ test "mnemonic_to_entropy: rejects bad checksum" {
   // Take a valid mnemonic and replace the last word with a different valid
   // word; checksum should fail with overwhelming probability.
   let m = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"
-  match (try? mnemonic_to_entropy(m)) {
-    Err(InvalidChecksum) => ()
-    other => abort("expected InvalidChecksum, got " + other.to_string())
+  try mnemonic_to_entropy(m) catch {
+    InvalidChecksum => ()
+    other => abort("expected InvalidChecksum, got " + repr(other))
+  } noraise {
+    other => abort("expected InvalidChecksum, got " + repr(other))
   }
 }
 
 ///|
 test "mnemonic_to_entropy: rejects bad word count" {
   let m = "abandon abandon abandon" // only 3 words
-  match (try? mnemonic_to_entropy(m)) {
-    Err(InvalidMnemonicWordCount(3)) => ()
-    other =>
-      abort("expected InvalidMnemonicWordCount, got " + other.to_string())
+  try mnemonic_to_entropy(m) catch {
+    InvalidMnemonicWordCount(3) => ()
+    other => abort("expected InvalidMnemonicWordCount, got " + repr(other))
+  } noraise {
+    other => abort("expected InvalidMnemonicWordCount, got " + repr(other))
   }
 }
 
@@ -145,7 +150,7 @@ test "mnemonic_to_entropy: rejects bad word count" {
 test "mnemonic_to_seed: trezor vector 1 (128-bit all zero, TREZOR pass)" {
   let m = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
   let seed = mnemonic_to_seed(m, passphrase="TREZOR")
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(seed),
     "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04",
   )
@@ -155,7 +160,7 @@ test "mnemonic_to_seed: trezor vector 1 (128-bit all zero, TREZOR pass)" {
 test "mnemonic_to_seed: trezor vector 128-bit zoo wrong (TREZOR pass)" {
   let m = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong"
   let seed = mnemonic_to_seed(m, passphrase="TREZOR")
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(seed),
     "ac27495480225222079d7be181583751e86f571027b0497b5b5d11218e0a8a13332572917f0f8e5a589620c6f15b11c61dee327651a14c34e18231052e48c069",
   )
@@ -165,7 +170,7 @@ test "mnemonic_to_seed: trezor vector 128-bit zoo wrong (TREZOR pass)" {
 test "mnemonic_to_seed: trezor vector 256-bit zoo vote (TREZOR pass)" {
   let m = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote"
   let seed = mnemonic_to_seed(m, passphrase="TREZOR")
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(seed),
     "dd48c104698c30cfe2b6142103248622fb7bb0ff692eebb00089b32d22484e1613912f0a5b694407be899ffd31ed3992c456cdf60f5d4564b8ba3f05a69890ad",
   )
@@ -175,7 +180,7 @@ test "mnemonic_to_seed: trezor vector 256-bit zoo vote (TREZOR pass)" {
 test "mnemonic_to_seed: trezor vector 128-bit 0x80*16 (TREZOR pass)" {
   let m = "letter advice cage absurd amount doctor acoustic avoid letter advice cage above"
   let seed = mnemonic_to_seed(m, passphrase="TREZOR")
-  assert_eq(
+  @debug.assert_eq(
     bytes_to_hex(seed),
     "d71de856f81a8acc65e6fc851a38d4d7ec216fd0796d0a6827a3ad6ed5511a30fa280f12eb2e47ed2ac03b5c462a0358d18d69fe4f985ec81778c1b370b652a8",
   )

@@ -16,7 +16,7 @@ pub suberror NaclBoxError {
   InvalidCiphertextLength(Int)
   AuthenticationFailed
   KeyGenerationError(String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct KeyPair {
@@ -40,7 +40,7 @@ pub fn KeyPair::from_seed(seed_32 : Bytes) -> KeyPair raise NaclBoxError {
   }
   let sk = try? @x25519.PrivateKey::from_bytes(seed_32)
   match sk {
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok(sk) => { public_key: sk.public_key(), secret_key: sk }
   }
 }
@@ -69,7 +69,7 @@ pub fn secretbox(
     message,
   )
   match aead_result {
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok((ct, tag)) =>
       // libsodium layout: tag || ciphertext.
       Bytes::makei(tag.length() + ct.length(), fn(i) {
@@ -112,7 +112,7 @@ pub fn secretbox_open(
   match result {
     Ok(pt) => pt
     Err(@aead.AuthenticationFailed) => raise AuthenticationFailed
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
   }
 }
 
@@ -129,7 +129,7 @@ pub fn box_beforenm(
     sender_privkey, recipient_pubkey,
   )
   match ecdh_result {
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok(shared) => {
       // HChaCha20 with a 16-byte all-zero "nonce" — libsodium convention.
       let zeros16 = Bytes::makei(16, fn(_) { b'\x00' })

@@ -23,7 +23,7 @@ test "rsa public roundtrip from RFC 7517 A.1" {
   // extraction path).
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
-  assert_eq(t1, t2)
+  @debug.assert_eq(t1, t2)
 }
 
 // -----------------------------------------------------------------------------
@@ -45,7 +45,7 @@ test "RFC 7638 §3.1 thumbprint vector" {
 
   let jwk = @jwk.parse_public(json)
   let tp = @jwk.thumbprint_base64url(jwk)
-  assert_eq(tp, "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs")
+  @debug.assert_eq(tp, "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs")
   // Pin the canonical form too — RFC 7638 §3.1 shows the exact bytes
   // that are hashed, so we re-derive them here as a regression guard
   // against future re-ordering / extra-field bugs.
@@ -73,11 +73,11 @@ test "ed25519 OKP public roundtrip from RFC 8037 A.2" {
   let jwk2 = @jwk.parse_public(re)
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
-  assert_eq(t1, t2)
+  @debug.assert_eq(t1, t2)
   // Verify the public-key bytes actually came through by checking the
   // canonical-form thumbprint is non-empty and of expected base64url
   // length (32 bytes → 43 chars unpadded).
-  assert_eq(t1.length(), 43)
+  @debug.assert_eq(t1.length(), 43)
 }
 
 ///|
@@ -95,7 +95,7 @@ test "ed25519 OKP private roundtrip from RFC 8037 A.1" {
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
   // Thumbprint is over public-key required fields only — should match.
-  assert_eq(t1, t2)
+  @debug.assert_eq(t1, t2)
 }
 
 // -----------------------------------------------------------------------------
@@ -115,8 +115,8 @@ test "EC P-256 public roundtrip from RFC 7515 A.3" {
   let jwk2 = @jwk.parse_public(re)
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
-  assert_eq(t1, t2)
-  assert_eq(t1.length(), 43)
+  @debug.assert_eq(t1, t2)
+  @debug.assert_eq(t1.length(), 43)
 }
 
 ///|
@@ -133,7 +133,7 @@ test "EC P-256 private roundtrip from RFC 7515 A.3" {
   let jwk2 = @jwk.parse_private(re)
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
-  assert_eq(t1, t2)
+  @debug.assert_eq(t1, t2)
 }
 
 // -----------------------------------------------------------------------------
@@ -158,7 +158,7 @@ test "EC secp256k1 public roundtrip" {
   let jwk2 = @jwk.parse_public(re)
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
-  assert_eq(t1, t2)
+  @debug.assert_eq(t1, t2)
 }
 
 // -----------------------------------------------------------------------------
@@ -176,8 +176,8 @@ test "HMAC oct private roundtrip" {
   let jwk2 = @jwk.parse_private(re)
   let t1 = @jwk.thumbprint_base64url(jwk)
   let t2 = @jwk.thumbprint_base64url(jwk2)
-  assert_eq(t1, t2)
-  assert_eq(t1.length(), 43)
+  @debug.assert_eq(t1, t2)
+  @debug.assert_eq(t1.length(), 43)
 }
 
 // -----------------------------------------------------------------------------

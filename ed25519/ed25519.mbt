@@ -60,7 +60,7 @@ pub suberror Ed25519Error {
   InvalidSignatureLength(Int)
   // Reserved for future strict-encoding errors (e.g. non-canonical R/A).
   InvalidEncoding(String)
-}
+} derive(Debug)
 
 ///|
 pub impl Show for Ed25519Error with fn output(self, logger) {
@@ -1222,7 +1222,7 @@ fn ed25519_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
 /// wraps the 32-byte seed (CurvePrivateKey ::= OCTET STRING).
 pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error {
   let info = @pkcs8.parse_der(der) catch {
-    e => raise InvalidEncoding("pkcs8: " + e.to_string())
+    e => raise InvalidEncoding("pkcs8: " + @debug.to_string(e))
   }
   if info.algorithm.algorithm != ed25519_oid_for_pkcs8() {
     raise InvalidEncoding(
@@ -1231,7 +1231,7 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error 
   }
   // Inner OCTET STRING wrapping the 32-byte seed.
   let inner = @asn1.decode_der(info.private_key) catch {
-    e => raise InvalidEncoding("inner OCTET STRING: " + e.to_string())
+    e => raise InvalidEncoding("inner OCTET STRING: " + @debug.to_string(e))
   }
   let seed = match inner.value {
     OctetString(b) => b
@@ -1252,7 +1252,7 @@ pub fn PrivateKey::from_pkcs8_pem(
   pem_str : String,
 ) -> PrivateKey raise Ed25519Error {
   let block = @pem.decode(pem_str) catch {
-    e => raise InvalidEncoding("pem: " + e.to_string())
+    e => raise InvalidEncoding("pem: " + @debug.to_string(e))
   }
   if block.label != "PRIVATE KEY" {
     raise InvalidEncoding(

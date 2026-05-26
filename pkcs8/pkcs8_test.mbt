@@ -49,12 +49,12 @@ test "pkcs8: serialize/parse Ed25519 PrivateKeyInfo roundtrip" {
   let bytes1 = @pkcs8.serialize_der(original)
   let parsed = @pkcs8.parse_der(bytes1)
   let bytes2 = @pkcs8.serialize_der(parsed)
-  assert_eq(bytes1, bytes2)
-  assert_eq(parsed.version, 0)
-  assert_eq(parsed.algorithm.algorithm, ed25519_oid())
-  assert_eq(parsed.algorithm.parameters, None)
-  assert_eq(parsed.attributes.length(), 0)
-  assert_eq(parsed.public_key, None)
+  @debug.assert_eq(bytes1, bytes2)
+  @debug.assert_eq(parsed.version, 0)
+  @debug.assert_eq(parsed.algorithm.algorithm, ed25519_oid())
+  @debug.assert_eq(parsed.algorithm.parameters, None)
+  @debug.assert_eq(parsed.attributes.length(), 0)
+  @debug.assert_eq(parsed.public_key, None)
 }
 
 ///|
@@ -72,15 +72,15 @@ test "pkcs8: Ed25519 v2 with public_key roundtrip" {
   let bytes1 = @pkcs8.serialize_der(v2_key)
   let parsed = @pkcs8.parse_der(bytes1)
   let bytes2 = @pkcs8.serialize_der(parsed)
-  assert_eq(bytes1, bytes2)
-  assert_eq(parsed.version, 1)
-  assert_eq(parsed.public_key.is_some(), true)
+  @debug.assert_eq(bytes1, bytes2)
+  @debug.assert_eq(parsed.version, 1)
+  assert_true(parsed.public_key is Some(_))
   match parsed.public_key {
     Some(bs) => {
-      assert_eq(bs.bytes, pubkey_bs.bytes)
-      assert_eq(bs.unused_bits, 0)
+      @debug.assert_eq(bs.bytes, pubkey_bs.bytes)
+      @debug.assert_eq(bs.unused_bits, 0)
     }
-    None => assert_eq(true, false, msg="expected public_key")
+    None => @debug.assert_eq(true, false, msg="expected public_key")
   }
 }
 
@@ -89,8 +89,8 @@ test "pkcs8: PEM roundtrip with 'PRIVATE KEY' label" {
   let key = sample_ed25519_key()
   let pem = @pkcs8.serialize_pem(key)
   let parsed = @pkcs8.parse_pem(pem)
-  assert_eq(parsed.algorithm.algorithm, ed25519_oid())
-  assert_eq(parsed.private_key, key.private_key)
+  @debug.assert_eq(parsed.algorithm.algorithm, ed25519_oid())
+  @debug.assert_eq(parsed.private_key, key.private_key)
   // Verify the PEM body starts with the expected marker.
   assert_true(pem.length() > 30)
 }
@@ -98,9 +98,10 @@ test "pkcs8: PEM roundtrip with 'PRIVATE KEY' label" {
 ///|
 test "pkcs8: parse_pem rejects wrong label" {
   let pem = @pem.encode_simple("CERTIFICATE", b"\x30\x02\x05\x00")
-  match (try? @pkcs8.parse_pem(pem)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected label mismatch error")
+  try @pkcs8.parse_pem(pem) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected label mismatch error")
   }
 }
 
@@ -118,9 +119,10 @@ test "pkcs8: parse_der rejects invalid version" {
   let bytes = @asn1.encode_der(
     @asn1.Element::new(@asn1.tag_sequence, Sequence(bad_version_seq)),
   )
-  match (try? @pkcs8.parse_der(bytes)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidVersion")
+  try @pkcs8.parse_der(bytes) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidVersion")
   }
 }
 
@@ -136,9 +138,10 @@ test "pkcs8: parse_der rejects too few fields" {
   let bytes = @asn1.encode_der(
     @asn1.Element::new(@asn1.tag_sequence, Sequence(truncated)),
   )
-  match (try? @pkcs8.parse_der(bytes)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected too-few-fields error")
+  try @pkcs8.parse_der(bytes) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected too-few-fields error")
   }
 }
 
@@ -151,9 +154,9 @@ test "pkcs8: EncryptedPrivateKeyInfo roundtrip" {
   let bytes1 = @pkcs8.serialize_encrypted_der(enc)
   let parsed = @pkcs8.parse_encrypted_der(bytes1)
   let bytes2 = @pkcs8.serialize_encrypted_der(parsed)
-  assert_eq(bytes1, bytes2)
-  assert_eq(parsed.algorithm.algorithm, pbes2_oid())
-  assert_eq(parsed.encrypted_data, b"\xCA\xFE\xBA\xBE\xDE\xAD\xBE\xEF")
+  @debug.assert_eq(bytes1, bytes2)
+  @debug.assert_eq(parsed.algorithm.algorithm, pbes2_oid())
+  @debug.assert_eq(parsed.encrypted_data, b"\xCA\xFE\xBA\xBE\xDE\xAD\xBE\xEF")
 }
 
 ///|
@@ -164,7 +167,7 @@ test "pkcs8: EncryptedPrivateKeyInfo PEM roundtrip" {
   }
   let pem = @pkcs8.serialize_encrypted_pem(enc)
   let parsed = @pkcs8.parse_encrypted_pem(pem)
-  assert_eq(parsed.encrypted_data, enc.encrypted_data)
+  @debug.assert_eq(parsed.encrypted_data, enc.encrypted_data)
 }
 
 ///|
@@ -188,8 +191,8 @@ test "pkcs8: PrivateKeyInfo with attributes (Set OF) roundtrips" {
   let bytes1 = @pkcs8.serialize_der(key)
   let parsed = @pkcs8.parse_der(bytes1)
   let bytes2 = @pkcs8.serialize_der(parsed)
-  assert_eq(bytes1, bytes2)
-  assert_eq(parsed.attributes.length(), 1)
+  @debug.assert_eq(bytes1, bytes2)
+  @debug.assert_eq(parsed.attributes.length(), 1)
 }
 
 ///|
@@ -197,9 +200,13 @@ test "ATTACK pkcs8: duplicate publicKey fields reject" {
   let items = pkcs8_base_items(version=b"\x01")
   items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x01")))
   items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x00\x02")))
-  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
-    Err(@pkcs8.UnexpectedStructure(_)) => ()
-    other => abort("expected duplicate publicKey rejection, got \{other}")
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected duplicate publicKey rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected duplicate publicKey rejection, got " + repr(other) + "")
   }
 }
 
@@ -207,9 +214,13 @@ test "ATTACK pkcs8: duplicate publicKey fields reject" {
 test "ATTACK pkcs8: publicKey BIT STRING tail padding is checked" {
   let items = pkcs8_base_items(version=b"\x01")
   items.push(@asn1.Element::new(@asn1.Tag::context(1U), Unknown(b"\x01\x01")))
-  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
-    Err(@pkcs8.UnexpectedStructure(_)) => ()
-    other => abort("expected BIT STRING padding rejection, got \{other}")
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected BIT STRING padding rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected BIT STRING padding rejection, got " + repr(other) + "")
   }
 }
 
@@ -231,9 +242,13 @@ test "ATTACK pkcs8: duplicate attributes fields reject" {
       Unknown(attr_payload),
     ),
   )
-  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
-    Err(@pkcs8.UnexpectedStructure(_)) => ()
-    other => abort("expected duplicate attributes rejection, got \{other}")
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected duplicate attributes rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected duplicate attributes rejection, got " + repr(other) + "")
   }
 }
 
@@ -255,8 +270,12 @@ test "ATTACK pkcs8: attributes SET order must be DER canonical" {
       Unknown(attr_payload.to_bytes()),
     ),
   )
-  match (try? @pkcs8.parse_der(pkcs8_der_from_items(items))) {
-    Err(@pkcs8.UnexpectedStructure(_)) => ()
-    other => abort("expected attributes SET order rejection, got \{other}")
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected attributes SET order rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected attributes SET order rejection, got " + repr(other) + "")
   }
 }

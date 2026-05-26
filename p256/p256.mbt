@@ -23,37 +23,42 @@
 
 ///|
 fn p256_p() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF",
+    radix=16,
   )
 }
 
 ///|
 fn p256_b() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B",
+    radix=16,
   )
 }
 
 ///|
 fn p256_n() -> BigInt {
   // Order of the base point.
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551",
+    radix=16,
   )
 }
 
 ///|
 fn p256_gx() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296",
+    radix=16,
   )
 }
 
 ///|
 fn p256_gy() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5",
+    radix=16,
   )
 }
 
@@ -116,16 +121,6 @@ fn is_on_curve(p_pt : Point) -> Bool {
   let three_x = BigInt::from_int(3) * p_pt.x % p
   let rhs = mod_pos(x3 - three_x + p256_b(), p)
   lhs == rhs
-}
-
-///|
-// Negation: (x, -y mod p). The identity negates to itself.
-fn point_neg(pt : Point) -> Point {
-  if pt.inf {
-    return pt
-  }
-  let p = p256_p()
-  { x: pt.x, y: mod_pos(p - pt.y, p), inf: false }
 }
 
 ///|
@@ -240,7 +235,7 @@ pub suberror P256Error {
   UnexpectedSpkiOid(String)
   InvalidPrivateKey(String)
   Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parse an uncompressed SEC1 point `04 || X(32) || Y(32)` (65 bytes total).
@@ -258,7 +253,7 @@ pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise P256Error {
   let x = BigInt::from_octets(x_bytes[:])
   let y = BigInt::from_octets(y_bytes[:])
   let point : Point = { x, y, inf: false }
-  if not(is_on_curve(point)) {
+  if !is_on_curve(point) {
     raise PointNotOnCurve
   }
   { point, }
@@ -356,7 +351,7 @@ pub(all) enum SignatureFormat {
   Raw
   // X.509 / CMS / PKIX: ASN.1 DER SEQUENCE { INTEGER r, INTEGER s }.
   Der
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 // Parse a DER INTEGER as a non-negative BigInt. ECDSA r and s are always
@@ -433,7 +428,7 @@ pub fn verify(
   signature : Bytes,
   format : SignatureFormat,
 ) -> Bool raise P256Error {
-  if not(is_on_curve(pubkey.point)) {
+  if !is_on_curve(pubkey.point) {
     return false
   }
   let (r, s) = parse_signature(signature, format)
@@ -531,12 +526,12 @@ pub fn PrivateKey::sign(
   let max_iter = 16 // RFC 6979 guarantees a usable nonce well within this
   let mut found = false
   let mut nonce_state = rfc6979_init(self.d, e_bytes, 32, n)
-  while not(found) && k_ctr < max_iter {
+  while !found && k_ctr < max_iter {
     let (k, next_state) = rfc6979_next(nonce_state, 32, n)
     nonce_state = next_state
     // R = k * G, r = R.x mod n
     let r_point = scalar_mult(k, generator())
-    if not(r_point.inf) {
+    if !r_point.inf {
       r = r_point.x % n
       if r.compare_int(0) > 0 {
         // s = k^-1 * (e + r * d) mod n
@@ -550,7 +545,7 @@ pub fn PrivateKey::sign(
     }
     k_ctr = k_ctr + 1
   }
-  if not(found) {
+  if !found {
     abort("ECDSA P-256 sign: nonce loop diverged (should be impossible)")
   }
   encode_signature(r, s, format)
@@ -798,7 +793,7 @@ fn ec_public_key_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
 ///   }
 pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P256Error {
   let info = @pkcs8.parse_der(der) catch {
-    e => raise InvalidPrivateKey("pkcs8: " + e.to_string())
+    e => raise InvalidPrivateKey("pkcs8: " + @debug.to_string(e))
   }
   if info.algorithm.algorithm != ec_public_key_oid_for_pkcs8() {
     raise InvalidPrivateKey(

@@ -64,8 +64,8 @@ test "NIST SP 800-38D B.1 AES-128-GCM (Test Case 4)" {
   )
   let expected_tag = ag_hex("5bc94fbc3221a5db94fae95ae7121a47")
   let (ct, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
-  assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
+  @debug.assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
+  @debug.assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
   let opened = @aead.open_detached(
     @aead.Aes128Gcm,
     key,
@@ -74,7 +74,7 @@ test "NIST SP 800-38D B.1 AES-128-GCM (Test Case 4)" {
     expected_ct,
     expected_tag,
   )
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
 }
 
 ///|
@@ -91,7 +91,7 @@ test "NIST SP 800-38D B.1 AES-128-GCM (Test Case 3 actual, 64-byte PT)" {
   )
   let expected_tag = ag_hex("4d5c2af327cd64a62cf35abd2ba6fab4")
   let (_, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
+  @debug.assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
 }
 
 ///|
@@ -112,11 +112,11 @@ test "NIST SP 800-38D B.1 AES-128-GCM (Test Case 3 task brief, 60-byte PT)" {
     "21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091",
   )
   let (ct, _) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
+  @debug.assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
   // Round-trip via own tag (cannot use task brief's 64-byte tag here).
   let sealed_bytes = @aead.seal(@aead.Aes128Gcm, key, iv, aad, pt)
   let opened = @aead.open(@aead.Aes128Gcm, key, iv, aad, sealed_bytes)
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
 }
 
 ///|
@@ -127,8 +127,8 @@ test "NIST SP 800-38D B.1 AES-128-GCM (Test Case 1, empty)" {
   let aad = b""
   let pt = b""
   let (ct, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ct.length(), 0)
-  assert_eq(ag_to_hex(tag), "58e2fccefa7e3061367f1d57a4e7455a")
+  @debug.assert_eq(ct.length(), 0)
+  @debug.assert_eq(ag_to_hex(tag), "58e2fccefa7e3061367f1d57a4e7455a")
 }
 
 ///|
@@ -140,8 +140,8 @@ test "NIST SP 800-38D B.1 AES-128-GCM (Test Case 2, all-zero one-block)" {
   let aad = b""
   let pt = ag_hex("00000000000000000000000000000000")
   let (ct, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(ct), "0388dace60b6a392f328c2b971b2fe78")
-  assert_eq(ag_to_hex(tag), "ab6e47d42cec13bdf53a67b21257bddf")
+  @debug.assert_eq(ag_to_hex(ct), "0388dace60b6a392f328c2b971b2fe78")
+  @debug.assert_eq(ag_to_hex(tag), "ab6e47d42cec13bdf53a67b21257bddf")
 }
 
 ///|
@@ -155,8 +155,8 @@ test "NIST SP 800-38D B.2 AES-256-GCM (Test Case 14, no AAD)" {
   let aad = b""
   let pt = ag_hex("00000000000000000000000000000000")
   let (ct, tag) = @aead.seal_detached(@aead.Aes256Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(ct), "cea7403d4d606b6e074ec5d3baf39d18")
-  assert_eq(ag_to_hex(tag), "d0d1c8a799996bf0265b98b5d48ab919")
+  @debug.assert_eq(ag_to_hex(ct), "cea7403d4d606b6e074ec5d3baf39d18")
+  @debug.assert_eq(ag_to_hex(tag), "d0d1c8a799996bf0265b98b5d48ab919")
 }
 
 ///|
@@ -173,7 +173,7 @@ test "NIST SP 800-38D B.2 AES-256-GCM (Test Case 15 actual, 64-byte PT)" {
   )
   let expected_tag = ag_hex("b094dac5d93471bdec1a502270e3cc6c")
   let (_, tag) = @aead.seal_detached(@aead.Aes256Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
+  @debug.assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
 }
 
 ///|
@@ -194,8 +194,8 @@ test "NIST SP 800-38D B.2 AES-256-GCM (Test Case 16, with AAD)" {
   )
   let expected_tag = ag_hex("76fc6ece0f4e1768cddf8853bb2d551b")
   let (ct, tag) = @aead.seal_detached(@aead.Aes256Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
-  assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
+  @debug.assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
+  @debug.assert_eq(ag_to_hex(tag), ag_to_hex(expected_tag))
   let opened = @aead.open_detached(
     @aead.Aes256Gcm,
     key,
@@ -204,7 +204,7 @@ test "NIST SP 800-38D B.2 AES-256-GCM (Test Case 16, with AAD)" {
     expected_ct,
     expected_tag,
   )
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
 }
 
 ///|
@@ -232,7 +232,7 @@ test "AES-128-GCM auth failure on tag tamper" {
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
   }
 }
 
@@ -249,7 +249,7 @@ test "AES-128-GCM key size validation" {
   )
   match result {
     Err(@aead.InvalidKeySize(expected=16, got=15)) => ()
-    Err(e) => abort("expected InvalidKeySize, got " + e.to_string())
+    Err(e) => abort("expected InvalidKeySize, got " + repr(e))
     Ok(_) => abort("expected InvalidKeySize")
   }
 }
@@ -267,7 +267,7 @@ test "AES-256-GCM key size validation" {
   )
   match result {
     Err(@aead.InvalidKeySize(expected=32, got=31)) => ()
-    Err(e) => abort("expected InvalidKeySize, got " + e.to_string())
+    Err(e) => abort("expected InvalidKeySize, got " + repr(e))
     Ok(_) => abort("expected InvalidKeySize")
   }
 }
@@ -285,7 +285,7 @@ test "AES-128-GCM nonce size validation" {
   )
   match result {
     Err(@aead.InvalidNonceSize(expected=12, got=11)) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected InvalidNonceSize")
   }
 }
@@ -309,10 +309,10 @@ test "wycheproof aes_gcm tcId=1 (valid, 128-bit, empty msg)" {
   // canonical tag was elided here to keep the file self-contained without
   // shipping the full JSON corpus).
   let (ct, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ct.length(), 0)
-  assert_eq(tag.length(), 16)
+  @debug.assert_eq(ct.length(), 0)
+  @debug.assert_eq(tag.length(), 16)
   let opened = @aead.open_detached(@aead.Aes128Gcm, key, iv, aad, ct, tag)
-  assert_eq(opened.length(), 0)
+  @debug.assert_eq(opened.length(), 0)
 }
 
 ///|
@@ -323,10 +323,10 @@ test "wycheproof aes_gcm 16-byte PT round-trip" {
   let pt = ag_hex("001d0c231287c1182784554ca3a21908")
   let expected_ct = ag_hex("49d8b9783e911913d87094d1f63cc765")
   let (ct, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
-  assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
+  @debug.assert_eq(ag_to_hex(ct), ag_to_hex(expected_ct))
   // Round-trip via our own tag (not asserting a magic published value).
   let opened = @aead.open_detached(@aead.Aes128Gcm, key, iv, aad, ct, tag)
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
 }
 
 ///|
@@ -337,8 +337,8 @@ test "wycheproof aes_gcm 16-byte PT with AAD round-trip" {
   let pt = ag_hex("001d0c231287c1182784554ca3a21908")
   let (ct, tag) = @aead.seal_detached(@aead.Aes128Gcm, key, iv, aad, pt)
   let opened = @aead.open_detached(@aead.Aes128Gcm, key, iv, aad, ct, tag)
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
-  assert_eq(ct.length(), pt.length())
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ct.length(), pt.length())
 }
 
 ///|
@@ -350,9 +350,9 @@ test "wycheproof aes_gcm 256-bit round-trip with AAD" {
   let aad = ag_hex("00000000ffffffff")
   let pt = ag_hex("00010203040506070809")
   let (ct, tag) = @aead.seal_detached(@aead.Aes256Gcm, key, iv, aad, pt)
-  assert_eq(ct.length(), pt.length())
+  @debug.assert_eq(ct.length(), pt.length())
   let opened = @aead.open_detached(@aead.Aes256Gcm, key, iv, aad, ct, tag)
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
 }
 
 ///|
@@ -369,7 +369,7 @@ test "wycheproof aes_gcm 256-bit tcId=219 (valid, large msg)" {
     "9b6f60c4ae1d3e23db5dcccd",
   )
   let (ct, tag) = @aead.seal_detached(@aead.Aes256Gcm, key, iv, aad, pt)
-  assert_eq(ct.length(), pt.length())
+  @debug.assert_eq(ct.length(), pt.length())
   let opened = @aead.open_detached(@aead.Aes256Gcm, key, iv, aad, ct, tag)
-  assert_eq(ag_to_hex(opened), ag_to_hex(pt))
+  @debug.assert_eq(ag_to_hex(opened), ag_to_hex(pt))
 }

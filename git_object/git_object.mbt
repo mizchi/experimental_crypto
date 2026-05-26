@@ -11,8 +11,7 @@
 pub suberror GitObjectError {
   Malformed(String)
   NotSigned
-  InvalidUtf8
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct SignedCommit {
@@ -22,7 +21,7 @@ pub(all) struct SignedCommit {
   // The armored signature value: lines de-prefixed (the leading space on
   // continuation lines is stripped), joined by '\n'.
   signature_armor : String
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parse a git commit object and split out the signature. Returns

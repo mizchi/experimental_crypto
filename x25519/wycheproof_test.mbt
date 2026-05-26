@@ -22,7 +22,7 @@ test "wycheproof x25519 tcId=1 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -35,7 +35,7 @@ test "wycheproof x25519 tcId=34 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -48,7 +48,7 @@ test "wycheproof x25519 tcId=35 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -61,7 +61,7 @@ test "wycheproof x25519 tcId=38 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -74,7 +74,7 @@ test "wycheproof x25519 tcId=47 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -87,7 +87,7 @@ test "wycheproof x25519 tcId=54 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -100,7 +100,7 @@ test "wycheproof x25519 tcId=60 (valid)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -113,10 +113,11 @@ test "wycheproof x25519 tcId=79 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -132,7 +133,7 @@ test "wycheproof x25519 tcId=124 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -146,7 +147,7 @@ test "wycheproof x25519 tcId=207 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -160,7 +161,7 @@ test "wycheproof x25519 tcId=256 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -174,7 +175,7 @@ test "wycheproof x25519 tcId=290 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -187,10 +188,11 @@ test "wycheproof x25519 tcId=32 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -205,10 +207,11 @@ test "wycheproof x25519 tcId=33 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -223,10 +226,11 @@ test "wycheproof x25519 tcId=63 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -241,10 +245,11 @@ test "wycheproof x25519 tcId=64 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -259,10 +264,11 @@ test "wycheproof x25519 tcId=65 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -277,10 +283,11 @@ test "wycheproof x25519 tcId=66 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -295,10 +302,11 @@ test "wycheproof x25519 tcId=68 (acceptable)" {
   let sk = @x25519.PrivateKey::from_bytes(private_bytes)
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // ZeroSharedSecret: small-subgroup public key — our impl raises AllZeroSharedSecret.
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(@x25519.AllZeroSharedSecret) => ()
-    Err(e) => abort("expected AllZeroSharedSecret, got " + e.to_string())
-    Ok(_) => abort("expected AllZeroSharedSecret for zero-shared vector")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    @x25519.AllZeroSharedSecret => ()
+    e => abort("expected AllZeroSharedSecret, got " + repr(e))
+  } noraise {
+    _ => abort("expected AllZeroSharedSecret for zero-shared vector")
   }
   ignore(shared)
 }
@@ -314,7 +322,7 @@ test "wycheproof x25519 tcId=2 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -328,7 +336,7 @@ test "wycheproof x25519 tcId=3 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -342,7 +350,7 @@ test "wycheproof x25519 tcId=87 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -356,7 +364,7 @@ test "wycheproof x25519 tcId=89 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }
 
 ///|
@@ -370,5 +378,5 @@ test "wycheproof x25519 tcId=91 (acceptable)" {
   let pk = @x25519.PublicKey::from_bytes(public_bytes)
   // acceptable with non-zero shared: RFC 7748 clamping should still yield the documented value.
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), shared)
+  @debug.assert_eq(ss.to_bytes(), shared)
 }

@@ -55,28 +55,28 @@ test "tag: high-tag-number form 128 (two-byte base-128)" {
 test "tag: read_tag short form INTEGER" {
   let dec = @asn1.Decoder::new(b"\x02")
   let tag = @asn1.read_tag(dec)
-  assert_eq(tag, @asn1.tag_integer)
+  @debug.assert_eq(tag, @asn1.tag_integer)
 }
 
 ///|
 test "tag: read_tag short form SEQUENCE" {
   let dec = @asn1.Decoder::new(b"\x30")
   let tag = @asn1.read_tag(dec)
-  assert_eq(tag, @asn1.tag_sequence)
+  @debug.assert_eq(tag, @asn1.tag_sequence)
 }
 
 ///|
 test "tag: read_tag context-specific [3] primitive" {
   let dec = @asn1.Decoder::new(b"\x83")
   let tag = @asn1.read_tag(dec)
-  assert_eq(tag, @asn1.Tag::context(3))
+  @debug.assert_eq(tag, @asn1.Tag::context(3))
 }
 
 ///|
 test "tag: read_tag high-tag-number form 128" {
   let dec = @asn1.Decoder::new(b"\x1f\x81\x00")
   let tag = @asn1.read_tag(dec)
-  assert_eq(tag, @asn1.Tag::universal(128))
+  @debug.assert_eq(tag, @asn1.Tag::universal(128))
 }
 
 ///|
@@ -117,13 +117,13 @@ test "length: long form 65535" {
 ///|
 test "length: read short form" {
   let dec = @asn1.Decoder::new(b"\x7f")
-  assert_eq(@asn1.read_length(dec), 127)
+  @debug.assert_eq(@asn1.read_length(dec), 127)
 }
 
 ///|
 test "length: read long form 256" {
   let dec = @asn1.Decoder::new(b"\x82\x01\x00")
-  assert_eq(@asn1.read_length(dec), 256)
+  @debug.assert_eq(@asn1.read_length(dec), 256)
 }
 
 ///|
@@ -132,7 +132,7 @@ test "length: roundtrip representative values" {
     let enc = @asn1.Encoder::new()
     @asn1.write_length(enc, n)
     let dec = @asn1.Decoder::new(enc.finish())
-    assert_eq(@asn1.read_length(dec), n)
+    @debug.assert_eq(@asn1.read_length(dec), n)
   }
 }
 
@@ -140,9 +140,11 @@ test "length: roundtrip representative values" {
 test "length: reject indefinite form (0x80) in DER" {
   let dec = @asn1.Decoder::new(b"\x80")
   // X.690 §10.1: DER must use definite form
-  match (try? @asn1.read_length(dec)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected error for indefinite length")
+  try @asn1.read_length(dec) catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(true, false, msg="expected error for indefinite length")
   }
 }
 
@@ -153,10 +155,10 @@ test "primitive: NULL" {
   inspect(enc.finish(), content="b\"\\x05\\x00\"")
   let dec = @asn1.Decoder::new(b"\x05\x00")
   let elem = dec.read_element()
-  assert_eq(elem.tag, @asn1.tag_null)
+  @debug.assert_eq(elem.tag, @asn1.tag_null)
   match elem.value {
     Null => ()
-    _ => assert_eq(true, false, msg="expected Null")
+    _ => @debug.assert_eq(true, false, msg="expected Null")
   }
 }
 
@@ -181,8 +183,8 @@ test "primitive: Boolean roundtrip" {
     enc.write_element(@asn1.Element::new(@asn1.tag_boolean, Boolean(b)))
     let dec = @asn1.Decoder::new(enc.finish())
     match dec.read_element().value {
-      Boolean(v) => assert_eq(v, b)
-      _ => assert_eq(true, false, msg="expected Boolean")
+      Boolean(v) => @debug.assert_eq(v, b)
+      _ => @debug.assert_eq(true, false, msg="expected Boolean")
     }
   }
 }
@@ -224,8 +226,8 @@ test "primitive: OctetString roundtrip" {
   )
   let dec = @asn1.Decoder::new(enc.finish())
   match dec.read_element().value {
-    OctetString(b) => assert_eq(b, data)
-    _ => assert_eq(true, false, msg="expected OctetString")
+    OctetString(b) => @debug.assert_eq(b, data)
+    _ => @debug.assert_eq(true, false, msg="expected OctetString")
   }
 }
 
@@ -238,8 +240,8 @@ test "primitive: Utf8String 'moon'" {
   inspect(enc.finish(), content="b\"\\x0c\\x04moon\"")
   let dec = @asn1.Decoder::new(enc.finish())
   match dec.read_element().value {
-    Utf8String(s) => assert_eq(s, "moon")
-    _ => assert_eq(true, false, msg="expected Utf8String")
+    Utf8String(s) => @debug.assert_eq(s, "moon")
+    _ => @debug.assert_eq(true, false, msg="expected Utf8String")
   }
 }
 
@@ -250,8 +252,8 @@ test "primitive: Utf8String '日本語' (multi-byte UTF-8)" {
   enc.write_element(@asn1.Element::new(@asn1.tag_utf8_string, Utf8String(s)))
   let dec = @asn1.Decoder::new(enc.finish())
   match dec.read_element().value {
-    Utf8String(out) => assert_eq(out, s)
-    _ => assert_eq(true, false, msg="expected Utf8String")
+    Utf8String(out) => @debug.assert_eq(out, s)
+    _ => @debug.assert_eq(true, false, msg="expected Utf8String")
   }
 }
 
@@ -262,8 +264,8 @@ test "primitive: Utf8String mixed ASCII + emoji roundtrip" {
   enc.write_element(@asn1.Element::new(@asn1.tag_utf8_string, Utf8String(s)))
   let dec = @asn1.Decoder::new(enc.finish())
   match dec.read_element().value {
-    Utf8String(out) => assert_eq(out, s)
-    _ => assert_eq(true, false, msg="expected Utf8String")
+    Utf8String(out) => @debug.assert_eq(out, s)
+    _ => @debug.assert_eq(true, false, msg="expected Utf8String")
   }
 }
 
@@ -271,9 +273,10 @@ test "primitive: Utf8String mixed ASCII + emoji roundtrip" {
 test "primitive: Utf8String rejects invalid UTF-8 (lone continuation byte)" {
   // 0x80 is a continuation byte with no leader; invalid UTF-8.
   let bytes : Bytes = b"\x0c\x01\x80"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected invalid UTF-8")
+  try @asn1.decode_der(bytes) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected invalid UTF-8")
   }
 }
 
@@ -281,9 +284,10 @@ test "primitive: Utf8String rejects invalid UTF-8 (lone continuation byte)" {
 test "primitive: PrintableString rejects non-ASCII bytes" {
   // tag 19 (PrintableString), length 2, payload 0xC3 0xA9 ('é' in UTF-8)
   let bytes : Bytes = b"\x13\x02\xc3\xa9"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected non-ASCII rejection")
+  try @asn1.decode_der(bytes) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected non-ASCII rejection")
   }
 }
 
@@ -296,8 +300,8 @@ test "primitive: PrintableString accepts allowed alphabet" {
   )
   let dec = @asn1.Decoder::new(enc.finish())
   match dec.read_element().value {
-    PrintableString(out) => assert_eq(out, s)
-    _ => assert_eq(true, false, msg="expected PrintableString")
+    PrintableString(out) => @debug.assert_eq(out, s)
+    _ => @debug.assert_eq(true, false, msg="expected PrintableString")
   }
 }
 
@@ -321,17 +325,18 @@ test "primitive: Unknown tag preserves raw content" {
   let dec = @asn1.Decoder::new(b"\x42\x03abc")
   let elem = dec.read_element()
   match elem.value {
-    Unknown(b) => assert_eq(b, b"abc")
-    _ => assert_eq(true, false, msg="expected Unknown")
+    Unknown(b) => @debug.assert_eq(b, b"abc")
+    _ => @debug.assert_eq(true, false, msg="expected Unknown")
   }
 }
 
 ///|
 test "primitive: NULL with non-zero length rejected" {
   let dec = @asn1.Decoder::new(b"\x05\x01\x00")
-  match (try? dec.read_element()) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected length error")
+  try dec.read_element() catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected length error")
   }
 }
 
@@ -381,7 +386,7 @@ test "oid: roundtrip via to_string" {
   ]
   for s in inputs {
     let oid = @asn1.ObjectIdentifier::from_string(s)
-    assert_eq(oid.to_string(), s)
+    @debug.assert_eq(oid.to_string(), s)
   }
 }
 
@@ -390,33 +395,41 @@ test "oid: decode roundtrip from DER" {
   let der = b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b"
   let dec = @asn1.Decoder::new(der)
   match dec.read_element().value {
-    Oid(o) => assert_eq(o.to_string(), "1.2.840.113549.1.1.11")
-    _ => assert_eq(true, false, msg="expected Oid")
+    Oid(o) => @debug.assert_eq(o.to_string(), "1.2.840.113549.1.1.11")
+    _ => @debug.assert_eq(true, false, msg="expected Oid")
   }
 }
 
 ///|
 test "oid: from_string rejects empty / single-arc" {
-  match (try? @asn1.ObjectIdentifier::from_string("")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="empty should error")
+  try @asn1.ObjectIdentifier::from_string("") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="empty should error")
   }
-  match (try? @asn1.ObjectIdentifier::from_string("1")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="single arc should error")
+  try @asn1.ObjectIdentifier::from_string("1") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="single arc should error")
   }
 }
 
 ///|
 test "oid: from_string rejects invalid first arc" {
-  match (try? @asn1.ObjectIdentifier::from_string("3.0")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="first arc > 2 should error")
+  try @asn1.ObjectIdentifier::from_string("3.0") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="first arc > 2 should error")
   }
-  match (try? @asn1.ObjectIdentifier::from_string("1.40")) {
-    Err(_) => ()
-    Ok(_) =>
-      assert_eq(true, false, msg="second arc > 39 with first<2 should error")
+  try @asn1.ObjectIdentifier::from_string("1.40") catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(
+        true,
+        false,
+        msg="second arc > 39 with first<2 should error",
+      )
   }
 }
 
@@ -465,27 +478,27 @@ test "sequence: roundtrip nested" {
   let bytes = enc.finish()
   let dec = @asn1.Decoder::new(bytes)
   let decoded = dec.read_element()
-  assert_eq(decoded.tag, @asn1.tag_sequence)
+  @debug.assert_eq(decoded.tag, @asn1.tag_sequence)
   match decoded.value {
     Sequence(items) => {
-      assert_eq(items.length(), 2)
-      assert_eq(items[0].tag, @asn1.tag_sequence)
+      @debug.assert_eq(items.length(), 2)
+      @debug.assert_eq(items[0].tag, @asn1.tag_sequence)
       match items[0].value {
         Sequence(inner_items) => {
-          assert_eq(inner_items.length(), 1)
+          @debug.assert_eq(inner_items.length(), 1)
           match inner_items[0].value {
-            Integer(b) => assert_eq(b, b"\x07")
-            _ => assert_eq(true, false, msg="expected Integer")
+            Integer(b) => @debug.assert_eq(b, b"\x07")
+            _ => @debug.assert_eq(true, false, msg="expected Integer")
           }
         }
-        _ => assert_eq(true, false, msg="expected inner Sequence")
+        _ => @debug.assert_eq(true, false, msg="expected inner Sequence")
       }
       match items[1].value {
-        OctetString(b) => assert_eq(b, b"x")
-        _ => assert_eq(true, false, msg="expected OctetString")
+        OctetString(b) => @debug.assert_eq(b, b"x")
+        _ => @debug.assert_eq(true, false, msg="expected OctetString")
       }
     }
-    _ => assert_eq(true, false, msg="expected Sequence")
+    _ => @debug.assert_eq(true, false, msg="expected Sequence")
   }
 }
 
@@ -576,10 +589,10 @@ test "bit_string: roundtrip" {
     let decoded = @asn1.decode_der(bytes)
     match decoded.value {
       BitString(b) => {
-        assert_eq(b.bytes, original.bytes)
-        assert_eq(b.unused_bits, original.unused_bits)
+        @debug.assert_eq(b.bytes, original.bytes)
+        @debug.assert_eq(b.unused_bits, original.unused_bits)
       }
-      _ => assert_eq(true, false, msg="expected BitString")
+      _ => @debug.assert_eq(true, false, msg="expected BitString")
     }
   }
 }
@@ -592,8 +605,8 @@ test "time: UTCTime '230101000000Z'" {
   let bytes = enc.finish()
   let dec = @asn1.Decoder::new(bytes)
   match dec.read_element().value {
-    UtcTime(t) => assert_eq(t, s)
-    _ => assert_eq(true, false, msg="expected UtcTime")
+    UtcTime(t) => @debug.assert_eq(t, s)
+    _ => @debug.assert_eq(true, false, msg="expected UtcTime")
   }
 }
 
@@ -606,8 +619,8 @@ test "time: GeneralizedTime '20260525120000Z'" {
   )
   let dec = @asn1.Decoder::new(enc.finish())
   match dec.read_element().value {
-    GeneralizedTime(t) => assert_eq(t, s)
-    _ => assert_eq(true, false, msg="expected GeneralizedTime")
+    GeneralizedTime(t) => @debug.assert_eq(t, s)
+    _ => @debug.assert_eq(true, false, msg="expected GeneralizedTime")
   }
 }
 
@@ -653,15 +666,16 @@ test "top-level: encode_der / decode_der roundtrip" {
   )
   let bytes = @asn1.encode_der(original)
   let decoded = @asn1.decode_der(bytes)
-  assert_eq(decoded.tag, @asn1.tag_sequence)
+  @debug.assert_eq(decoded.tag, @asn1.tag_sequence)
 }
 
 ///|
 test "top-level: decode_der rejects trailing bytes" {
   let bytes : Bytes = b"\x05\x00\xff" // NULL + extra
-  match (try? @asn1.decode_der(bytes)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected TrailingBytes error")
+  try @asn1.decode_der(bytes) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected TrailingBytes error")
   }
 }
 
@@ -669,10 +683,10 @@ test "top-level: decode_der rejects trailing bytes" {
 test "top-level: decode_der_all multiple" {
   let bytes : Bytes = b"\x05\x00\x05\x00\x02\x01\x07" // NULL NULL INTEGER 7
   let elems = @asn1.decode_der_all(bytes)
-  assert_eq(elems.length(), 3)
+  @debug.assert_eq(elems.length(), 3)
   match elems[2].value {
-    Integer(b) => assert_eq(b, b"\x07")
-    _ => assert_eq(true, false, msg="expected Integer")
+    Integer(b) => @debug.assert_eq(b, b"\x07")
+    _ => @debug.assert_eq(true, false, msg="expected Integer")
   }
 }
 
@@ -683,7 +697,7 @@ test "tag: roundtrip universal 0..16384" {
     let original = @asn1.Tag::universal(n, constructed=n % 2U == 0U)
     @asn1.write_tag(enc, original)
     let decoded = @asn1.read_tag(@asn1.Decoder::new(enc.finish()))
-    assert_eq(decoded, original)
+    @debug.assert_eq(decoded, original)
   }
 }
 
@@ -718,15 +732,16 @@ test "security: nested SEQUENCE deeper than MAX_DEPTH rejected" {
     current = combined
     let _ = level
   }
-  match (try? @asn1.decode_der(current)) {
-    Err(@asn1.Unsupported(_)) => ()
-    Err(other) =>
-      assert_eq(
+  try @asn1.decode_der(current) catch {
+    @asn1.Unsupported(_) => ()
+    other =>
+      @debug.assert_eq(
         true,
         false,
-        msg="expected Unsupported, got " + other.to_string(),
+        msg="expected Unsupported, got " + repr(other),
       )
-    Ok(_) => assert_eq(true, false, msg="expected nested-too-deep rejection")
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected nested-too-deep rejection")
   }
 }
 
@@ -736,15 +751,17 @@ test "security: length exceeding max_input_size rejected" {
   // the 16 MiB cap. read_length should bail with Unsupported before any
   // allocation attempt.
   let bytes : Bytes = b"\x04\x84\x01\x00\x00\x01"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(@asn1.Unsupported(_)) => ()
-    Err(other) =>
-      assert_eq(
+  try @asn1.decode_der(bytes) catch {
+    @asn1.Unsupported(_) => ()
+    other =>
+      @debug.assert_eq(
         true,
         false,
-        msg="expected Unsupported, got " + other.to_string(),
+        msg="expected Unsupported, got " + repr(other),
       )
-    Ok(_) => assert_eq(true, false, msg="expected length-too-large rejection")
+  } noraise {
+    _ =>
+      @debug.assert_eq(true, false, msg="expected length-too-large rejection")
   }
 }
 
@@ -755,15 +772,16 @@ test "security: OID arc UInt overflow rejected" {
   // of data, well past the 32-bit ceiling.
   // First byte 0x2A (== 42) -> arc 1.2; then a giant continuation arc.
   let bytes : Bytes = b"\x06\x08\x2A\xFF\xFF\xFF\xFF\xFF\xFF\x7F"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(@asn1.InvalidEncoding(_)) => ()
-    Err(other) =>
-      assert_eq(
+  try @asn1.decode_der(bytes) catch {
+    @asn1.InvalidEncoding(_) => ()
+    other =>
+      @debug.assert_eq(
         true,
         false,
-        msg="expected InvalidEncoding, got " + other.to_string(),
+        msg="expected InvalidEncoding, got " + repr(other),
       )
-    Ok(_) => assert_eq(true, false, msg="expected OID overflow rejection")
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected OID overflow rejection")
   }
 }
 
@@ -774,15 +792,16 @@ test "security: non-minimal OID base-128 rejected" {
   // 0x80 means "continuation set, value bits = 0" which is an illegal
   // leading byte under X.690 §8.19.2.
   let bytes : Bytes = b"\x06\x04\x2A\x80\x86\x48"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(@asn1.InvalidEncoding(_)) => ()
-    Err(other) =>
-      assert_eq(
+  try @asn1.decode_der(bytes) catch {
+    @asn1.InvalidEncoding(_) => ()
+    other =>
+      @debug.assert_eq(
         true,
         false,
-        msg="expected InvalidEncoding, got " + other.to_string(),
+        msg="expected InvalidEncoding, got " + repr(other),
       )
-    Ok(_) => assert_eq(true, false, msg="expected non-minimal OID rejection")
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected non-minimal OID rejection")
   }
 }
 
@@ -791,16 +810,21 @@ test "security: INTEGER with redundant 0x00 padding rejected" {
   // 0x02 0x02 0x00 0x01 = INTEGER 1 with a redundant 0x00 prefix. Canonical
   // DER would encode 1 as 0x02 0x01 0x01. Per X.690 §8.3.2 this must reject.
   let bytes : Bytes = b"\x02\x02\x00\x01"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(@asn1.InvalidEncoding(_)) => ()
-    Err(other) =>
-      assert_eq(
+  try @asn1.decode_der(bytes) catch {
+    @asn1.InvalidEncoding(_) => ()
+    other =>
+      @debug.assert_eq(
         true,
         false,
-        msg="expected InvalidEncoding, got " + other.to_string(),
+        msg="expected InvalidEncoding, got " + repr(other),
       )
-    Ok(_) =>
-      assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
+  } noraise {
+    _ =>
+      @debug.assert_eq(
+        true,
+        false,
+        msg="expected non-canonical INTEGER rejection",
+      )
   }
 }
 
@@ -809,16 +833,21 @@ test "security: INTEGER with redundant 0xFF padding rejected" {
   // 0x02 0x02 0xFF 0xFF = -1 with redundant 0xFF padding. Canonical form
   // is 0x02 0x01 0xFF. Per X.690 §8.3.2 must reject.
   let bytes : Bytes = b"\x02\x02\xFF\xFF"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(@asn1.InvalidEncoding(_)) => ()
-    Err(other) =>
-      assert_eq(
+  try @asn1.decode_der(bytes) catch {
+    @asn1.InvalidEncoding(_) => ()
+    other =>
+      @debug.assert_eq(
         true,
         false,
-        msg="expected InvalidEncoding, got " + other.to_string(),
+        msg="expected InvalidEncoding, got " + repr(other),
       )
-    Ok(_) =>
-      assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
+  } noraise {
+    _ =>
+      @debug.assert_eq(
+        true,
+        false,
+        msg="expected non-canonical INTEGER rejection",
+      )
   }
 }
 
@@ -826,10 +855,15 @@ test "security: INTEGER with redundant 0xFF padding rejected" {
 test "security: INTEGER with zero length rejected" {
   // 0x02 0x00 = INTEGER with no content. Always invalid.
   let bytes : Bytes = b"\x02\x00"
-  match (try? @asn1.decode_der(bytes)) {
-    Err(_) => () // InvalidLength
-    Ok(_) =>
-      assert_eq(true, false, msg="expected zero-length INTEGER rejection")
+  try @asn1.decode_der(bytes) catch {
+    _ => () // InvalidLength
+  } noraise {
+    _ =>
+      @debug.assert_eq(
+        true,
+        false,
+        msg="expected zero-length INTEGER rejection",
+      )
   }
 }
 
@@ -841,8 +875,8 @@ test "security: canonical INTEGER 128 still accepted" {
   let bytes : Bytes = b"\x02\x02\x00\x80"
   let elem = @asn1.decode_der(bytes)
   match elem.value {
-    Integer(b) => assert_eq(b, b"\x00\x80")
-    _ => assert_eq(true, false, msg="expected Integer")
+    Integer(b) => @debug.assert_eq(b, b"\x00\x80")
+    _ => @debug.assert_eq(true, false, msg="expected Integer")
   }
 }
 
@@ -852,8 +886,8 @@ test "security: canonical INTEGER -128 still accepted" {
   let bytes : Bytes = b"\x02\x01\x80"
   let elem = @asn1.decode_der(bytes)
   match elem.value {
-    Integer(b) => assert_eq(b, b"\x80")
-    _ => assert_eq(true, false, msg="expected Integer")
+    Integer(b) => @debug.assert_eq(b, b"\x80")
+    _ => @debug.assert_eq(true, false, msg="expected Integer")
   }
 }
 
@@ -1040,7 +1074,7 @@ test "asn1: OID first subidentifier supports multi-byte base128" {
   let der = @asn1.encode_der(@asn1.Element::new(@asn1.tag_oid, Oid(oid)))
   let decoded = @asn1.decode_der(der)
   match decoded.value {
-    Oid(got) => assert_eq(got.to_string(), "2.999.1")
+    Oid(got) => @debug.assert_eq(got.to_string(), "2.999.1")
     _ => abort("expected OID")
   }
 }
@@ -1067,40 +1101,48 @@ test "asn1: from_arcs accepts well-formed OIDs" {
   // here; the security property (no aliasing between [5,10] and [2,130])
   // is enforced by abort() at the constructor edge.
   let ok = @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 3, 1, 7])
-  assert_eq(ok.arcs[0], 1U)
+  @debug.assert_eq(ok.arcs[0], 1U)
   let ok2 = @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19]) // basicConstraints
-  assert_eq(ok2.arcs.length(), 4)
+  @debug.assert_eq(ok2.arcs.length(), 4)
 }
 
 ///|
 test "asn1: from_arcs_checked raises on bad arc[0]" {
-  match (try? @asn1.ObjectIdentifier::from_arcs_checked([5U, 10U])) {
-    Err(InvalidEncoding(_)) => ()
-    other => abort("expected InvalidEncoding, got \{other}")
+  try @asn1.ObjectIdentifier::from_arcs_checked([5U, 10U]) catch {
+    InvalidEncoding(_) => ()
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
   }
 }
 
 ///|
 test "asn1: from_arcs_checked raises on arc[1] >= 40 with small arc[0]" {
-  match (try? @asn1.ObjectIdentifier::from_arcs_checked([1U, 40U])) {
-    Err(InvalidEncoding(_)) => ()
-    other => abort("expected InvalidEncoding, got \{other}")
+  try @asn1.ObjectIdentifier::from_arcs_checked([1U, 40U]) catch {
+    InvalidEncoding(_) => ()
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
   }
 }
 
 ///|
 test "asn1: from_arcs_checked raises on first-subidentifier overflow" {
-  match (try? @asn1.ObjectIdentifier::from_arcs_checked([2U, 0xFFFFFFFFU])) {
-    Err(InvalidEncoding(_)) => ()
-    other => abort("expected InvalidEncoding, got \{other}")
+  try @asn1.ObjectIdentifier::from_arcs_checked([2U, 0xFFFFFFFFU]) catch {
+    InvalidEncoding(_) => ()
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
   }
 }
 
 ///|
 test "asn1: from_string raises on arc overflow" {
-  match (try? @asn1.ObjectIdentifier::from_string("2.4294967296")) {
-    Err(InvalidEncoding(_)) => ()
-    other => abort("expected InvalidEncoding, got \{other}")
+  try @asn1.ObjectIdentifier::from_string("2.4294967296") catch {
+    InvalidEncoding(_) => ()
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
   }
 }
 
@@ -1109,5 +1151,5 @@ test "asn1: from_arcs_checked accepts valid OIDs" {
   let ok = @asn1.ObjectIdentifier::from_arcs_checked([
     1U, 2, 840, 113549, 1, 1, 11,
   ])
-  assert_eq(ok.arcs[0], 1U)
+  @debug.assert_eq(ok.arcs[0], 1U)
 }

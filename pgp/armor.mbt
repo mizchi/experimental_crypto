@@ -19,7 +19,7 @@ pub suberror PgpError {
   UnsupportedSignatureType(Int)
   InvalidMpi(String)
   Crypto(String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct Armored {
@@ -113,10 +113,10 @@ pub fn decode_armor(input : String) -> Armored raise PgpError {
 
 ///|
 fn parse_label(line : String, prefix : String, suffix : String) -> String? {
-  if not(starts_with(line, prefix)) {
+  if !starts_with(line, prefix) {
     return None
   }
-  if not(ends_with(line, suffix)) {
+  if !ends_with(line, suffix) {
     return None
   }
   Some(substring(line, prefix.length(), line.length() - suffix.length()))

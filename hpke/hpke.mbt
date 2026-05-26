@@ -50,7 +50,7 @@ pub suberror HpkeError {
   SequenceOverflow
   KdfFailure
   AeadFailure
-} derive(Show)
+} derive(Debug)
 
 // ─── Ciphersuite constants ────────────────────────────────────────────────
 
@@ -391,7 +391,7 @@ pub fn HpkeContext::open(
 ///                                               exporter_context, L)
 ///
 /// using the HPKE suite_id (not the KEM one).
-pub fn HpkeContext::export(
+pub fn HpkeContext::export_secret(
   self : HpkeContext,
   exporter_context : Bytes,
   length : Int,

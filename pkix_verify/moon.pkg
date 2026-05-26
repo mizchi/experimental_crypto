@@ -8,5 +8,6 @@ import {
 }
 
 import {
+  "moonbitlang/core/debug",
   "mizchi/pem",
 } for "test"

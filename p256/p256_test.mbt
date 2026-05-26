@@ -136,17 +136,17 @@ test "p256: wrong signature length rejected (Raw)" {
 }
 
 ///|
-test "p256: SignatureFormat Show" {
-  inspect(@p256.SignatureFormat::Raw, content="Raw")
-  inspect(@p256.SignatureFormat::Der, content="Der")
+test "p256: SignatureFormat Debug" {
+  @debug.assert_eq(@debug.to_string(@p256.SignatureFormat::Raw), "Raw")
+  @debug.assert_eq(@debug.to_string(@p256.SignatureFormat::Der), "Der")
 }
 
 ///|
 test "p256: roundtrip uncompressed" {
   let pk = rfc7515_a3_pubkey()
   let bytes = pk.to_uncompressed()
-  assert_eq(bytes.length(), 65)
-  assert_eq(bytes[0], b'\x04')
+  @debug.assert_eq(bytes.length(), 65)
+  @debug.assert_eq(bytes[0], b'\x04')
   let pk2 = @p256.PublicKey::from_uncompressed(bytes)
   assert_true(
     @p256.verify(pk2, rfc7515_a3_signing_input(), rfc7515_a3_signature(), Raw),
@@ -333,7 +333,7 @@ test "p256: sign+verify roundtrip is deterministic" {
   let sig1 = sk.sign(msg)
   let sig2 = sk.sign(msg)
   // Determinism: same input ⇒ same signature.
-  assert_eq(sig1, sig2)
+  @debug.assert_eq(sig1, sig2)
   // Verify.
   assert_true(@p256.verify(pk, msg, sig1, Raw))
 }
@@ -357,10 +357,11 @@ test "p256: sign tampered message produces a different signature" {
 test "p256: from_bytes rejects out-of-range scalar" {
   // All-zero scalar
   let zero = Bytes::makei(32, fn(_) { b'\x00' })
-  match (try? @p256.PrivateKey::from_bytes(zero)) {
-    Err(InvalidPrivateKey(_)) => ()
-    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
-    Ok(_) => abort("expected raise on zero scalar, got Ok")
+  try @p256.PrivateKey::from_bytes(zero) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected raise on zero scalar, got Ok")
   }
 }
 
@@ -373,7 +374,7 @@ test "p256: sign emits a DER signature when requested" {
   let pk = sk.public_key()
   let der_sig = sk.sign(b"sample", format=Der)
   // DER SEQUENCE prefix.
-  assert_eq(der_sig[0], b'\x30')
+  @debug.assert_eq(der_sig[0], b'\x30')
   assert_true(@p256.verify(pk, b"sample", der_sig, Der))
 }
 
@@ -404,9 +405,10 @@ test "ATTACK: p256.from_pkcs8_pem rejects a P-384 key blob (curve-OID downgrade)
     #|wHRhBlYjUd2NWqlqcc1QPABBoo5HuHj7sNHEDfgQ8aGzPpQkLDPDC6mxbLh8LDpD
     #|EQAdR3rdJ6X8/E1RoyA5pPaAg3yWcAuY9eOoyU1bU0POSI3JlmuamJg=
     #|-----END PRIVATE KEY-----
-  match (try? @p256.PrivateKey::from_pkcs8_pem(pem_text)) {
-    Err(InvalidPrivateKey(_)) => () // expected — wrong namedCurve
-    Ok(_) => abort("P-384 key silently loaded as P-256")
-    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
+  try @p256.PrivateKey::from_pkcs8_pem(pem_text) catch {
+    InvalidPrivateKey(_) => () // expected — wrong namedCurve
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("P-384 key silently loaded as P-256")
   }
 }

@@ -19,7 +19,7 @@ pub(all) enum Algorithm {
   Aes256Gcm
   ChaCha20Poly1305
   XChaCha20Poly1305
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub fn Algorithm::key_size(self : Algorithm) -> Int {
@@ -54,8 +54,7 @@ pub suberror AeadError {
   CiphertextTooShort
   AuthenticationFailed
   PlaintextTooLong
-  UnsupportedAlgorithm(Algorithm)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Encrypts `plaintext` with `key`, `nonce`, and additional authenticated

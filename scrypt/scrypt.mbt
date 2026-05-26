@@ -7,7 +7,7 @@ pub(all) struct Params {
   r : Int // block size factor. usually 8
   p : Int // parallelization factor. usually 1
   dk_len : Int // derived key length in bytes
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 /// Interactive baseline: log_n=15, r=8, p=1, dk_len=32.
@@ -24,11 +24,10 @@ pub fn Params::recommended_sensitive() -> Params {
 ///|
 pub suberror ScryptError {
   InvalidParams(String)
-  OutputTooLong
   Pbkdf2Failure
   InvalidEncoded(String)
   VerifyFailed
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Derives a key of `params.dk_len` bytes from `password` and `salt` using
@@ -353,7 +352,7 @@ pub fn verify_encoded(
 ) -> Unit raise ScryptError {
   let parsed = parse_phc(encoded)
   let expected = derive_key(parsed.params, password, parsed.salt)
-  if not(ct_eq_bytes(expected, parsed.hash)) {
+  if !ct_eq_bytes(expected, parsed.hash) {
     raise VerifyFailed
   }
 }
@@ -416,12 +415,12 @@ fn parse_phc(encoded : String) -> ParsedPhc raise ScryptError {
         // beyond a single 0. PHC string format spec §3.2 calls these
         // "decimal" parameter values; everything else makes verification
         // path-sensitive.
-        if not(is_canonical_decimal(v.to_string())) {
+        if !is_canonical_decimal(v.to_owned()) {
           raise InvalidEncoded(
             "non-canonical parameter value (expected unsigned decimal)",
           )
         }
-        let num = @strconv.parse_int(v) catch {
+        let num = @string.parse_int(v) catch {
           _ => raise InvalidEncoded("non-integer parameter value")
         }
         if k == "ln" {

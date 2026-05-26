@@ -13,7 +13,7 @@ pub suberror SshError {
   UnsupportedSigVersion(UInt)
   HashAlgorithmMismatch(String)
   InvalidSignature
-} derive(Show)
+} derive(Debug)
 
 ///|
 // Mutable cursor over an SSH wire format buffer.

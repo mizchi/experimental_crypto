@@ -28,22 +28,23 @@ test "fuzz pem: accepted block round-trips through encode/decode" {
   let n = 300
   let mut accepted = 0
   for input in (@quickcheck.samples(n) : Array[String]) {
-    match (try? @pem.decode(input)) {
-      Err(_) => () // expected for random strings
-      Ok(block) => {
+    try @pem.decode(input) catch {
+      _ => () // expected for random strings
+    } noraise {
+      block => {
         accepted = accepted + 1
         let re = @pem.encode(block)
         let decoded = try? @pem.decode(re)
         match decoded {
           Ok(block2) =>
-            assert_eq(
+            @debug.assert_eq(
               block2,
               block,
               msg="pem roundtrip broken on accepted input",
             )
           Err(e) =>
             // Re-encoded output should always be decodable again.
-            fail("re-encoded pem failed to decode: \{e}")
+            fail("re-encoded pem failed to decode: " + @debug.to_string(e) + "")
         }
       }
     }
@@ -73,7 +74,11 @@ test "fuzz pem: encode_simple → decode preserves data" {
     let label = if cleaned.length() == 0 { "TEST DATA" } else { cleaned }
     let encoded = @pem.encode_simple(label, data)
     let block = @pem.decode(encoded)
-    assert_eq(block.data, data, msg="encode_simple/decode data mismatch")
-    assert_eq(block.label, label, msg="encode_simple/decode label mismatch")
+    @debug.assert_eq(block.data, data, msg="encode_simple/decode data mismatch")
+    @debug.assert_eq(
+      block.label,
+      label,
+      msg="encode_simple/decode label mismatch",
+    )
   }
 }

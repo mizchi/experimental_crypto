@@ -59,7 +59,7 @@ fn make_odd_modulus(b : Bytes, limb_count : Int) -> @crypto_bigint.Uint {
   buf[0] = (buf[0].to_int() | 0x80).to_byte()
   // Force the least significant byte to be odd.
   buf[target - 1] = (buf[target - 1].to_int() | 0x01).to_byte()
-  @crypto_bigint.Uint::from_be_bytes(Bytes::from_fixedarray(buf), limb_count) catch {
+  @crypto_bigint.Uint::from_be_bytes(Bytes::from_array(buf), limb_count) catch {
     _ => abort("unreachable")
   }
 }
@@ -123,7 +123,7 @@ test "fuzz crypto_bigint: from_be_bytes / to_be_bytes round-trip" {
       _ => abort("unreachable")
     }
     let out = u.to_be_bytes()
-    assert_eq(out, b)
+    @debug.assert_eq(out, b)
   }
 }
 
@@ -136,7 +136,7 @@ test "fuzz crypto_bigint: from_le_bytes / to_le_bytes round-trip" {
       _ => abort("unreachable")
     }
     let out = u.to_le_bytes()
-    assert_eq(out, b)
+    @debug.assert_eq(out, b)
   }
 }
 
@@ -175,11 +175,12 @@ test "fuzz crypto_bigint: inv_mod(a, m) * a == 1 mod m when invertible" {
     if @crypto_bigint.Uint::ct_eq(a, @crypto_bigint.Uint::zero(LIMB_COUNT)) {
       continue
     }
-    match (try? a.inv_mod(m)) {
-      Err(_) =>
+    try a.inv_mod(m) catch {
+      _ =>
         // gcd(a, m) != 1: legitimate failure, nothing to check.
         ()
-      Ok(inv) => {
+    } noraise {
+      inv => {
         let prod = a.mul_mod(inv, m)
         assert_true(
           @crypto_bigint.Uint::ct_eq(prod, @crypto_bigint.Uint::one(LIMB_COUNT)),

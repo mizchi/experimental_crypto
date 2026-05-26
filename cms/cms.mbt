@@ -36,7 +36,7 @@ pub suberror CmsError {
   Rsa(@rsa.RsaError)
   P256(@p256.P256Error)
   P384(@p384.P384Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct CmsSignedData {
@@ -171,7 +171,7 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
       // certificates [0] IMPLICIT SET — content is a sequence of cert DERs
       let bytes = extract_context_implicit(item)
       let inner_dec = @asn1.Decoder::new(bytes)
-      while not(inner_dec.is_empty()) {
+      while !inner_dec.is_empty() {
         let cert_elem = inner_dec.read_element() catch { e => raise Asn1(e) }
         let cert_bytes = @asn1.encode_der(cert_elem)
         let cert = @pkix.parse_certificate(cert_bytes) catch {
@@ -606,7 +606,7 @@ fn parse_attributes(
 ) -> Array[CmsAttribute] raise CmsError {
   let dec = @asn1.Decoder::new(attrs_content)
   let out : Array[CmsAttribute] = []
-  while not(dec.is_empty()) {
+  while !dec.is_empty() {
     let attr_elem = dec.read_element() catch { e => raise Asn1(e) }
     let items = expect_sequence(attr_elem, "Attribute")
     if items.length() != 2 {
@@ -651,7 +651,7 @@ pub fn verify_with_chain(
   trust_anchor_pubkey : @pkix_verify.PublicKey,
   now : String,
 ) -> Bool raise CmsError {
-  if not(verify_detached(sd, message)) {
+  if !verify_detached(sd, message) {
     return false
   }
   @pkix_verify.verify_chain(

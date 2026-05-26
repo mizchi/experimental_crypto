@@ -126,7 +126,7 @@ test "verify_sign1: tampered signature is rejected" {
   }
   tampered[tampered.length() - 1] = (tampered[tampered.length() - 1].to_int() ^
   0x01).to_byte()
-  let bad_sig = Bytes::from_fixedarray(tampered)
+  let bad_sig = Bytes::from_array(tampered)
   let cose_sign1 = @cbor.encode(
     Array([Bytes(protected_bytes), Map([]), Bytes(payload), Bytes(bad_sig)]),
   )

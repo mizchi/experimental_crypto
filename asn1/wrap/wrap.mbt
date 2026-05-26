@@ -17,7 +17,9 @@
 ///   n < 2^16 → 3   (0x82 + 2 bytes)
 ///   n < 2^24 → 4   (0x83 + 3 bytes)
 ///   n ≤ 2^31 - 1 → 5  (0x84 + 4 bytes)
-pub fn der_length_prefix_size(n : Int) -> Int where {
+pub fn der_length_prefix_size(
+  n : Int,
+) -> Int where {
   proof_require: n >= 0,
   proof_require: n <= 2147483647,
   proof_ensure: result => 1 <= result,

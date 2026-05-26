@@ -69,7 +69,7 @@ fn parse_pbes2_params(
 }
 
 ///|
-struct Pbes2Kdf {
+priv struct Pbes2Kdf {
   salt : Bytes
   iterations : Int
   key_length : Int? // OPTIONAL keyLength; encryption-scheme implies if absent.
@@ -77,7 +77,7 @@ struct Pbes2Kdf {
 }
 
 ///|
-struct Pbes2Cipher {
+priv struct Pbes2Cipher {
   // We only support AES-{128,256}-CBC; the cipher is implied by key_size +
   // the AES-CBC entry point. Keeping this struct minimal so it does not
   // pretend to express more than we actually decrypt.

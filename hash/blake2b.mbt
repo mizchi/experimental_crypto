@@ -13,7 +13,7 @@
 pub suberror Blake2bError {
   InvalidOutputLength
   InvalidKeyLength
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// BLAKE2b IV (RFC 7693 §2.6).

@@ -8,13 +8,13 @@ pub(all) struct PrivateKeyInfo {
   private_key : Bytes // contents of the OCTET STRING privateKey (algorithm-specific)
   attributes : Array[@asn1.Element] // [0] IMPLICIT Attributes OPTIONAL
   public_key : @asn1.BitString? // [1] IMPLICIT PublicKey, v2 only
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct EncryptedPrivateKeyInfo {
   algorithm : @pkix.AlgorithmIdentifier
   encrypted_data : Bytes
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror Pkcs8Error {
@@ -29,7 +29,7 @@ pub suberror Pkcs8Error {
   InvalidPadding
   Pbkdf2(@pbkdf2.Pbkdf2Error)
   Aead(@aead.AeadError)
-} derive(Show)
+} derive(Debug)
 
 ///|
 let label_private_key : String = "PRIVATE KEY"
@@ -117,7 +117,7 @@ fn match_context_implicit_set(
   }
   // [n] IMPLICIT SET OF Attribute: tag bits 0x80 | constructed | n.
   // The implicit replacement loses the SET tag, but the constructed bit is preserved.
-  if not(elem.tag.constructed) {
+  if !elem.tag.constructed {
     raise UnexpectedStructure(
       "[" + number.to_string() + "] IMPLICIT SET must be constructed",
     )
@@ -127,7 +127,7 @@ fn match_context_implicit_set(
       let inner = @asn1.Decoder::new(raw)
       let items : Array[@asn1.Element] = []
       let mut prev : Bytes? = None
-      while not(inner.is_empty()) {
+      while !inner.is_empty() {
         let item = inner.read_element() catch { e => raise Asn1(e) }
         let current = @asn1.encode_der(item)
         match prev {
@@ -264,7 +264,7 @@ fn wrap_context_implicit_bit_string(
   bs : @asn1.BitString,
 ) -> @asn1.Element {
   validate_bit_string_tail(bs.bytes, bs.unused_bits) catch {
-    e => abort("invalid context BIT STRING: \{e}")
+    e => abort("invalid context BIT STRING: " + @debug.to_string(e))
   }
   let buf = Buffer()
   buf.write_byte(bs.unused_bits.to_byte())

@@ -1,5 +1,6 @@
 import {
   "moonbitlang/core/bigint",
+  "moonbitlang/core/debug",
   "mizchi/asn1",
   "mizchi/pkcs8",
   "mizchi/pem",
@@ -7,6 +8,7 @@ import {
 }
 
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
 } for "test"
