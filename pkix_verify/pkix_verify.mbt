@@ -344,11 +344,18 @@ fn parse_dns_name_constraints(
           Unknown(raw) => target_array.push(bytes_to_ascii(raw))
           _ => ()
         }
+      } else if base.tag.class_ == @asn1.TagClass::ContextSpecific {
+        // A non-DNS GeneralName form (IP=7, RFC822=1, URI=6, DN=4, ...).
+        // We have no enforcement logic for these. Fail closed: silently
+        // accepting would let an attacker hide constraints behind a
+        // GeneralName form we don't understand. Per RFC 5280 §4.2.1.10
+        // unrecognised name forms mean the chain MUST be rejected.
+        raise MalformedExtension(
+          "nameConstraints: unsupported GeneralName tag " +
+          base.tag.number.to_string() +
+          " (only dNSName=2 is implemented)",
+        )
       }
-      // Non-DNS subtree kinds (IP, RFC822, ...) are intentionally ignored
-      // here. This is a known under-enforcement: a permittedSubtrees with
-      // ONLY non-DNS entries would falsely become "no DNS restriction" in
-      // our model. Tracked in the recognised-but-not-enforced comment.
     }
   }
   { permitted, excluded }

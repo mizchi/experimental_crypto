@@ -976,3 +976,93 @@ test "required_eku: leaf with matching EKU passes" {
     opts,
   )
 }
+
+// -----------------------------------------------------------------------------
+// pathLenConstraint sanity (RFC 5280 §4.2.1.9)
+// -----------------------------------------------------------------------------
+
+///|
+// Build a 3-cert chain: anchor → I1 → I0 → leaf, where I1 carries
+// pathLenConstraint = 0. RFC: I1 says "at most 0 non-self CAs may follow
+// me", but the chain has one (I0) before the leaf → reject.
+test "ATTACK: pathLenConstraint=0 with intermediate before leaf must reject" {
+  let i1_seed = "abababababababababababababababababababababababababababababababab"
+  let i0_seed = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  let leaf_seed = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+  let ku = key_usage_ext(true, true)
+  let (i1_cert, _) = build_self_signed_ed25519(
+    i1_seed,
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_pathlen_ext(0), ku],
+  )
+  let (i0_cert, _) = build_ed25519_cert(
+    i0_seed,
+    "I0",
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+    i1_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "I0",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    i0_seed,
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    i1_cert.tbs.subject_public_key_info,
+  )
+  match
+    (try? @pkix_verify.verify_chain(
+      leaf,
+      [i0_cert, i1_cert],
+      anchor_pk,
+      "250601000000Z",
+    )) {
+    Err(PathLengthExceeded) => ()
+    other => abort("pathLen=0 + 1 intermediate NOT rejected: \{other}")
+  }
+}
+
+///|
+test "pathLenConstraint=1 with one intermediate before leaf passes" {
+  let i1_seed = "1212121212121212121212121212121212121212121212121212121212121212"
+  let i0_seed = "3434343434343434343434343434343434343434343434343434343434343434"
+  let leaf_seed = "5656565656565656565656565656565656565656565656565656565656565656"
+  let (i1_cert, _) = build_self_signed_ed25519(
+    i1_seed,
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_pathlen_ext(1), key_usage_ext(true, true)],
+  )
+  let (i0_cert, _) = build_ed25519_cert(
+    i0_seed,
+    "I0",
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+    i1_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "I0",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    i0_seed,
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    i1_cert.tbs.subject_public_key_info,
+  )
+  // Should pass — I1 allows 1 sub-CA, I0 is exactly that.
+  @pkix_verify.verify_chain(leaf, [i0_cert, i1_cert], anchor_pk, "250601000000Z")
+}

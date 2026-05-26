@@ -652,16 +652,35 @@ pub fn Encoder::new() -> Encoder {
 ///|
 pub fn Encoder::write_element(self : Encoder, element : Element) -> Unit {
   // Single-pass encoding: compute payload size first (alloc-free traversal),
-  // then write tag + length + payload directly into the outer buffer. This
-  // avoids the inner Encoder + Bytes copy that the old two-pass version did.
-  let payload_size = value_encoded_size(element.value)
-  write_tag(self, element.tag)
-  write_length(self, payload_size)
-  encode_value(self, element.value)
+  // then write tag + length + payload directly into the outer buffer.
+  // Depth is bounded the same way the decoder bounds it (MAX_DEPTH=32);
+  // without this an attacker-constructed Element with deeply nested
+  // Sequence/Set could overflow the native stack via mutual recursion of
+  // value_encoded_size and element_encoded_size.
+  write_element_at(self, element, 0)
+}
+
+///|
+fn write_element_at(enc : Encoder, element : Element, depth : Int) -> Unit {
+  if depth > MAX_DEPTH {
+    abort("asn1 encoder: depth exceeds MAX_DEPTH")
+  }
+  let payload_size = value_encoded_size_at(element.value, depth)
+  write_tag(enc, element.tag)
+  write_length(enc, payload_size)
+  encode_value_at(enc, element.value, depth)
 }
 
 ///|
 fn value_encoded_size(value : Value) -> Int {
+  value_encoded_size_at(value, 0)
+}
+
+///|
+fn value_encoded_size_at(value : Value, depth : Int) -> Int {
+  if depth > MAX_DEPTH {
+    abort("asn1 encoder: depth exceeds MAX_DEPTH")
+  }
   match value {
     Null => 0
     Boolean(_) => 1
@@ -677,7 +696,7 @@ fn value_encoded_size(value : Value) -> Int {
     Sequence(items) | Set(items) => {
       let mut total = 0
       for item in items {
-        total = total + element_encoded_size(item)
+        total = total + element_encoded_size_at(item, depth + 1)
       }
       total
     }
@@ -687,7 +706,12 @@ fn value_encoded_size(value : Value) -> Int {
 
 ///|
 fn element_encoded_size(elem : Element) -> Int {
-  let payload = value_encoded_size(elem.value)
+  element_encoded_size_at(elem, 0)
+}
+
+///|
+fn element_encoded_size_at(elem : Element, depth : Int) -> Int {
+  let payload = value_encoded_size_at(elem.value, depth)
   tag_encoded_size(elem.tag) + length_encoded_size(payload) + payload
 }
 
@@ -769,6 +793,11 @@ fn utf8_byte_count(s : String) -> Int {
 
 ///|
 fn encode_value(enc : Encoder, value : Value) -> Unit {
+  encode_value_at(enc, value, 0)
+}
+
+///|
+fn encode_value_at(enc : Encoder, value : Value, depth : Int) -> Unit {
   match value {
     Null => ()
     Boolean(b) => enc.buf.write_byte((if b { 0xFF } else { 0 }).to_byte())
@@ -781,7 +810,7 @@ fn encode_value(enc : Encoder, value : Value) -> Unit {
     GeneralizedTime(s) => encode_ascii_string(enc, s)
     Sequence(items) | Set(items) =>
       for item in items {
-        enc.write_element(item)
+        write_element_at(enc, item, depth + 1)
       }
     BitString(bs) => {
       enc.buf.write_byte(bs.unused_bits.to_byte())

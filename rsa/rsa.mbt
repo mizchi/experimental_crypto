@@ -410,14 +410,6 @@ pub fn RsaPrivateKey::sign(
   s.to_octets(length=self.n_bytes_len)
 }
 
-///|
-fn strip_zero(b : Bytes) -> Bytes {
-  if b.length() > 1 && b[0] == b'\x00' {
-    Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
-  } else {
-    b
-  }
-}
 
 // ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
 

@@ -24,6 +24,10 @@ pub suberror CmsError {
   Malformed(String)
   NoSignerInfo
   NoSignerCertificate
+  // Signer cert (matching SignerInfo.sid) is not in the certificates SET.
+  SignerCertificateNotFound
+  // [0] subjectKeyIdentifier sid form is not yet implemented.
+  UnsupportedSid(String)
   UnsupportedDigestAlgorithm(@asn1.ObjectIdentifier)
   UnsupportedSignatureAlgorithm(@asn1.ObjectIdentifier)
   MessageDigestMismatch
@@ -46,6 +50,11 @@ pub(all) struct CmsSignedData {
 
 ///|
 pub(all) struct SignerInfoFields {
+  // Signer identifier — only issuerAndSerialNumber is supported (the
+  // dominant choice for openssl/gpgsm-produced CMS). `[0] subjectKeyIdentifier`
+  // is recognised at parse time and rejected via UnsupportedSid below.
+  sid_issuer : Bytes // raw DER of the Name SEQUENCE
+  sid_serial : Bytes // raw INTEGER content
   digest_alg : @asn1.ObjectIdentifier
   // Raw content bytes of the [0] IMPLICIT signed_attrs field (without
   // the [0] tag/length header). Needed to (a) extract the messageDigest
@@ -196,10 +205,25 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
     raise Malformed("multi-signer SignedData not supported")
   }
   let signer = parse_signer_info(si_list[0])
-  let signer_cert = certs[0]
+  // Locate the signer's cert by IssuerAndSerialNumber match. The bundle
+  // may carry intermediate certs in any order; the previous "always
+  // certs[0]" assumption broke multi-cert bundles.
+  let mut signer_idx = -1
+  for i = 0; i < certs.length(); i = i + 1 {
+    if cert_matches_sid(certs[i], signer.sid_issuer, signer.sid_serial) {
+      signer_idx = i
+      break
+    }
+  }
+  if signer_idx < 0 {
+    raise SignerCertificateNotFound
+  }
+  let signer_cert = certs[signer_idx]
   let extra_certs : Array[@pkix.Certificate] = []
-  for i = 1; i < certs.length(); i = i + 1 {
-    extra_certs.push(certs[i])
+  for i = 0; i < certs.length(); i = i + 1 {
+    if i != signer_idx {
+      extra_certs.push(certs[i])
+    }
   }
   { signer_cert, extra_certs, signer }
 }
@@ -217,6 +241,7 @@ fn parse_signer_info(
   // 2: digestAlgorithm
   // 3 (optional): [0] IMPLICIT signedAttrs
   // -3 .. -1: signatureAlgorithm, signature, [optional [1] unsignedAttrs]
+  let (sid_issuer, sid_serial) = parse_signer_identifier(items[1])
   let digest_alg_items = expect_sequence(items[2], "SignerInfo.digestAlgorithm")
   let digest_alg = expect_oid(digest_alg_items[0], "digestAlgorithm.algorithm")
   let mut idx = 3
@@ -237,7 +262,73 @@ fn parse_signer_info(
     Some(b) => b
     None => raise Malformed("signedAttrs required (detached CMS must hash content)")
   }
-  { digest_alg, signed_attrs_content: attrs, signature_alg, signature }
+  {
+    sid_issuer,
+    sid_serial,
+    digest_alg,
+    signed_attrs_content: attrs,
+    signature_alg,
+    signature,
+  }
+}
+
+///|
+// SignerIdentifier ::= CHOICE {
+//   issuerAndSerialNumber IssuerAndSerialNumber,    -- SEQUENCE
+//   subjectKeyIdentifier [0] SubjectKeyIdentifier   -- OCTET STRING
+// }
+// IssuerAndSerialNumber ::= SEQUENCE {
+//   issuer Name,
+//   serialNumber CertificateSerialNumber          -- INTEGER
+// }
+// Compare a cert's issuer/serial to a parsed SignerIdentifier. Issuer
+// match is byte-exact on the DER-encoded Name; serial match strips any
+// leading 0x00 sign byte from both sides.
+fn cert_matches_sid(
+  cert : @pkix.Certificate,
+  sid_issuer : Bytes,
+  sid_serial : Bytes,
+) -> Bool {
+  let cert_issuer_der = @pkix.serialize_name(cert.tbs.issuer)
+  if cert_issuer_der != sid_issuer {
+    return false
+  }
+  // serialNumber INTEGER content. cert.tbs.serial_number is stored
+  // exactly as the DER content bytes; same for sid_serial. Strip a
+  // single leading 0x00 sign byte to normalise.
+  let a = strip_int_sign(cert.tbs.serial_number)
+  let b = strip_int_sign(sid_serial)
+  a == b
+}
+
+///|
+fn strip_int_sign(b : Bytes) -> Bytes {
+  if b.length() > 1 && b[0] == b'\x00' {
+    Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  } else {
+    b
+  }
+}
+
+///|
+fn parse_signer_identifier(
+  elem : @asn1.Element,
+) -> (Bytes, Bytes) raise CmsError {
+  if elem.tag.class_ == @asn1.TagClass::ContextSpecific && elem.tag.number == 0U {
+    raise UnsupportedSid("subjectKeyIdentifier")
+  }
+  let items = expect_sequence(elem, "SignerInfo.sid (issuerAndSerialNumber)")
+  if items.length() != 2 {
+    raise Malformed("IssuerAndSerialNumber arity != 2")
+  }
+  // Re-encode the issuer Name as DER so we can byte-compare against
+  // certificate subject DNs later.
+  let issuer_der = @asn1.encode_der(items[0])
+  let serial = match items[1].value {
+    Integer(b) => b
+    _ => raise Malformed("IssuerAndSerialNumber.serialNumber not INTEGER")
+  }
+  (issuer_der, serial)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
