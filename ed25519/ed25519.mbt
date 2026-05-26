@@ -1045,8 +1045,67 @@ fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
 }
 
 ///|
+// Precomputed table of small positive multiples of the base point:
+//   ed_base_table[i] = i * B   for i in 0 ..= 15.
+// Used by the 4-bit-windowed `ed25519_scalar_base_mult` to skip 192 of
+// the 256 conditional adds that bit-by-bit double-and-add does. Stored
+// as Edwards extended (X, Y, Z, T) so we can plug entries straight into
+// `ed_point_add`.
+let ed_base_table : FixedArray[EdPoint] = make_ed_base_table()
+
+///|
+fn make_ed_base_table() -> FixedArray[EdPoint] {
+  let t = FixedArray::make(16, ed_identity())
+  t[1] = ed_base
+  for i = 2; i < 16; i = i + 1 {
+    t[i] = ed_point_add(t[i - 1], ed_base)
+  }
+  t
+}
+
+///|
+// Constant-time table mux: returns t[idx] for idx ∈ 0..15 without
+// branching on idx. Used by the windowed base-mult so the secret scalar
+// nibble never directly selects a memory address.
+fn ed_base_table_lookup(idx : Int) -> EdPoint {
+  let mut result = ed_identity()
+  for i = 0; i < 16; i = i + 1 {
+    // bit is 1 when i == idx, 0 otherwise — produced by `subtraction +
+    // compare with zero` so the branch is on a constant relative to the
+    // loop, not on idx itself.
+    let eq = if i == idx { 1UL } else { 0UL }
+    result = ed_point_cmov(result, ed_base_table[i], eq)
+  }
+  result
+}
+
+///|
+// Windowed base-point scalar multiplication, 4 bits at a time. 256
+// doublings + 64 table-lookup-adds, vs the naïve 256 doublings + 256
+// adds. Constant-time over the scalar via `ed_base_table_lookup`.
 fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
-  ed_scalar_mult_point(scalar, ed_base)
+  let s = (scalar % ed_l + ed_l) % ed_l
+  let s_bytes = scalar_to_le_bytes(s)
+  let mut q = ed_identity()
+  // High-to-low byte-by-byte, two 4-bit windows per byte.
+  for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
+    let byte = s_bytes[byte_idx].to_int()
+    // High nibble
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    let high = (byte >> 4) & 0xF
+    q = ed_point_add(q, ed_base_table_lookup(high))
+    // Low nibble
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    let low = byte & 0xF
+    q = ed_point_add(q, ed_base_table_lookup(low))
+  }
+  q
 }
 
 ///|
