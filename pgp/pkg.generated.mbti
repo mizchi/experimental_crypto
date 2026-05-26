@@ -1,0 +1,105 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pgp"
+
+import {
+  "mizchi/ed25519",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/rsa",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub let algo_ecdsa : Int
+
+pub let algo_ed25519 : Int
+
+pub let algo_eddsa_legacy : Int
+
+pub let algo_rsa_sign_or_encrypt : Int
+
+pub fn compute_signature_digest(PgpSignature, Bytes) -> Bytes raise PgpError
+
+pub fn decode_armor(String) -> Armored raise PgpError
+
+pub let hash_sha256 : Int
+
+pub let hash_sha384 : Int
+
+pub let hash_sha512 : Int
+
+pub fn parse_packets(Bytes) -> Array[PgpPacket] raise PgpError
+
+pub fn parse_pubkey_armor(String) -> PgpPublicKeyPacket raise PgpError
+
+pub fn parse_public_key_packet(Bytes) -> PgpPublicKeyPacket raise PgpError
+
+pub fn parse_signature_packet(Bytes) -> PgpSignature raise PgpError
+
+pub fn read_mpi(Bytes, Int) -> (Bytes, Int) raise PgpError
+
+pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int, creation_time? : UInt, version? : Int) -> String raise PgpError
+
+pub fn verify_armor(String, Bytes, PgpPublicKey) -> Bool raise PgpError
+
+// Errors
+pub suberror PgpError {
+  ArmorMalformed(String)
+  ArmorCrcMismatch
+  PacketTooShort(String)
+  UnsupportedPacketVersion(Int)
+  UnsupportedPubkeyAlgo(Int)
+  UnsupportedHashAlgo(Int)
+  UnsupportedSignatureType(Int)
+  InvalidMpi(String)
+  Crypto(String)
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct Armored {
+  label : String
+  data : Bytes
+}
+
+pub(all) struct PgpPacket {
+  tag : Int
+  body : Bytes
+}
+
+pub(all) enum PgpPrivateKey {
+  Ed25519(@ed25519.PrivateKey)
+  Rsa(@rsa.RsaPrivateKey)
+  EcdsaP256(@p256.PrivateKey)
+  EcdsaP384(@p384.PrivateKey)
+}
+
+pub(all) enum PgpPublicKey {
+  Ed25519(@ed25519.PublicKey)
+  Rsa(@rsa.RsaPublicKey)
+  EcdsaP256(@p256.PublicKey)
+  EcdsaP384(@p384.PublicKey)
+}
+
+pub(all) struct PgpPublicKeyPacket {
+  version : Int
+  creation_time : UInt
+  algo : Int
+  key : PgpPublicKey
+}
+
+pub(all) struct PgpSignature {
+  version : Int
+  sig_type : Int
+  pubkey_algo : Int
+  hash_algo : Int
+  hashed_subpackets_raw : Bytes
+  hashed_subpackets_body : Bytes
+  left16 : UInt
+  salt : Bytes
+  signature_material : Bytes
+}
+
+// Type aliases
+
+// Traits
+

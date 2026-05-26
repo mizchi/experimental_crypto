@@ -2,7 +2,7 @@
 // algorithm (ChaCha20Poly1305, Aes128Gcm, Aes256Gcm) we check four
 // invariants on random inputs drawn from core/quickcheck:
 //   (1) seal/open is a roundtrip: open(seal(p)) == p
-//   (2) flipping any single bit in the sealed output causes open to fail
+//   (2) flipping any single bit in the sealed_bytes output causes open to fail
 //       authentication (a tag-bit flip will always reject; a ciphertext-
 //       bit flip can in principle still authenticate with vanishing
 //       probability ≈ 2^-128, so we accept that astronomical fluke).
@@ -71,9 +71,9 @@ fn fuzz_roundtrip(alg : @aead.Algorithm) -> Unit raise {
     let nonce = ensure_length(nonces[i], alg.nonce_size())
     let aad = aads[i]
     let p = plaintexts[i]
-    let sealed = @aead.seal(alg, key, nonce, aad, p)
-    let opened = @aead.open(alg, key, nonce, aad, sealed)
-    assert_eq(opened, p)
+    let sealed_bytes = @aead.seal(alg, key, nonce, aad, p)
+    let opened = @aead.open(alg, key, nonce, aad, sealed_bytes)
+    @debug.assert_eq(opened, p)
   }
 }
 
@@ -105,21 +105,22 @@ fn fuzz_tamper(alg : @aead.Algorithm) -> Unit raise {
     let nonce = ensure_length(nonces[i], alg.nonce_size())
     let aad = aads[i]
     let p = plaintexts[i]
-    let sealed = @aead.seal(alg, key, nonce, aad, p)
-    if sealed.length() == 0 {
+    let sealed_bytes = @aead.seal(alg, key, nonce, aad, p)
+    if sealed_bytes.length() == 0 {
       continue
     }
-    let total_bits = sealed.length() * 8
+    let total_bits = sealed_bytes.length() * 8
     let raw = bit_indices[i]
     let positive = if raw < 0 { -raw } else { raw }
     let bit = positive % total_bits
-    let tampered = flip_bit(sealed, bit)
-    if tampered == sealed {
+    let tampered = flip_bit(sealed_bytes, bit)
+    if tampered == sealed_bytes {
       continue
     }
-    match (try? @aead.open(alg, key, nonce, aad, tampered)) {
-      Err(_) => () // expected
-      Ok(out) =>
+    try @aead.open(alg, key, nonce, aad, tampered) catch {
+      _ => () // expected
+    } noraise {
+      out =>
         // A bit flip in the ciphertext (not the tag) can in principle yield
         // a plaintext that authenticates; only fail if the recovered text
         // somehow matches the original (which would mean no tamper at all).
@@ -157,11 +158,12 @@ fn fuzz_wrong_aad(alg : @aead.Algorithm) -> Unit raise {
     let nonce = ensure_length(nonces[i], alg.nonce_size())
     let aad = aads[i]
     let p = plaintexts[i]
-    let sealed = @aead.seal(alg, key, nonce, aad, p)
+    let sealed_bytes = @aead.seal(alg, key, nonce, aad, p)
     let wrong_aad : Bytes = if aad == b"" { b"\xff" } else { b"" }
-    match (try? @aead.open(alg, key, nonce, wrong_aad, sealed)) {
-      Err(_) => () // expected
-      Ok(_) => fail("open with wrong aad must reject")
+    try @aead.open(alg, key, nonce, wrong_aad, sealed_bytes) catch {
+      _ => () // expected
+    } noraise {
+      _ => fail("open with wrong aad must reject")
     }
   }
 }
@@ -206,5 +208,5 @@ fn algs_used() -> Int {
 
 ///|
 test "fuzz aead: algorithm list sanity" {
-  assert_eq(algs_used(), 3)
+  @debug.assert_eq(algs_used(), 3)
 }

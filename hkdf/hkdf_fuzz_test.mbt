@@ -34,7 +34,7 @@ test "fuzz hkdf: determinism" {
     let b = @hkdf.hkdf(Sha256, salt, ikm, info, 32) catch {
       _ => abort("unreachable")
     }
-    assert_eq(a, b)
+    @debug.assert_eq(a, b)
   }
 }
 
@@ -47,7 +47,7 @@ test "fuzz hkdf: length parameter respected" {
     let out = @hkdf.hkdf(Sha256, salt, ikm, b"", length) catch {
       _ => abort("unreachable")
     }
-    assert_eq(out.length(), length)
+    @debug.assert_eq(out.length(), length)
   }
 }
 
@@ -73,22 +73,25 @@ test "fuzz hkdf: expand rejects length > 255 * 32" {
   let prk = @hkdf.extract(Sha256, b"", b"\x00") catch {
     _ => abort("unreachable")
   }
-  match (try? @hkdf.expand(Sha256, prk, b"", 255 * 32 + 1)) {
-    Err(_) => ()
-    Ok(_) => fail("expected OutputTooLong")
+  try @hkdf.expand(Sha256, prk, b"", 255 * 32 + 1) catch {
+    _ => ()
+  } noraise {
+    _ => fail("expected OutputTooLong")
   }
 }
 
 ///|
 test "fuzz hkdf: SHA-384 / SHA-512 are UnsupportedHash" {
   for ikm in (@quickcheck.samples(10) : Array[Bytes]) {
-    match (try? @hkdf.hkdf(Sha384, b"", ikm, b"", 32)) {
-      Err(_) => ()
-      Ok(_) => fail("Sha384 should error")
+    try @hkdf.hkdf(Sha384, b"", ikm, b"", 32) catch {
+      _ => ()
+    } noraise {
+      _ => fail("Sha384 should error")
     }
-    match (try? @hkdf.hkdf(Sha512, b"", ikm, b"", 32)) {
-      Err(_) => ()
-      Ok(_) => fail("Sha512 should error")
+    try @hkdf.hkdf(Sha512, b"", ikm, b"", 32) catch {
+      _ => ()
+    } noraise {
+      _ => fail("Sha512 should error")
     }
   }
 }

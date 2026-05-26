@@ -3,6 +3,7 @@ package "mizchi/naclbox"
 
 import {
   "mizchi/x25519",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -27,7 +28,7 @@ pub suberror NaclBoxError {
   InvalidCiphertextLength(Int)
   AuthenticationFailed
   KeyGenerationError(String)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct KeyPair {

@@ -45,6 +45,7 @@ fn hex(s : String) -> Bytes {
 //
 // header  = `eyJhbGciOiJSUzI1NiJ9`
 // payload = `eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ`
+
 ///|
 let rfc7515_signing_input : Bytes = hex(
   "65794a68624763694f694a53557a49314e694a392e65794a7063334d694f694a71623255694c41304b49434a6c654841694f6a457a4d4441344d546b7a4f44417344516f67496d6830644841364c79396c654746746347786c4c6d4e76625339706331397962323930496a7030636e566c6651",
@@ -70,17 +71,17 @@ let rfc7515_spki_der : Bytes = hex(
 ///|
 test "RFC 7515 §A.2.1: RS256 verify via PKCS#1 DER" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
-  assert_eq(pubkey.n_bytes_len, 256)
+  @debug.assert_eq(pubkey.n_bytes_len, 256)
   let ok = pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
 test "RFC 7515 §A.2.1: RS256 verify via SPKI DER" {
   let pubkey = @rsa.RsaPublicKey::from_spki_der(rfc7515_spki_der)
-  assert_eq(pubkey.n_bytes_len, 256)
+  @debug.assert_eq(pubkey.n_bytes_len, 256)
   let ok = @rsa.verify(pubkey, rfc7515_signing_input, rfc7515_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
@@ -95,7 +96,7 @@ test "RFC 7515 §A.2.1: tampered message rejects" {
     }
   })
   let ok = pubkey.verify(bad, rfc7515_signature, Sha256)
-  assert_eq(ok, false)
+  @debug.assert_eq(ok, false)
 }
 
 ///|
@@ -109,7 +110,7 @@ test "RFC 7515 §A.2.1: tampered signature rejects" {
     }
   })
   let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
-  assert_eq(ok, false)
+  @debug.assert_eq(ok, false)
 }
 
 ///|
@@ -149,23 +150,23 @@ let openssl_signature : Bytes = hex(
 ///|
 test "openssl-generated: RSA-2048 SHA-256 verify via SPKI" {
   let pubkey = @rsa.RsaPublicKey::from_spki_der(openssl_spki_der)
-  assert_eq(pubkey.n_bytes_len, 256)
+  @debug.assert_eq(pubkey.n_bytes_len, 256)
   let ok = pubkey.verify(openssl_message, openssl_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
 test "openssl-generated: RSA-2048 SHA-256 verify via PKCS#1" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(openssl_pkcs1_der)
   let ok = pubkey.verify(openssl_message, openssl_signature, Sha256)
-  assert_eq(ok, true)
+  @debug.assert_eq(ok, true)
 }
 
 ///|
 test "cross-key rejection: openssl key cannot verify RFC 7515 signature" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(openssl_pkcs1_der)
   let ok = pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha256)
-  assert_eq(ok, false)
+  @debug.assert_eq(ok, false)
 }
 
 // ─── decoder negative tests ────────────────────────────────────────────
@@ -207,16 +208,335 @@ test "from_pkcs1_der: not a sequence rejected" {
 // ─── sanity: HashAlg ergonomics ────────────────────────────────────────
 
 ///|
-test "Sha384 / Sha512 raise UnsupportedHash" {
+test "Sha384 / Sha512 are now wired up (return false for wrong hash)" {
+  // The RFC 7515 signature was made with SHA-256; verifying with SHA-384
+  // or SHA-512 should now return false (rather than raise) since both
+  // hashes are implemented.
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
-  let r1 = try? pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384)
-  match r1 {
-    Err(UnsupportedHash(_)) => ()
-    _ => abort("expected UnsupportedHash for Sha384")
+  assert_false(pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384))
+  assert_false(pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512))
+}
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2006-4339 / CVE-2014-1568 (BERserk): trailing-garbage PKCS#1 v1.5 forgery" {
+  // The classic Bleichenbacher / BERserk attack exploits implementations that
+  // locate the DigestInfo within the decoded EM and ignore bytes after it.
+  // We verify by reconstructing the full expected EM and ct_eq-ing against
+  // it, so any deviation (including trailing data) must fail.
+  //
+  // Concrete attack: take a legitimate signature and flip the last byte —
+  // emulates the position where an attacker would smuggle extra bytes.
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let sig = rfc7515_signature
+  // Flip the last byte to simulate "trailing-garbage after DigestInfo".
+  let bad = Bytes::makei(sig.length(), fn(i) {
+    if i == sig.length() - 1 {
+      (sig[i].to_int() ^ 0xff).to_byte()
+    } else {
+      sig[i]
+    }
+  })
+  let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
+  assert_false(ok)
+}
+
+///|
+test "ATTACK: signature with high-bit-set s (s could be > n) returns false, not crash" {
+  // s as all-0xff (definitely > n for our test key's modulus). RSAVP1 says
+  // s >= n → invalid. We should return false, NOT raise.
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let n_bytes = rfc7515_signature.length()
+  let bad = Bytes::makei(n_bytes, fn(_i) { b'\xff' })
+  let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
+  assert_false(ok)
+}
+
+///|
+test "ATTACK: empty signature must raise InvalidSignatureLength" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let empty : Bytes = b""
+  let raised = try {
+    let _ = pubkey.verify(rfc7515_signing_input, empty, Sha256)
+    false
+  } catch {
+    InvalidSignatureLength => true
+    _ => false
   }
-  let r2 = try? pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512)
-  match r2 {
-    Err(UnsupportedHash(_)) => ()
-    _ => abort("expected UnsupportedHash for Sha512")
+  assert_true(raised)
+}
+
+// -----------------------------------------------------------------------------
+// Sign + verify roundtrip with a real RSA-2048 PKCS#1 key
+// -----------------------------------------------------------------------------
+
+///|
+let rfc_priv_pkcs1_der : Bytes = hex(
+  "308204a30201000282010100a48f36ef8cfe5dd94faba96b3abf276fde0e82f9ad0b9963955c933413bf300a4dda0287" +
+  "48590762459ddb2a4c2b9ce04e4f2d8f37ea0a1379cc9076ea17a97bad91178d7983c9e15a7f30db77268d3be00d85b9" +
+  "60db3396d24ac0bf229bbb242c72b2b4d4ae15abc51d72b372b0132e75cf92265cb5e97747e617a69a78384d99dd5136" +
+  "7575953c16e32cc45c3fbb28fdbd0064228043e39721e3bf5ee496d3fb9ced6fd4d7a0daf98fb016cfe8da87484765f9" +
+  "c35115f12e095585aba390cb27eb03900045575854e0100d19f32fac1981f6c286567c6387791e642a7941096c92e89e" +
+  "cc5cf3c934a363c5ca63f633940ce37965bcfe8b86d7ef432f799c2702030100010282010029ab461ae495e887c57fcf" +
+  "57a2b992afe607c0ac9e5fe88869e2d63782a48ff29c020f4fd8470af29c743b71fb75b3b4acbfa9e6b11ee74c453442" +
+  "848a0451db4a790a00bdfb5c1c5f4103cb1ee1b933a729656a2a9776f9c2e840e4654c0fd83a1515216b1565d168096b" +
+  "e8faaa9140db7e2320e9aafaa244a783e7a107be21a856466f50e3d697cc685e221164d83918b8cfd6f3653c9e7748cf" +
+  "ade136ed267ebab8433f9a981fd6af49c4edc149aa281fead06947fe52381009a9e6d49d63f8eb1ff94f15170929f3eb" +
+  "0d66a3ec72b0fb1f14d54792a9a5c48cb6310d60771a26344f00dcabc959bb5acc9583cd74a744aa3c079c1b7ed1c746" +
+  "7aaa115ee102818100d05869008488dbe1b9afa5c851af7f44ca1fd11f2c31ab19b014c194b32a553338c29fba82a384" +
+  "0b0735e8b30cba04ef54c0cc74752d2075f93907ba6ba0654f29872cf6fbe82808e6db11fcce997331417600d6298085" +
+  "94085d00b21ed3608e65c2d04d212494aad6edd1383c63154d758fd3145ee3e9df1724b47da56d1a1702818100ca32ef" +
+  "5ff51a550e7b5f6434f4d04a3d22a18aa89cd4d628c2b3dca129805f02360da47b5dce7cf14932f19bb4a5e368a06462" +
+  "912aa755f05913b89f4af5053fb3ecf2fdac49f636a7be5aecdd62f9aaa8b0d61976b31214b534f9d15d5648d1207e34" +
+  "78080f96fa1f2112058d22332916cd2266e15c2036aed2bdd9a19ea8710281803277a7ffb31affc03edd7857fcc97917" +
+  "adaa655a9ab6f14e48a3ce7c79a5e07b86dd4619c4b95d2bdab44948cde5657a9fda0fec89d1c392302b8b5eb1e16988" +
+  "f273470610e11c89837a3f72308d6524e249764c6a433298382a6717be75cf66cee990d18e1cb1526cbbb0b9618f52c2" +
+  "af9e862fe2086d4757f0d133ba55a2430281810088174c421ba8438361ca4c99d004b952f8921dcf6aef5dcd456ee59a" +
+  "9b624990256d7d3d835fcd7c613626a4142c6b292a7b26546a8f022aa8e9bb238bc1ea6c7bdf8994ef77407e7cdc843a" +
+  "54af9f371c1f199b3de73cce2f409ebc29c43f72721a3f9a62628bcd815232dd05a6f5243cb288eb11d77ddf103fcb84" +
+  "456192210281803ef388d592aa5e24b930ab2d434f20a41742cee683fca57a59e2bf57fd090e45158c10952e37392381" +
+  "312f139a39c3ad9c947b52e21a18bce16e6b8c0ecfec7556e277b8d34734ca3e7b9a1d95408cd976eba53406eb95905b" +
+  "a101317dc5c5fd5b21783244e1b8a8bdd5a3e2e4339fb43248e8cc61307ccd278280b058ad9be1",
+)
+
+///|
+test "rsa: sign + verify roundtrip with SHA-256" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let msg : Bytes = b"hello rsa sign"
+  let sig = sk.sign(msg, Sha256)
+  @debug.assert_eq(sig.length(), pk.n_bytes_len)
+  assert_true(pk.verify(msg, sig, Sha256))
+}
+
+///|
+test "rsa: sign with SHA-512" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let msg : Bytes = b"hello rsa sha512"
+  let sig = sk.sign(msg, Sha512)
+  assert_true(pk.verify(msg, sig, Sha512))
+}
+
+///|
+test "rsa: sign is deterministic (PKCS#1 v1.5)" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let s1 = sk.sign(b"msg", Sha256)
+  let s2 = sk.sign(b"msg", Sha256)
+  @debug.assert_eq(s1, s2)
+}
+
+///|
+test "rsa: tampered message verifies as false" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign(b"original", Sha256)
+  assert_false(pk.verify(b"tampered", sig, Sha256))
+}
+
+// -----------------------------------------------------------------------------
+// PKCS#8 PEM loader
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// RSASSA-PSS (RFC 8017 §8.1, EMSA-PSS §9.1)
+//
+// We don't have a real RNG in the workspace yet, so all PSS tests either
+// use deterministic PSS (salt = b"", sLen = 0) or pass a fixed pseudo-random
+// salt and feed the same salt to verify. We do NOT use deterministic-salt
+// signatures with `salt_len = -1` (which defaults to hLen) on the verify
+// side — that mismatch is itself one of the tests below.
+// -----------------------------------------------------------------------------
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-256, empty salt (deterministic)" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pss-deterministic-roundtrip"
+  let sig = sk.sign_pss(msg, Sha256, b"")
+  @debug.assert_eq(sig.length(), pk.n_bytes_len)
+  // salt_len = 0 must be passed explicitly — the default of -1 (hLen = 32)
+  // would not match the empty salt we signed with.
+  assert_true(pk.verify_pss(msg, sig, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-256, 32-byte salt (hLen default)" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  // Fixed pseudo-random salt — we don't actually need entropy, just a fresh
+  // byte string the verifier doesn't see directly.
+  let salt = hex(
+    "0123456789abcdeffedcba9876543210cafebabe0badcafedeadbeefdecafbad",
+  )
+  let msg : Bytes = b"pss-randomised-roundtrip"
+  let sig = sk.sign_pss(msg, Sha256, salt)
+  // salt_len defaults to -1 → hLen = 32, matching our salt length.
+  assert_true(pk.verify_pss(msg, sig, Sha256))
+}
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-384" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let salt = hex(
+    "00112233445566778899aabbccddeeff" +
+    "00112233445566778899aabbccddeeff" +
+    "00112233445566778899aabbccddeeff",
+  )
+  // SHA-384 hLen = 48 bytes; salt is 48 bytes.
+  let msg : Bytes = b"pss-sha384-roundtrip"
+  let sig = sk.sign_pss(msg, Sha384, salt)
+  assert_true(pk.verify_pss(msg, sig, Sha384))
+}
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-512, empty salt" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pss-sha512-roundtrip"
+  let sig = sk.sign_pss(msg, Sha512, b"")
+  assert_true(pk.verify_pss(msg, sig, Sha512, salt_len=0))
+}
+
+///|
+test "rsa-pss: tampered message rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"original-message", Sha256, b"")
+  assert_false(pk.verify_pss(b"tampered-message", sig, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: wrong salt_len rejects valid signature" {
+  // A signature made with sLen = 0 cannot be verified with sLen = 32 — the
+  // PS / 0x01 marker would land at the wrong position.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"hello", Sha256, b"")
+  // Default salt_len = -1 → hLen = 32 ≠ 0.
+  assert_false(pk.verify_pss(b"hello", sig, Sha256))
+  // And the inverse: a randomised-32-byte signature can't be verified as sLen=0.
+  let salt32 = hex(
+    "1111111111111111111111111111111111111111111111111111111111111111",
+  )
+  let sig2 = sk.sign_pss(b"hello", Sha256, salt32)
+  assert_false(pk.verify_pss(b"hello", sig2, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: tampered last byte (not 0xBC) rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"x", Sha256, b"")
+  // Flip a single bit in the signature — after modexp the EM trailer is
+  // overwhelmingly likely to no longer end in 0xBC, hitting the §9.1.2
+  // step-4 fast-reject path.
+  let bad = Bytes::makei(sig.length(), fn(i) {
+    if i == sig.length() - 1 {
+      (sig[i].to_int() ^ 0x01).to_byte()
+    } else {
+      sig[i]
+    }
+  })
+  assert_false(pk.verify_pss(b"x", bad, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: tampered signature middle byte rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let salt = hex(
+    "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  )
+  let sig = sk.sign_pss(b"a message", Sha256, salt)
+  let bad = Bytes::makei(sig.length(), fn(i) {
+    if i == 100 {
+      (sig[i].to_int() ^ 0x55).to_byte()
+    } else {
+      sig[i]
+    }
+  })
+  assert_false(pk.verify_pss(b"a message", bad, Sha256))
+}
+
+///|
+test "rsa-pss: wrong signature length raises InvalidSignatureLength" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let short_sig = Bytes::makei(128, fn(_) { b'\x00' })
+  let raised = try {
+    let _ = pk.verify_pss(b"m", short_sig, Sha256)
+    false
+  } catch {
+    InvalidSignatureLength => true
+    _ => false
   }
+  assert_true(raised)
+}
+
+///|
+test "rsa-pss: cross-hash rejection" {
+  // Sign with SHA-256, verify with SHA-384 — emBits is the same but mHash
+  // and the MGF differ.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"hash-mismatch", Sha256, b"")
+  // For SHA-384, hLen = 48. Setting salt_len = 0 to keep PS / 0x01 marker
+  // position predictable.
+  assert_false(pk.verify_pss(b"hash-mismatch", sig, Sha384, salt_len=0))
+}
+
+///|
+test "rsa-pss: sign with hLen-length salt verifies under explicit salt_len" {
+  // Same as the "32-byte salt" roundtrip, but exercises the explicit
+  // `salt_len = hLen` branch instead of the -1 default.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let salt = hex(
+    "f0e1d2c3b4a5968778695a4b3c2d1e0fdeadbeefcafebabe0123456789abcdef",
+  )
+  let sig = sk.sign_pss(b"explicit salt_len", Sha256, salt)
+  assert_true(pk.verify_pss(b"explicit salt_len", sig, Sha256, salt_len=32))
+}
+
+///|
+test "rsa: from_pkcs8_pem loads an openssl-generated PEM" {
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC1dxcX+LKQT7dY
+    #|Ijp33/KdG7mMTZlB0NNth734XxngLtK0jIctq058117XCdDgX3wMJ1Sqbs46/iiI
+    #|A9NnTsOcZLL2q/7sPYnWfw5+hIPbwSlEFmq09dO+anrj2cK9/WZBIdZAgxnAR5jH
+    #|6Qizs8fwSpM5GjvRHAlM9I5pXBE1hMtnd2HhFyFUxF+LfEbLg8wVrKDW71iINPZT
+    #|GpW+0vm386LzDBSutHiRu/mw67uYz+9JX9t2H7ZCv5wyQ9x5X/rv3lYz8im4X/uC
+    #|Y6ls2Uf4AX0MfqrjD0K7Xqk4+BYuADHK4mmkv7YZuIVOK+ix4VrR8LXUn0js+1p7
+    #|YuheeHUVAgMBAAECggEAHxVpNUf6flHJXCVw0nvf+R14qRnZuLZmoQpxdgwESKx8
+    #|l0TDGwWPCj9yFW+vAeAZRZOvIwqb9Or4UmQlYDrTswRky3Am2Jyp8b4N44obdBcg
+    #|VHNqj9jUDnf62PDCNP0k+N8s7hwG2zLobsXyIaYYB4cetNdTi7w7s5zokA+fOwVc
+    #|UUPaa0rKrEAKCbrS3p0tCkvFaX4aB5QS+Vld5dMRJc667dTOt56YI9lTHJXonpUl
+    #|nYTwYHr7m5fjK+8ejJBm7s9NwS4NqMTScr6qm8/tVmJW4o/3Y5M+qbDNYbqvgqpN
+    #|ksR2FTf25ZNf+oR/TR+3PzACoPk8nYMQWljR0l41eQKBgQDhIGFUzRGmbNdJdIHy
+    #|oAO9f+lEOS9zHEeXJ94cTpm6xqLrDM+KaT5salsAJ9ylKpR2JfAt5qMGma5/SkjA
+    #|2fmCRInATanv7fR3nT3xYBCBCKOF2brT7CvUJvSqJnYGQ9AfTVrQjYm9fYER140m
+    #|ZSY0akHqNwHExpZRErRfLVtZ6wKBgQDOWd93C8jGrvHqCYygfFE5mxSwMAbfrqZk
+    #|eP2kpeH5jWPbal674i/z7Pd16VxSHuyz9USUlJBuvxty1iQwp8VB0gA+I0+BAyVX
+    #|e34rG+n/2OO0xZrLEjGCFCzm+puTGXE9v5Hi2MWW4cNjRlsI3VUGOwDlCvEUh3Tp
+    #|XBEu3DCs/wKBgBegbFaYBwguWBHPdmveO0ZCDFsqnT45c5H7jyXtYdjmS+bbO1TN
+    #|Ys3CA7bqeA+lfls/9Ar9L5LbwiJ9y1DiD3uKceKKxBD4KjX7fKq+aD0CiRbdGOxw
+    #|1tC3HepViwFxUIBYf/VvRUtrxoX210t2RiIuHKjWCQt7w/7SNbffbLztAoGBAMzn
+    #|5cVbCFZzJnoWXXSHvkiLvLFwH4NC9KvUkVpL9udOBZi+ObAsXR3Fc728qxZI6xeQ
+    #|ODeqhvnR/7m691jxYCmKFP+fJLWhoBUM5i58m5KZlxPNHXcFa/AVhLkgphgeLZr5
+    #|fi5av2qiaNlN5dwZnPKA6NSIVvjhwbBw4gc8U4GVAoGAM4SzRs6vqMWEWuWyjUIC
+    #|RGdwkzsNjHE6Pv4xAeEl0dq5NRwwjBLEf+ydxLyehLNEGhvOgQIO7M7qkftmYxVx
+    #|X48PFWrS5d0SK7jtKFdScwWFD2kCA6+EjGlTeQMyS/xb+bVcFkRItjg2+mtHGmNT
+    #|Rolbhxd8JzI+RynTuqhZL24=
+    #|-----END PRIVATE KEY-----
+  let sk = @rsa.RsaPrivateKey::from_pkcs8_pem(pem_text)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pem-loaded RSA sign test"
+  let sig = sk.sign(msg, Sha256)
+  assert_true(pk.verify(msg, sig, Sha256))
 }

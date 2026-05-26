@@ -1,6 +1,9 @@
 import {
   "moonbitlang/x/crypto",
+  "mizchi/hkdf/wrap",
 }
+
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
 } for "test"

@@ -1,7 +1,9 @@
 import {
   "moonbitlang/core/encoding/base64",
+  "mizchi/pem/wrap",
 }
 
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
 } for "test"

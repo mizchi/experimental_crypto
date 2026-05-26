@@ -120,13 +120,8 @@ fn build_self_signed_ed25519(
   extensions : Array[@pkix.Extension],
 ) -> (@pkix.Certificate, @ed25519.PublicKey) raise {
   build_ed25519_cert(
-    seed_hex,
-    cn,
-    cn, // self-signed: issuer = subject
-    not_before,
-    not_after,
-    extensions,
-    seed_hex,
+    seed_hex, cn, cn, // self-signed: issuer = subject
+     not_before, not_after, extensions, seed_hex,
   )
 }
 
@@ -187,7 +182,7 @@ test "extract_public_key: Ed25519 SPKI" {
   let spki = ed25519_spki(pk)
   let key = @pkix_verify.extract_public_key(spki)
   match key {
-    Ed25519(got) => assert_eq(got.to_bytes(), pk.to_bytes())
+    Ed25519(got) => @debug.assert_eq(got.to_bytes(), pk.to_bytes())
     _ => assert_true(false)
   }
 }
@@ -199,8 +194,10 @@ test "extract_public_key: unsupported OID raises" {
     algorithm: { algorithm: bogus_oid, parameters: None },
     subject_public_key: { bytes: b"\x00", unused_bits: 0 },
   }
-  match (try? @pkix_verify.extract_public_key(spki)) {
-    Err(UnsupportedPublicKeyAlgorithm(_)) => ()
+  try @pkix_verify.extract_public_key(spki) catch {
+    UnsupportedPublicKeyAlgorithm(_) => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -261,8 +258,10 @@ test "verify_certificate: tampered signature fails" {
     signature_algorithm: cert.signature_algorithm,
     signature: { bytes: tampered, unused_bits: 0 },
   }
-  match (try? @pkix_verify.verify_certificate(bad, Ed25519(pk), "250101000000Z")) {
-    Err(SignatureMismatch) => ()
+  try @pkix_verify.verify_certificate(bad, Ed25519(pk), "250101000000Z") catch {
+    SignatureMismatch => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -276,8 +275,12 @@ test "verify_certificate: NotYetValid before notBefore" {
     "400101000000Z",
     [basic_constraints_ca_ext()],
   )
-  match (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
-    Err(NotYetValid) => ()
+  try
+    @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")
+  catch {
+    NotYetValid => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -291,8 +294,12 @@ test "verify_certificate: Expired after notAfter" {
     "200101000000Z",
     [basic_constraints_ca_ext()],
   )
-  match (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
-    Err(Expired) => ()
+  try
+    @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")
+  catch {
+    Expired => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -326,12 +333,7 @@ test "verify_chain: 2-cert chain (leaf + intermediate + anchor pubkey) passes" {
     [basic_constraints_non_ca_ext()],
     inter_seed,
   )
-  @pkix_verify.verify_chain(
-    leaf,
-    [inter],
-    Ed25519(anchor_pk),
-    "250101000000Z",
-  )
+  @pkix_verify.verify_chain(leaf, [inter], Ed25519(anchor_pk), "250101000000Z")
 }
 
 ///|
@@ -360,14 +362,17 @@ test "verify_chain: IssuerSubjectMismatch when intermediate's subject != leaf's 
     [basic_constraints_non_ca_ext()],
     inter_seed,
   )
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [inter],
       Ed25519(anchor_pk),
       "250101000000Z",
-    )) {
-    Err(IssuerSubjectMismatch) => ()
+    )
+  catch {
+    IssuerSubjectMismatch => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -398,14 +403,17 @@ test "verify_chain: NotACA when intermediate lacks basicConstraints cA" {
     [basic_constraints_non_ca_ext()],
     inter_seed,
   )
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [inter],
       Ed25519(anchor_pk),
       "250101000000Z",
-    )) {
-    Err(NotACA) => ()
+    )
+  catch {
+    NotACA => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -450,14 +458,17 @@ test "verify_chain: PathLengthExceeded when intermediate's pathLen too small" {
     mid_seed,
   )
   // intermediates ordered leaf → root direction.
-  match
-    (try? @pkix_verify.verify_chain(
+  try
+    @pkix_verify.verify_chain(
       leaf,
       [mid, top],
       Ed25519(anchor_pk),
       "250101000000Z",
-    )) {
-    Err(PathLengthExceeded) => ()
+    )
+  catch {
+    PathLengthExceeded => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
 }
@@ -554,9 +565,535 @@ test "verify_certificate: LE R10 expired check fires before 2024-03-13" {
   let root_pubkey = @pkix_verify.extract_public_key(
     root.tbs.subject_public_key_info,
   )
-  match
-    (try? @pkix_verify.verify_certificate(r10, root_pubkey, "200101000000Z")) {
-    Err(NotYetValid) => ()
+  try @pkix_verify.verify_certificate(r10, root_pubkey, "200101000000Z") catch {
+    NotYetValid => ()
+    _ => assert_true(false)
+  } noraise {
     _ => assert_true(false)
   }
+}
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+// Construct a v3 Ed25519 cert carrying a single critical extension with an
+// OID we do NOT recognise (1.2.3.4.5 — IANA-unassigned playground arc) and a
+// trivial DER value. RFC 5280 §4.2: the verifier MUST reject.
+test "ATTACK RFC 5280 §4.2: unknown critical extension rejected" {
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4, 5])
+  // extnValue: a tiny OCTET STRING-shaped payload — for an unknown extension
+  // the content doesn't matter because we reject before parsing it.
+  let value : Bytes = b"\x04\x00"
+  let bad_ext : @pkix.Extension = { oid: unknown_oid, critical: true, value }
+  let (cert, pk) = build_self_signed_ed25519(
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "Attacker CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bad_ext],
+  )
+  let issuer_pk = @pkix_verify.PublicKey::Ed25519(pk)
+  try @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z") catch {
+    UnknownCriticalExtension(oid) => @debug.assert_eq(oid, unknown_oid)
+    other =>
+      abort("unknown critical extension NOT rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("unknown critical extension NOT rejected: " + repr(other) + "")
+  }
+}
+
+///|
+// Same OID but `critical = false` — the verifier ignores it per RFC 5280.
+test "non-critical unknown extension is silently accepted" {
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4, 5])
+  let value : Bytes = b"\x04\x00"
+  let benign_ext : @pkix.Extension = {
+    oid: unknown_oid,
+    critical: false,
+    value,
+  }
+  let (cert, pk) = build_self_signed_ed25519(
+    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "Benign CA",
+    "250101000000Z",
+    "260101000000Z",
+    [benign_ext],
+  )
+  let issuer_pk = @pkix_verify.PublicKey::Ed25519(pk)
+  // Should not raise.
+  @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z")
+}
+
+// -----------------------------------------------------------------------------
+// Compliance test fixtures: extension builders for the new enforcement paths
+// -----------------------------------------------------------------------------
+
+///|
+// keyUsage BIT STRING. cRLSign(6) always set so the string is non-empty;
+// keyCertSign(5) is optional. critical defaults to true.
+fn key_usage_ext(key_cert_sign : Bool, critical : Bool) -> @pkix.Extension {
+  let mut byte0 = 0x02 // cRLSign (bit 6)
+  if key_cert_sign {
+    byte0 = byte0 | 0x04 // keyCertSign (bit 5)
+  }
+  let bytes = Bytes::makei(1, fn(_) { byte0.to_byte() })
+  let bs : @asn1.BitString = { unused_bits: 1, bytes }
+  let value = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_bit_string, BitString(bs)),
+  )
+  { oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15]), critical, value }
+}
+
+///|
+// subjectAltName extension carrying a single dNSName ([2] IMPLICIT IA5String).
+fn san_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  let dns_element = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let san_seq = @asn1.Element::new(@asn1.tag_sequence, Sequence([dns_element]))
+  let value = @asn1.encode_der(san_seq)
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 17]),
+    critical: false,
+    value,
+  }
+}
+
+///|
+// nameConstraints with a single excludedSubtrees DNS entry.
+fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  // GeneralSubtree = SEQUENCE { base [2] IA5String }
+  // Then [1] IMPLICIT SEQUENCE OF GeneralSubtree = excludedSubtrees.
+  let base = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let gst = @asn1.Element::new(@asn1.tag_sequence, Sequence([base]))
+  let gst_bytes = @asn1.encode_der(gst)
+  // [1] IMPLICIT SEQUENCE OF GeneralSubtree — context-specific constructed.
+  let excluded_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(1U, constructed=true),
+    @asn1.Value::Unknown(gst_bytes),
+  )
+  let nc = @asn1.Element::new(@asn1.tag_sequence, Sequence([excluded_subtrees]))
+  let value = @asn1.encode_der(nc)
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value,
+  }
+}
+
+///|
+// extendedKeyUsage with one explicit OID (e.g. id-kp-serverAuth).
+fn eku_ext_server_auth() -> @pkix.Extension {
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let value = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(server_auth))]),
+    ),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 37]),
+    critical: false,
+    value,
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Compliance: keyUsage enforcement
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK RFC 5280 §6.1.4(n): issuer keyUsage WITHOUT keyCertSign rejected" {
+  // Build a 2-cert chain: leaf signed by intermediate, intermediate has
+  // keyUsage but lacks keyCertSign. Should fail with KeyUsageMissingCertSign.
+  let inter_seed = "0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10"
+  let leaf_seed = "ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211ee"
+  let bad_ku = key_usage_ext(false, true)
+  let bc = basic_constraints_ca_ext()
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Bad Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, bad_ku],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Bad Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let inter_pk_extracted = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  ignore(inter_pk_extracted)
+  // The trust anchor is the issuer of `inter`, which is `inter` itself
+  // (self-signed). So anchor = inter's pubkey, intermediates = [inter].
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    KeyUsageMissingCertSign => ()
+    other =>
+      abort(
+        "intermediate without keyCertSign NOT rejected: " + repr(other) + "",
+      )
+  } noraise {
+    other =>
+      abort(
+        "intermediate without keyCertSign NOT rejected: " + repr(other) + "",
+      )
+  }
+}
+
+///|
+test "keyUsage WITH keyCertSign passes" {
+  let inter_seed = "1112131415161718191a1b1c1d1e1f201112131415161718191a1b1c1d1e1f20"
+  let leaf_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+  let good_ku = key_usage_ext(true, true)
+  let bc = basic_constraints_ca_ext()
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Good Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, good_ku],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Good Intermediate",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  // Should pass.
+  @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+// -----------------------------------------------------------------------------
+// Compliance: nameConstraints (DNS) enforcement
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK RFC 5280 §4.2.1.10: nameConstraints excludedSubtrees blocks child SAN" {
+  // Intermediate excludes ".evil.com". Leaf has SAN dNSName "x.evil.com".
+  // verify_chain must reject with NameConstraintViolation.
+  let inter_seed = "2122232425262728292a2b2c2d2e2f302122232425262728292a2b2c2d2e2f30"
+  let leaf_seed = "8877665544332211ffeeddccbbaa99887766554433221100ffeeddccbbaa9988"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let nc = name_constraints_excluded_ext("evil.com")
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku, nc],
+  )
+  let leaf_san = san_ext("x.evil.com")
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [leaf_san],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "x.evil.com")
+    other => abort("excludedSubtree DNS NOT enforced: " + repr(other) + "")
+  } noraise {
+    other => abort("excludedSubtree DNS NOT enforced: " + repr(other) + "")
+  }
+}
+
+///|
+test "nameConstraints excludedSubtrees lets through a different DNS suffix" {
+  // Same constraints as above but leaf SAN is "x.good.com" — allowed.
+  let inter_seed = "3132333435363738393a3b3c3d3e3f403132333435363738393a3b3c3d3e3f40"
+  let leaf_seed = "1111222233334444555566667777888811112222333344445555666677778888"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let nc = name_constraints_excluded_ext("evil.com")
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku, nc],
+  )
+  let leaf_san = san_ext("api.good.com")
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Constrained CA",
+    "250101000000Z",
+    "260101000000Z",
+    [leaf_san],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+// -----------------------------------------------------------------------------
+// Compliance: required EKU on leaf
+// -----------------------------------------------------------------------------
+
+///|
+test "required_eku: leaf without EKU passes (unrestricted per RFC 5280)" {
+  let inter_seed = "4142434445464748494a4b4c4d4e4f504142434445464748494a4b4c4d4e4f50"
+  let leaf_seed = "aabbccddeeff00112233445566778899aabbccddeeff001122334455667788ee"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(
+      @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 3, 1]),
+    ),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
+test "required_eku: leaf with mismatching EKU is rejected" {
+  let inter_seed = "5152535455565758595a5b5c5d5e5f605152535455565758595a5b5c5d5e5f60"
+  let leaf_seed = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  // Leaf has EKU = serverAuth, caller requires clientAuth — should fail.
+  let server_auth_only = eku_ext_server_auth()
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [server_auth_only],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let client_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 2,
+  ])
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(client_auth),
+  }
+  try
+    @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    ExtendedKeyUsageMissing(oid) => @debug.assert_eq(oid, client_auth)
+    other => abort("required_eku not enforced: " + repr(other) + "")
+  } noraise {
+    other => abort("required_eku not enforced: " + repr(other) + "")
+  }
+}
+
+///|
+test "required_eku: leaf with matching EKU passes" {
+  let inter_seed = "6162636465666768696a6b6c6d6e6f706162636465666768696a6b6c6d6e6f70"
+  let leaf_seed = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  let server_auth_ext = eku_ext_server_auth()
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [server_auth_ext],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(server_auth),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
+
+// -----------------------------------------------------------------------------
+// pathLenConstraint sanity (RFC 5280 §4.2.1.9)
+// -----------------------------------------------------------------------------
+
+///|
+// Build a 3-cert chain: anchor → I1 → I0 → leaf, where I1 carries
+// pathLenConstraint = 0. RFC: I1 says "at most 0 non-self CAs may follow
+// me", but the chain has one (I0) before the leaf → reject.
+test "ATTACK: pathLenConstraint=0 with intermediate before leaf must reject" {
+  let i1_seed = "abababababababababababababababababababababababababababababababab"
+  let i0_seed = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  let leaf_seed = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+  let ku = key_usage_ext(true, true)
+  let (i1_cert, _) = build_self_signed_ed25519(
+    i1_seed,
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_pathlen_ext(0), ku],
+  )
+  let (i0_cert, _) = build_ed25519_cert(
+    i0_seed,
+    "I0",
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+    i1_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "I0",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    i0_seed,
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    i1_cert.tbs.subject_public_key_info,
+  )
+  try
+    @pkix_verify.verify_chain(
+      leaf,
+      [i0_cert, i1_cert],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    PathLengthExceeded => ()
+    other =>
+      abort("pathLen=0 + 1 intermediate NOT rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("pathLen=0 + 1 intermediate NOT rejected: " + repr(other) + "")
+  }
+}
+
+///|
+test "pathLenConstraint=1 with one intermediate before leaf passes" {
+  let i1_seed = "1212121212121212121212121212121212121212121212121212121212121212"
+  let i0_seed = "3434343434343434343434343434343434343434343434343434343434343434"
+  let leaf_seed = "5656565656565656565656565656565656565656565656565656565656565656"
+  let (i1_cert, _) = build_self_signed_ed25519(
+    i1_seed,
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_pathlen_ext(1), key_usage_ext(true, true)],
+  )
+  let (i0_cert, _) = build_ed25519_cert(
+    i0_seed,
+    "I0",
+    "I1",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+    i1_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "I0",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    i0_seed,
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    i1_cert.tbs.subject_public_key_info,
+  )
+  // Should pass — I1 allows 1 sub-CA, I0 is exactly that.
+  @pkix_verify.verify_chain(
+    leaf,
+    [i0_cert, i1_cert],
+    anchor_pk,
+    "250601000000Z",
+  )
 }

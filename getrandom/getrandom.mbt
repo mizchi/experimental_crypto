@@ -10,7 +10,7 @@
 pub suberror GetrandomError {
   Unavailable(String)
   Insufficient
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub fn fill(buf : FixedArray[Byte]) -> Unit raise GetrandomError {

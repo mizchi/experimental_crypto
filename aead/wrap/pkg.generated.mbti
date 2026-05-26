@@ -1,0 +1,16 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/aead/wrap"
+
+// Values
+pub fn ghash_zero_pad_len(Int, Int) -> Int
+
+pub fn pkcs7_pad_len(Int, Int) -> Int
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

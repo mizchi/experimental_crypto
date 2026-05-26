@@ -1,0 +1,59 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/cms"
+
+import {
+  "mizchi/asn1",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/pkix",
+  "mizchi/pkix_verify",
+  "mizchi/rsa",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn parse_signed_data(Bytes) -> CmsSignedData raise CmsError
+
+pub fn verify_detached(CmsSignedData, Bytes) -> Bool raise CmsError
+
+pub fn verify_with_chain(CmsSignedData, Bytes, @pkix_verify.PublicKey, String) -> Bool raise CmsError
+
+// Errors
+pub suberror CmsError {
+  ContentTypeMismatch(@asn1.ObjectIdentifier)
+  Asn1(@asn1.Asn1Error)
+  Pkix(@pkix.PkixError)
+  Malformed(String)
+  NoSignerInfo
+  NoSignerCertificate
+  SignerCertificateNotFound
+  UnsupportedSid(String)
+  UnsupportedDigestAlgorithm(@asn1.ObjectIdentifier)
+  UnsupportedSignatureAlgorithm(@asn1.ObjectIdentifier)
+  MessageDigestMismatch
+  MissingMessageDigest
+  Rsa(@rsa.RsaError)
+  P256(@p256.P256Error)
+  P384(@p384.P384Error)
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct CmsSignedData {
+  signer_cert : @pkix.Certificate
+  extra_certs : Array[@pkix.Certificate]
+  signer : SignerInfoFields
+}
+
+pub(all) struct SignerInfoFields {
+  sid_issuer : Bytes
+  sid_serial : Bytes
+  digest_alg : @asn1.ObjectIdentifier
+  signed_attrs_content : Bytes
+  signature_alg : @asn1.ObjectIdentifier
+  signature : Bytes
+}
+
+// Type aliases
+
+// Traits
+

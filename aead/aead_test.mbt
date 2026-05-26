@@ -72,13 +72,13 @@ test "RFC 8439 §2.8.2 sunscreen ChaCha20-Poly1305 seal" {
     aad,
     pt_bytes,
   )
-  assert_eq(to_hex(ct), to_hex(expected_ct))
-  assert_eq(to_hex(tag), to_hex(expected_tag))
+  @debug.assert_eq(to_hex(ct), to_hex(expected_ct))
+  @debug.assert_eq(to_hex(tag), to_hex(expected_tag))
 
   // attached form
   let combined = @aead.seal(@aead.ChaCha20Poly1305, key, nonce, aad, pt_bytes)
   let expected_combined_hex = to_hex(expected_ct) + to_hex(expected_tag)
-  assert_eq(to_hex(combined), expected_combined_hex)
+  @debug.assert_eq(to_hex(combined), expected_combined_hex)
 }
 
 ///|
@@ -109,7 +109,7 @@ test "RFC 8439 §2.8.2 sunscreen open round-trip" {
     ct,
     tag,
   )
-  assert_eq(to_hex(recovered), to_hex(pt_bytes))
+  @debug.assert_eq(to_hex(recovered), to_hex(pt_bytes))
 
   // attached open
   let combined_arr : Array[Byte] = []
@@ -121,7 +121,7 @@ test "RFC 8439 §2.8.2 sunscreen open round-trip" {
   }
   let combined = Bytes::makei(combined_arr.length(), fn(i) { combined_arr[i] })
   let recovered2 = @aead.open(@aead.ChaCha20Poly1305, key, nonce, aad, combined)
-  assert_eq(to_hex(recovered2), to_hex(pt_bytes))
+  @debug.assert_eq(to_hex(recovered2), to_hex(pt_bytes))
 }
 
 ///|
@@ -179,7 +179,7 @@ test "RFC 8439 §A.5 ChaCha20-Poly1305 AEAD decryption vector" {
     ciphertext,
     tag,
   )
-  assert_eq(to_hex(recovered), to_hex(expected_pt))
+  @debug.assert_eq(to_hex(recovered), to_hex(expected_pt))
 }
 
 ///|
@@ -217,7 +217,7 @@ test "ChaCha20-Poly1305 authentication failure on tag tamper" {
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
   }
   ignore(ct)
 }
@@ -250,7 +250,7 @@ test "ChaCha20-Poly1305 authentication failure on aad tamper" {
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
   }
 }
 
@@ -269,8 +269,8 @@ test "round-trip empty plaintext and empty aad" {
     aad,
     pt,
   )
-  assert_eq(ct.length(), 0)
-  assert_eq(tag.length(), 16)
+  @debug.assert_eq(ct.length(), 0)
+  @debug.assert_eq(tag.length(), 16)
   let recovered = @aead.open_detached(
     @aead.ChaCha20Poly1305,
     key,
@@ -279,7 +279,7 @@ test "round-trip empty plaintext and empty aad" {
     ct,
     tag,
   )
-  assert_eq(recovered.length(), 0)
+  @debug.assert_eq(recovered.length(), 0)
 }
 
 ///|
@@ -289,11 +289,11 @@ test "AES-128-GCM empty round-trip" {
   let nonce = Bytes::makei(12, fn(_) { b'\x00' })
   let aad = b""
   let pt = b""
-  let sealed = @aead.seal(@aead.Aes128Gcm, key, nonce, aad, pt)
+  let sealed_bytes = @aead.seal(@aead.Aes128Gcm, key, nonce, aad, pt)
   // Tag is 16 bytes, no ciphertext.
-  assert_eq(sealed.length(), 16)
-  let opened = @aead.open(@aead.Aes128Gcm, key, nonce, aad, sealed)
-  assert_eq(opened.length(), 0)
+  @debug.assert_eq(sealed_bytes.length(), 16)
+  let opened = @aead.open(@aead.Aes128Gcm, key, nonce, aad, sealed_bytes)
+  @debug.assert_eq(opened.length(), 0)
 }
 
 ///|
@@ -307,7 +307,7 @@ test "HChaCha20 RFC draft-irtf-cfrg-xchacha §A.1 sub-key" {
     "82413b4227b27bfed30e42508a877d73" + "a0f9e4d58a74a853c12ec41326d3ecdc",
   )
   let sub_key = @aead.hchacha20(key, nonce16)
-  assert_eq(to_hex(sub_key), to_hex(expected))
+  @debug.assert_eq(to_hex(sub_key), to_hex(expected))
 }
 
 ///|
@@ -338,8 +338,8 @@ test "XChaCha20-Poly1305 RFC draft §A.3 test vector" {
     aad,
     pt_bytes,
   )
-  assert_eq(to_hex(ct), to_hex(expected_ct))
-  assert_eq(to_hex(tag), to_hex(expected_tag))
+  @debug.assert_eq(to_hex(ct), to_hex(expected_ct))
+  @debug.assert_eq(to_hex(tag), to_hex(expected_tag))
 
   // Round-trip via open_detached.
   let recovered = @aead.open_detached(
@@ -350,7 +350,7 @@ test "XChaCha20-Poly1305 RFC draft §A.3 test vector" {
     ct,
     tag,
   )
-  assert_eq(to_hex(recovered), to_hex(pt_bytes))
+  @debug.assert_eq(to_hex(recovered), to_hex(pt_bytes))
 }
 
 ///|
@@ -385,7 +385,7 @@ test "XChaCha20-Poly1305 authentication failure on tag tamper" {
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed but got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
   }
 }
 
@@ -405,7 +405,7 @@ test "XChaCha20-Poly1305 invalid nonce size" {
   match result {
     Ok(_) => abort("expected InvalidNonceSize")
     Err(@aead.InvalidNonceSize(expected=24, got=12)) => ()
-    Err(e) => abort("expected InvalidNonceSize but got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize but got " + repr(e))
   }
 }
 
@@ -420,8 +420,8 @@ test "XChaCha20-Poly1305 empty plaintext round-trip" {
     b"",
     b"",
   )
-  assert_eq(ct.length(), 0)
-  assert_eq(tag.length(), 16)
+  @debug.assert_eq(ct.length(), 0)
+  @debug.assert_eq(tag.length(), 16)
   let recovered = @aead.open_detached(
     @aead.XChaCha20Poly1305,
     key,
@@ -430,7 +430,7 @@ test "XChaCha20-Poly1305 empty plaintext round-trip" {
     ct,
     tag,
   )
-  assert_eq(recovered.length(), 0)
+  @debug.assert_eq(recovered.length(), 0)
 }
 
 ///|
@@ -448,7 +448,7 @@ test "invalid key size for ChaCha20-Poly1305" {
   match result {
     Ok(_) => abort("expected InvalidKeySize")
     Err(@aead.InvalidKeySize(expected=32, got=16)) => ()
-    Err(e) => abort("expected InvalidKeySize but got " + e.to_string())
+    Err(e) => abort("expected InvalidKeySize but got " + repr(e))
   }
 }
 
@@ -467,6 +467,6 @@ test "invalid nonce size for ChaCha20-Poly1305" {
   match result {
     Ok(_) => abort("expected InvalidNonceSize")
     Err(@aead.InvalidNonceSize(expected=12, got=8)) => ()
-    Err(e) => abort("expected InvalidNonceSize but got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize but got " + repr(e))
   }
 }

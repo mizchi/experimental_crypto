@@ -3,9 +3,9 @@ test "pem: decode_strict accepts canonical encode_simple output" {
   let original = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09"
   let encoded = @pem.encode_simple("CERTIFICATE", original)
   let block = @pem.decode_strict(encoded)
-  assert_eq(block.label, "CERTIFICATE")
-  assert_eq(block.data, original)
-  assert_eq(block.headers.length(), 0)
+  @debug.assert_eq(block.label, "CERTIFICATE")
+  @debug.assert_eq(block.data, original)
+  @debug.assert_eq(block.headers.length(), 0)
 }
 
 ///|
@@ -15,9 +15,10 @@ test "pem: decode_strict rejects unpadded base64" {
     #|-----BEGIN CERTIFICATE-----
     #|AAECAwQ
     #|-----END CERTIFICATE-----
-  match (try? @pem.decode_strict(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="strict mode must require padding")
+  try @pem.decode_strict(input) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="strict mode must require padding")
   }
 }
 
@@ -28,9 +29,11 @@ test "pem: decode_strict rejects line > 64 chars" {
     #|-----BEGIN DATA-----
     #|AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo=
     #|-----END DATA-----
-  match (try? @pem.decode_strict(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="strict mode must reject 80-char line")
+  try @pem.decode_strict(input) catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(true, false, msg="strict mode must reject 80-char line")
   }
 }
 
@@ -41,9 +44,15 @@ test "pem: decode_strict rejects pre-BEGIN explanatory text" {
     #|-----BEGIN CERTIFICATE-----
     #|AAECAwQ=
     #|-----END CERTIFICATE-----
-  match (try? @pem.decode_strict(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="strict mode must reject pre-BEGIN garbage")
+  try @pem.decode_strict(input) catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(
+        true,
+        false,
+        msg="strict mode must reject pre-BEGIN garbage",
+      )
   }
 }
 
@@ -54,9 +63,15 @@ test "pem: decode_strict rejects post-END trailing content" {
     #|AAECAwQ=
     #|-----END CERTIFICATE-----
     #|some trailing garbage
-  match (try? @pem.decode_strict(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="strict mode must reject post-END garbage")
+  try @pem.decode_strict(input) catch {
+    _ => ()
+  } noraise {
+    _ =>
+      @debug.assert_eq(
+        true,
+        false,
+        msg="strict mode must reject post-END garbage",
+      )
   }
 }
 
@@ -71,8 +86,8 @@ test "pem: decode (lax) accepts the same inputs strict rejects" {
     #|-----END CERTIFICATE-----
     #|Trailing notes.
   let block = @pem.decode(input)
-  assert_eq(block.label, "CERTIFICATE")
-  assert_eq(block.data, b"\x00\x01\x02\x03\x04")
+  @debug.assert_eq(block.label, "CERTIFICATE")
+  @debug.assert_eq(block.data, b"\x00\x01\x02\x03\x04")
 }
 
 ///|
@@ -94,11 +109,11 @@ test "pem: encode wraps base64 at 64 chars" {
   let data = Bytes::makei(48, fn(i) { (i % 256).to_byte() })
   let out = @pem.encode_simple("DATA", data)
   let lines = split_into_lines(out)
-  assert_eq(lines[1].length(), 64)
+  @debug.assert_eq(lines[1].length(), 64)
   let data2 = Bytes::makei(49, fn(i) { (i % 256).to_byte() })
   let out2 = @pem.encode_simple("DATA", data2)
   let lines2 = split_into_lines(out2)
-  assert_eq(lines2[1].length(), 64)
+  @debug.assert_eq(lines2[1].length(), 64)
   assert_true(lines2[2].length() > 0 && lines2[2].length() <= 64)
 }
 
@@ -109,17 +124,17 @@ test "pem: decode single block" {
     #|AAECAwQ=
     #|-----END CERTIFICATE-----
   let block = @pem.decode(input)
-  assert_eq(block.label, "CERTIFICATE")
-  assert_eq(block.data, b"\x00\x01\x02\x03\x04")
-  assert_eq(block.headers.length(), 0)
+  @debug.assert_eq(block.label, "CERTIFICATE")
+  @debug.assert_eq(block.data, b"\x00\x01\x02\x03\x04")
+  @debug.assert_eq(block.headers.length(), 0)
 }
 
 ///|
 test "pem: decode tolerates CRLF and surrounding whitespace" {
   let input = "  \r\n-----BEGIN PRIVATE KEY-----\r\nAAEC\r\n-----END PRIVATE KEY-----\r\n  "
   let block = @pem.decode(input)
-  assert_eq(block.label, "PRIVATE KEY")
-  assert_eq(block.data, b"\x00\x01\x02")
+  @debug.assert_eq(block.label, "PRIVATE KEY")
+  @debug.assert_eq(block.data, b"\x00\x01\x02")
 }
 
 ///|
@@ -132,9 +147,9 @@ test "pem: decode multi-block returns all blocks" {
     #|AgM=
     #|-----END CERTIFICATE-----
   let blocks = @pem.decode_all(input)
-  assert_eq(blocks.length(), 2)
-  assert_eq(blocks[0].data, b"\x00\x01")
-  assert_eq(blocks[1].data, b"\x02\x03")
+  @debug.assert_eq(blocks.length(), 2)
+  @debug.assert_eq(blocks[0].data, b"\x00\x01")
+  @debug.assert_eq(blocks[1].data, b"\x02\x03")
 }
 
 ///|
@@ -147,8 +162,8 @@ test "pem: decode_all skips explanatory text between blocks" {
     #|-----END PUBLIC KEY-----
     #|That was the key.
   let blocks = @pem.decode_all(input)
-  assert_eq(blocks.length(), 1)
-  assert_eq(blocks[0].label, "PUBLIC KEY")
+  @debug.assert_eq(blocks.length(), 1)
+  @debug.assert_eq(blocks[0].label, "PUBLIC KEY")
 }
 
 ///|
@@ -161,12 +176,12 @@ test "pem: decode preserves headers when present" {
     #|AAECAwQ=
     #|-----END RSA PRIVATE KEY-----
   let block = @pem.decode(input)
-  assert_eq(block.label, "RSA PRIVATE KEY")
-  assert_eq(block.headers.length(), 2)
-  assert_eq(block.headers[0].0, "Proc-Type")
-  assert_eq(block.headers[0].1, "4,ENCRYPTED")
-  assert_eq(block.headers[1].0, "DEK-Info")
-  assert_eq(block.data, b"\x00\x01\x02\x03\x04")
+  @debug.assert_eq(block.label, "RSA PRIVATE KEY")
+  @debug.assert_eq(block.headers.length(), 2)
+  @debug.assert_eq(block.headers[0].0, "Proc-Type")
+  @debug.assert_eq(block.headers[0].1, "4,ENCRYPTED")
+  @debug.assert_eq(block.headers[1].0, "DEK-Info")
+  @debug.assert_eq(block.data, b"\x00\x01\x02\x03\x04")
 }
 
 ///|
@@ -181,11 +196,11 @@ test "pem: encode roundtrips a block with headers" {
   }
   let encoded = @pem.encode(block)
   let decoded = @pem.decode(encoded)
-  assert_eq(decoded.label, block.label)
-  assert_eq(decoded.data, block.data)
-  assert_eq(decoded.headers.length(), 2)
-  assert_eq(decoded.headers[0], block.headers[0])
-  assert_eq(decoded.headers[1], block.headers[1])
+  @debug.assert_eq(decoded.label, block.label)
+  @debug.assert_eq(decoded.data, block.data)
+  @debug.assert_eq(decoded.headers.length(), 2)
+  @debug.assert_eq(decoded.headers[0], block.headers[0])
+  @debug.assert_eq(decoded.headers[1], block.headers[1])
 }
 
 ///|
@@ -194,9 +209,10 @@ test "pem: decode rejects label mismatch" {
     #|-----BEGIN CERTIFICATE-----
     #|AAEC
     #|-----END PRIVATE KEY-----
-  match (try? @pem.decode(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected LabelMismatch")
+  try @pem.decode(input) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected LabelMismatch")
   }
 }
 
@@ -205,9 +221,10 @@ test "pem: decode rejects missing END marker" {
   let input =
     #|-----BEGIN CERTIFICATE-----
     #|AAECAwQ=
-  match (try? @pem.decode(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected MissingEndMarker")
+  try @pem.decode(input) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected MissingEndMarker")
   }
 }
 
@@ -217,9 +234,40 @@ test "pem: decode rejects invalid base64" {
     #|-----BEGIN CERTIFICATE-----
     #|!!!!
     #|-----END CERTIFICATE-----
-  match (try? @pem.decode(input)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidBase64")
+  try @pem.decode(input) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidBase64")
+  }
+}
+
+///|
+test "pem: decode rejects non-canonical labels" {
+  for
+    input in [
+      (
+        #|-----BEGIN certificate-----
+        #|AAEC
+        #|-----END certificate-----
+      ),
+      "-----BEGIN CERT\tIFICATE-----\nAAEC\n-----END CERT\tIFICATE-----\n",
+    ] {
+    try @pem.decode(input) catch {
+      @pem.InvalidFormat(_) => ()
+      other =>
+        abort(
+          "expected InvalidFormat for bad label, got " +
+          @debug.to_string(other) +
+          "",
+        )
+    } noraise {
+      other =>
+        abort(
+          "expected InvalidFormat for bad label, got " +
+          @debug.to_string(other) +
+          "",
+        )
+    }
   }
 }
 
@@ -229,7 +277,7 @@ test "pem: encode then decode roundtrip" {
   let original : @pem.PemBlock = { label: "DATA", data, headers: [] }
   let encoded = @pem.encode(original)
   let decoded = @pem.decode(encoded)
-  assert_eq(decoded.data, data)
+  @debug.assert_eq(decoded.data, data)
 }
 
 ///|

@@ -1,0 +1,26 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/git_object"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn parse_signed_commit(Bytes) -> SignedCommit raise GitObjectError
+
+// Errors
+pub suberror GitObjectError {
+  Malformed(String)
+  NotSigned
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct SignedCommit {
+  signed_content : Bytes
+  signature_armor : String
+} derive(@debug.Debug)
+
+// Type aliases
+
+// Traits
+

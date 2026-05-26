@@ -28,7 +28,7 @@ test "argon2d: RFC 9106 §5.1 test vector" {
   }
   let tag = @argon2.hash_raw_with_ad(params, password, salt, ad, secret)
   let expected : Bytes = b"\x51\x2b\x39\x1b\x6f\x11\x62\x97\x53\x71\xd3\x09\x19\x73\x42\x94\xf8\x68\xe3\xbe\x39\x84\xf3\xc1\xa1\x3a\x4d\xb9\xfa\xbe\x4a\xcb"
-  assert_eq(tag, expected)
+  @debug.assert_eq(tag, expected)
 }
 
 ///|
@@ -43,7 +43,7 @@ test "argon2i: RFC 9106 §5.2 test vector" {
   }
   let tag = @argon2.hash_raw_with_ad(params, password, salt, ad, secret)
   let expected : Bytes = b"\xc8\x14\xd9\xd1\xdc\x7f\x37\xaa\x13\xf0\xd7\x7f\x24\x94\xbd\xa1\xc8\xde\x6b\x01\x6d\xd3\x88\xd2\x99\x52\xa4\xc4\x67\x2b\x6c\xe8"
-  assert_eq(tag, expected)
+  @debug.assert_eq(tag, expected)
 }
 
 ///|
@@ -58,7 +58,7 @@ test "argon2id: RFC 9106 §5.3 test vector" {
   }
   let tag = @argon2.hash_raw_with_ad(params, password, salt, ad, secret)
   let expected : Bytes = b"\x0d\x64\x0d\xf5\x8d\x78\x76\x6c\x08\xc0\x37\xa3\x4a\x8b\x53\xc9\xd0\x1e\xf0\x45\x2d\x75\xb6\x5e\xb5\x25\x20\xe9\x6b\x01\xe6\x59"
-  assert_eq(tag, expected)
+  @debug.assert_eq(tag, expected)
 }
 
 ///|
@@ -74,32 +74,32 @@ test "argon2: hash_raw without ad/secret matches hash_raw_with_ad(ad=b'', secret
   let r2 = @argon2.hash_raw_with_ad(
     params, b"password", b"saltsaltsaltsalt", b"", b"",
   )
-  assert_eq(r1, r2)
+  @debug.assert_eq(r1, r2)
 }
 
 ///|
 test "argon2: recommended_interactive returns argon2id, m=19456, t=2, p=1, out=32" {
   let p = @argon2.Params::recommended_interactive()
-  assert_eq(p.variant, Argon2id)
-  assert_eq(p.m_cost, 19456)
-  assert_eq(p.t_cost, 2)
-  assert_eq(p.parallelism, 1)
-  assert_eq(p.output_len, 32)
+  @debug.assert_eq(p.variant, Argon2id)
+  @debug.assert_eq(p.m_cost, 19456)
+  @debug.assert_eq(p.t_cost, 2)
+  @debug.assert_eq(p.parallelism, 1)
+  @debug.assert_eq(p.output_len, 32)
 }
 
 ///|
 test "argon2: recommended_sensitive returns argon2id, m=65536, t=3, p=4, out=32" {
   let p = @argon2.Params::recommended_sensitive()
-  assert_eq(p.variant, Argon2id)
-  assert_eq(p.m_cost, 65536)
-  assert_eq(p.t_cost, 3)
-  assert_eq(p.parallelism, 4)
-  assert_eq(p.output_len, 32)
+  @debug.assert_eq(p.variant, Argon2id)
+  @debug.assert_eq(p.m_cost, 65536)
+  @debug.assert_eq(p.t_cost, 3)
+  @debug.assert_eq(p.parallelism, 4)
+  @debug.assert_eq(p.output_len, 32)
 }
 
 ///|
 test "argon2: default_id matches recommended_interactive" {
-  assert_eq(
+  @debug.assert_eq(
     @argon2.Params::default_id(),
     @argon2.Params::recommended_interactive(),
   )
@@ -114,9 +114,10 @@ test "argon2: rejects parallelism < 1" {
     parallelism: 0,
     output_len: 32,
   }
-  match (try? @argon2.hash_raw(bad, b"", b"")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidParams")
+  try @argon2.hash_raw(bad, b"", b"") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidParams")
   }
 }
 
@@ -129,9 +130,10 @@ test "argon2: rejects m_cost < 8 * parallelism" {
     parallelism: 1,
     output_len: 32,
   }
-  match (try? @argon2.hash_raw(bad, b"", b"")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidParams")
+  try @argon2.hash_raw(bad, b"", b"") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidParams")
   }
 }
 
@@ -144,9 +146,10 @@ test "argon2: rejects output_len < 4" {
     parallelism: 1,
     output_len: 2,
   }
-  match (try? @argon2.hash_raw(bad, b"", b"")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidParams")
+  try @argon2.hash_raw(bad, b"", b"") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidParams")
   }
 }
 
@@ -168,7 +171,7 @@ test "argon2: hash_encoded produces the documented PHC layout" {
   assert_true(encoded.has_prefix("$argon2id$v=19$m=32,t=1,p=1$c29tZXNhbHQ$"))
   // The hash segment is non-empty and base64 carries no padding '='.
   let segments = encoded.split("$").to_array()
-  assert_eq(segments.length(), 6)
+  @debug.assert_eq(segments.length(), 6)
   assert_true(segments[4].length() > 0)
   assert_true(segments[5].length() > 0)
   assert_false(segments[4].contains("="))
@@ -188,9 +191,10 @@ test "argon2: hash_encoded -> verify_encoded round-trip succeeds" {
 test "argon2: verify_encoded rejects wrong password" {
   let params = phc_params()
   let encoded = @argon2.hash_encoded(params, b"hunter2", b"salty_salt")
-  match (try? @argon2.verify_encoded(encoded, b"hunter3")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  try @argon2.verify_encoded(encoded, b"hunter3") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected VerifyFailed")
   }
 }
 
@@ -202,10 +206,11 @@ test "argon2: verify_encoded rejects tampered hash" {
   let n = encoded.length()
   let last = encoded[n - 1]
   let replacement = if last == 'A' { "B" } else { "A" }
-  let tampered = encoded.substring(start=0, end=n - 1) + replacement
-  match (try? @argon2.verify_encoded(tampered, b"hunter2")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  let tampered = encoded[:n - 1].to_owned() + replacement
+  try @argon2.verify_encoded(tampered, b"hunter2") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected VerifyFailed")
   }
 }
 
@@ -223,45 +228,49 @@ test "argon2: verify_encoded rejects tampered salt" {
     rebuilt = if i == 4 {
       rebuilt + "ZGlmZmVyZW50c2FsdA"
     } else {
-      rebuilt + segments[i].to_string()
+      rebuilt + segments[i].to_owned()
     }
   }
-  match (try? @argon2.verify_encoded(rebuilt, b"hunter2")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected VerifyFailed")
+  try @argon2.verify_encoded(rebuilt, b"hunter2") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected VerifyFailed")
   }
 }
 
 ///|
 test "argon2: verify_encoded rejects malformed PHC strings" {
   // Wrong number of '$'-separated segments.
-  match (try? @argon2.verify_encoded("$argon2id$bogus", b"x")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  try @argon2.verify_encoded("$argon2id$bogus", b"x") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidEncoded")
   }
   // Unknown algorithm.
-  match
-    (try? @argon2.verify_encoded(
+  try
+    @argon2.verify_encoded(
       "$argon2x$v=19$m=32,t=1,p=1$c29tZXNhbHQ$AAAAAA", b"x",
-    )) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+    )
+  catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidEncoded")
   }
   // Bad base64 in hash segment.
-  match
-    (try? @argon2.verify_encoded(
-      "$argon2id$v=19$m=32,t=1,p=1$c29tZXNhbHQ$!!!", b"x",
-    )) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  try
+    @argon2.verify_encoded("$argon2id$v=19$m=32,t=1,p=1$c29tZXNhbHQ$!!!", b"x")
+  catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidEncoded")
   }
   // Missing version segment.
-  match
-    (try? @argon2.verify_encoded(
-      "$argon2id$m=32,t=1,p=1$c29tZXNhbHQ$AAAAAA$x", b"x",
-    )) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidEncoded")
+  try
+    @argon2.verify_encoded("$argon2id$m=32,t=1,p=1$c29tZXNhbHQ$AAAAAA$x", b"x")
+  catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidEncoded")
   }
 }
 

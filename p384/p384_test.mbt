@@ -23,7 +23,7 @@ fn hex(s : String) -> Bytes {
   while i < len {
     let hi = nibble(s.get_char(i * 2).unwrap())
     let lo = nibble(s.get_char(i * 2 + 1).unwrap())
-    out.unsafe_set(i, ((hi * 16) + lo).to_byte())
+    out.unsafe_set(i, (hi * 16 + lo).to_byte())
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out.unsafe_get(j) })
@@ -85,7 +85,7 @@ test "p384: verify openssl-generated raw r||s signature" {
 test "p384: SPKI and uncompressed agree" {
   let a = @p384.PublicKey::from_spki_der(vec_spki())
   let b = @p384.PublicKey::from_uncompressed(vec_uncompressed())
-  assert_eq(a.to_uncompressed(), b.to_uncompressed())
+  @debug.assert_eq(a.to_uncompressed(), b.to_uncompressed())
 }
 
 ///|
@@ -120,13 +120,7 @@ test "p384: tampered signature fails" {
 test "p384: r=0 rejected" {
   let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
   let sig = vec_sig_raw()
-  let zero_r = Bytes::makei(96, fn(i) {
-    if i < 48 {
-      b'\x00'
-    } else {
-      sig[i]
-    }
-  })
+  let zero_r = Bytes::makei(96, fn(i) { if i < 48 { b'\x00' } else { sig[i] } })
   assert_false(@p384.verify(pk, vec_msg(), zero_r, Raw))
 }
 
@@ -210,7 +204,86 @@ test "p384: SPKI rejects wrong namedCurve" {
 }
 
 ///|
-test "p384: SignatureFormat Show" {
-  inspect(@p384.SignatureFormat::Raw, content="Raw")
-  inspect(@p384.SignatureFormat::Der, content="Der")
+test "p384: SignatureFormat Debug" {
+  @debug.assert_eq(@debug.to_string(@p384.SignatureFormat::Raw), "Raw")
+  @debug.assert_eq(@debug.to_string(@p384.SignatureFormat::Der), "Der")
+}
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
+  let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
+  let sig = vec_sig_raw()
+  let bad = Bytes::makei(96, fn(i) { if i < 48 { sig[i] } else { b'\x00' } })
+  assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2022-21449: r=s=0 must be rejected" {
+  let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
+  let bad = Bytes::makei(96, fn(_i) { b'\x00' })
+  assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
+}
+
+///|
+test "ATTACK: s = n (P-384 order, boundary) must reject" {
+  let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
+  // P-384 group order n.
+  let n_hex = "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973"
+  let n = hex(n_hex)
+  let r = vec_sig_raw()
+  let bad = Bytes::makei(96, fn(i) { if i < 48 { r[i] } else { n[i - 48] } })
+  assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2020-0601 (Curveball)-style on P-384: off-curve pubkey rejected" {
+  let off_curve = Bytes::makei(97, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 48 {
+      b'\x01'
+    } else if i == 96 {
+      b'\x02'
+    } else {
+      b'\x00'
+    }
+  })
+  let raised = try {
+    let _ = @p384.PublicKey::from_uncompressed(off_curve)
+    false
+  } catch {
+    PointNotOnCurve => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "p384: sign+verify roundtrip is deterministic" {
+  let scalar = hex(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let msg : Bytes = b"hello p384 sign"
+  let sig1 = sk.sign(msg)
+  let sig2 = sk.sign(msg)
+  @debug.assert_eq(sig1, sig2)
+  assert_true(@p384.verify(pk, msg, sig1, Raw))
+}
+
+///|
+test "p384: sign emits DER" {
+  let scalar = hex(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let der = sk.sign(b"hello p384 sign", format=Der)
+  @debug.assert_eq(der[0], b'\x30')
+  assert_true(@p384.verify(pk, b"hello p384 sign", der, Der))
 }

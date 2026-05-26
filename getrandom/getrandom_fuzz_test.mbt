@@ -15,7 +15,7 @@ test "fuzz getrandom: bytes(n) returns exactly n bytes" {
     let positive = if raw_n < 0 { -raw_n } else { raw_n }
     let n = positive % 1024 + 1
     let b = @getrandom.bytes(n)
-    assert_eq(b.length(), n)
+    @debug.assert_eq(b.length(), n)
   }
 }
 
@@ -36,7 +36,7 @@ test "fuzz getrandom: fill writes everything" {
           break
         }
       }
-      assert_eq(all_same, false)
+      @debug.assert_eq(all_same, false)
     }
   }
 }
@@ -64,17 +64,18 @@ test "fuzz getrandom: uint32 has reasonable bit distribution" {
       saw_1 = true
     }
   }
-  assert_eq(saw_0, true)
-  assert_eq(saw_1, true)
+  @debug.assert_eq(saw_0, true)
+  @debug.assert_eq(saw_1, true)
 }
 
 ///|
 test "fuzz getrandom: negative length always rejects" {
   for raw_n in (@quickcheck.samples(20) : Array[Int]) {
     let neg = if raw_n > 0 { -raw_n } else if raw_n == 0 { -1 } else { raw_n }
-    match (try? @getrandom.bytes(neg)) {
-      Err(_) => ()
-      Ok(_) => fail("negative length must reject")
+    try @getrandom.bytes(neg) catch {
+      _ => ()
+    } noraise {
+      _ => fail("negative length must reject")
     }
   }
 }

@@ -220,13 +220,6 @@ fn SHA512::finalize(self : SHA512) -> FixedArray[Byte] {
 }
 
 ///|
-fn sha512_bytes(data : Bytes) -> FixedArray[Byte] {
-  let ctx = SHA512::new()
-  ctx.update_bytes(data)
-  ctx.finalize()
-}
-
-///|
 fn sha512_fa(data : FixedArray[Byte]) -> FixedArray[Byte] {
   let ctx = SHA512::new()
   ctx.update_fa(data)

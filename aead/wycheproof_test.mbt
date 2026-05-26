@@ -23,10 +23,10 @@ test "wycheproof chacha20_poly1305 tcId=1 (valid)" {
   let ct : Bytes = b"\xd3\x1a\x8d\x34\x64\x8e\x60\xdb\x7b\x86\xaf\xbc\x53\xef\x7e\xc2\xa4\xad\xed\x51\x29\x6e\x08\xfe\xa9\xe2\xb5\xa7\x36\xee\x62\xd6\x3d\xbe\xa4\x5e\x8c\xa9\x67\x12\x82\xfa\xfb\x69\xda\x92\x72\x8b\x1a\x71\xde\x0a\x9e\x06\x0b\x29\x05\xd6\xa5\xb6\x7e\xcd\x3b\x36\x92\xdd\xbd\x7f\x2d\x77\x8b\x8c\x98\x03\xae\xe3\x28\x09\x1b\x58\xfa\xb3\x24\xe4\xfa\xd6\x75\x94\x55\x85\x80\x8b\x48\x31\xd7\xbc\x3f\xf4\xde\xf0\x8e\x4b\x7a\x9d\xe5\x76\xd2\x65\x86\xce\xc6\x4b\x61\x16"
   let tag : Bytes = b"\x1a\xe1\x0b\x59\x4f\x09\xe2\x6a\x7e\x90\x2e\xcb\xd0\x60\x06\x91"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -39,10 +39,10 @@ test "wycheproof chacha20_poly1305 tcId=2 (valid)" {
   let ct : Bytes = b""
   let tag : Bytes = b"\x76\xac\xb3\x42\xcf\x31\x66\xa5\xb6\x3c\x0c\x0e\xa1\x38\x3c\x8d"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -55,10 +55,10 @@ test "wycheproof chacha20_poly1305 tcId=3 (valid)" {
   let ct : Bytes = b""
   let tag : Bytes = b"\x90\x6f\xa6\x28\x4b\x52\xf8\x7b\x73\x59\xcb\xaa\x75\x63\xc7\x09"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -71,10 +71,10 @@ test "wycheproof chacha20_poly1305 tcId=4 (valid)" {
   let ct : Bytes = b"\x3a"
   let tag : Bytes = b"\xca\xc2\x7d\xec\x09\x68\x80\x1e\x9f\x6e\xde\xd6\x9d\x80\x75\x22"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -87,10 +87,10 @@ test "wycheproof chacha20_poly1305 tcId=7 (valid)" {
   let ct : Bytes = b"\xb6\x0d"
   let tag : Bytes = b"\xea\xd0\xfd\x46\x97\xec\x2e\x55\x58\x23\x77\x19\xd0\x24\x37\xa2"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -103,10 +103,10 @@ test "wycheproof chacha20_poly1305 tcId=19 (valid)" {
   let ct : Bytes = b"\xb9\xb9\x10\x43\x3a\xf0\x52\xb0"
   let tag : Bytes = b"\x45\x30\xf5\x1a\xee\xe0\x24\xe0\xa4\x45\xa6\x32\x8f\xa6\x7a\x18"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -119,10 +119,10 @@ test "wycheproof chacha20_poly1305 tcId=30 (valid)" {
   let ct : Bytes = b"\xd3\x01\x7e\x0b\xb1\x70\x5b\x38\x0b\x34\xcc\x33\x34\x50"
   let tag : Bytes = b"\x57\x08\xe7\x2c\xa2\xbd\x35\x4f\x48\x7f\x82\xf6\x7f\xbc\x3a\xcb"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -135,10 +135,10 @@ test "wycheproof chacha20_poly1305 tcId=34 (valid)" {
   let ct : Bytes = b"\xe9\x11\x0e\x9f\x56\xab\x3c\xa4\x83\x50\x0c\xea\xba\xb6\x7a\x13"
   let tag : Bytes = b"\x83\x6c\xca\xbf\x15\xa6\xa2\x2a\x51\xc1\x07\x1c\xfa\x68\xfa\x0c"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -151,10 +151,10 @@ test "wycheproof chacha20_poly1305 tcId=35 (valid)" {
   let ct : Bytes = b"\xe4\xb1\x13\xcb\x77\x59\x45\xf3\xd3\xa8\xae\x9e\xc1\x41\xc0\x0c"
   let tag : Bytes = b"\x7c\x43\xf1\x6c\xe0\x96\xd0\xdc\x27\xc9\x58\x49\xdc\x38\x3b\x7d"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -167,10 +167,10 @@ test "wycheproof chacha20_poly1305 tcId=38 (valid)" {
   let ct : Bytes = b"\xb6\x21\xd7\x6a\x8d\xac\xff\x00\xb3\xf8\x40\xcd\xf2\x6c\x89\x4c\xc5\xd1"
   let tag : Bytes = b"\xe0\xa2\x17\x16\xed\x94\xc0\x38\x2f\xa9\xb0\x90\x3d\x15\xbb\x68"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -183,10 +183,10 @@ test "wycheproof chacha20_poly1305 tcId=39 (valid)" {
   let ct : Bytes = b"\xe0\xa7\x45\x18\x6c\x1a\x7b\x14\x7f\x74\xfa\xff\x2a\x71\x5d\xf5\xc1\x9d"
   let tag : Bytes = b"\x91\x7b\xaf\x70\x3e\x35\x5d\x4d\x95\x0e\x6c\x05\xfe\x8f\x34\x9f"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -199,10 +199,10 @@ test "wycheproof chacha20_poly1305 tcId=47 (valid)" {
   let ct : Bytes = b"\xdb\x4c\x70\x05\x13\x81\x89\x72\xb0\xdc\x0e\x53\x1b\x1c\x28\x1c\xa0\x3e\x40\xc6\x0d\xea"
   let tag : Bytes = b"\x63\xf4\x47\x8b\xba\x2a\xf4\x69\xa7\xa4\xdc\x3b\x4f\x14\x13\x60"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -215,10 +215,10 @@ test "wycheproof chacha20_poly1305 tcId=72 (valid)" {
   let ct : Bytes = b"\x9a\x4e\xf2\x2b\x18\x16\x77\xb5\x75\x5c\x08\xf7\x47\xc0\xf8\xd8\xe8\xd4\xc1\x8a\x9c\xc2\x40\x5c\x12\xbb\x51\xbb\x18\x72\xc8\xe8\xb8\x77\x67\x8b\xec\x44\x2c\xfc\xbb\x0f\xf4\x64\xa6\x4b\x74\x33\x2c\xf0\x72\x89\x8c\x7e\x0e\xdd\xf6\x23\x2e\xa6\xe2\x7e\xfe\x50"
   let tag : Bytes = b"\x9f\xf3\x42\x7a\x0f\x32\xfa\x56\x6d\x9c\xa0\xa7\x8a\xef\xc0\x13"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -231,10 +231,10 @@ test "wycheproof chacha20_poly1305 tcId=73 (valid)" {
   let ct : Bytes = b"\x5f\xbb\xde\xcc\x34\xbe\x20\x16\x14\xf6\x36\x03\x1e\xeb\x42\xf1\xca\xce\x3c\x79\xa1\x2c\xff\xd8\x71\xee\x8e\x73\x82\x0c\x82\x97\x49\xf1\xab\xb4\x29\x43\x67\x84\x9f\xb6\xc2\xaa\x56\xbd\xa8\xa3\x07\x8f\x72\x3d\x7c\x1c\x85\x20\x24\xb0\x17\xb5\x89\x73\xfb\x1e"
   let tag : Bytes = b"\x09\x26\x3d\xa7\xb4\xcb\x92\x14\x52\xf9\x7d\xca\x40\xf5\x80\xec"
   let expected_sealed = wp_concat(ct, tag)
-  let sealed = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
-  assert_eq(sealed, expected_sealed)
+  let sealed_bytes = @aead.seal(@aead.ChaCha20Poly1305, key, iv, aad, msg)
+  @debug.assert_eq(sealed_bytes, expected_sealed)
   let opened = @aead.open(@aead.ChaCha20Poly1305, key, iv, aad, expected_sealed)
-  assert_eq(opened, msg)
+  @debug.assert_eq(opened, msg)
 }
 
 ///|
@@ -246,17 +246,17 @@ test "wycheproof chacha20_poly1305 tcId=146 (invalid)" {
   let aad : Bytes = b"\x00\x01\x02"
   let ct : Bytes = b""
   let tag : Bytes = b"\xf5\x40\x9b\xb7\x29\x03\x9d\x08\x14\xac\x51\x40\x54\x32\x3f\x44"
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed, got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -270,17 +270,17 @@ test "wycheproof chacha20_poly1305 tcId=166 (invalid)" {
   let aad : Bytes = b"\x00\x01\x02"
   let ct : Bytes = b"\xd0\x3b\xcb\x3c\xa5\x2d\x48\xd1\xd2\x03\xb1\xe7\xb1\xa5\x99\x5a"
   let tag : Bytes = b"\x28\x91\x40\x07\xa6\x11\x9d\xd3\xf1\x09\xbb\xa2\x1c\xe9\xa7\xd6"
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.AuthenticationFailed) => ()
-    Err(e) => abort("expected AuthenticationFailed, got " + e.to_string())
+    Err(e) => abort("expected AuthenticationFailed, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -294,19 +294,19 @@ test "wycheproof chacha20_poly1305 tcId=317 (invalid)" {
   let aad : Bytes = b""
   let ct : Bytes = b""
   let tag : Bytes = b""
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -320,19 +320,19 @@ test "wycheproof chacha20_poly1305 tcId=318 (invalid)" {
   let aad : Bytes = b""
   let ct : Bytes = b""
   let tag : Bytes = b""
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -346,19 +346,19 @@ test "wycheproof chacha20_poly1305 tcId=320 (invalid)" {
   let aad : Bytes = b""
   let ct : Bytes = b""
   let tag : Bytes = b""
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -372,19 +372,19 @@ test "wycheproof chacha20_poly1305 tcId=322 (invalid)" {
   let aad : Bytes = b""
   let ct : Bytes = b""
   let tag : Bytes = b""
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -398,19 +398,19 @@ test "wycheproof chacha20_poly1305 tcId=323 (invalid)" {
   let aad : Bytes = b""
   let ct : Bytes = b""
   let tag : Bytes = b""
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }
@@ -424,19 +424,19 @@ test "wycheproof chacha20_poly1305 tcId=325 (invalid)" {
   let aad : Bytes = b""
   let ct : Bytes = b""
   let tag : Bytes = b""
-  let sealed = wp_concat(ct, tag)
+  let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
-    sealed,
+    sealed_bytes,
   )
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
-    Err(e) => abort("expected InvalidNonceSize, got " + e.to_string())
+    Err(e) => abort("expected InvalidNonceSize, got " + repr(e))
     Ok(_) => abort("expected rejection but open succeeded")
   }
 }

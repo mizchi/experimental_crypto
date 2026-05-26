@@ -16,7 +16,7 @@ pub suberror NaclBoxError {
   InvalidCiphertextLength(Int)
   AuthenticationFailed
   KeyGenerationError(String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct KeyPair {
@@ -40,7 +40,7 @@ pub fn KeyPair::from_seed(seed_32 : Bytes) -> KeyPair raise NaclBoxError {
   }
   let sk = try? @x25519.PrivateKey::from_bytes(seed_32)
   match sk {
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok(sk) => { public_key: sk.public_key(), secret_key: sk }
   }
 }
@@ -62,14 +62,14 @@ pub fn secretbox(
     raise InvalidNonceLength(nonce.length())
   }
   let aead_result : Result[(Bytes, Bytes), @aead.AeadError] = try? @aead.seal_detached(
-      @aead.XChaCha20Poly1305,
-      key,
-      nonce,
-      b"",
-      message,
-    )
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    b"",
+    message,
+  )
   match aead_result {
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok((ct, tag)) =>
       // libsodium layout: tag || ciphertext.
       Bytes::makei(tag.length() + ct.length(), fn(i) {
@@ -102,17 +102,17 @@ pub fn secretbox_open(
   let tag = Bytes::makei(16, fn(i) { ciphertext[i] })
   let ct = Bytes::makei(ciphertext.length() - 16, fn(i) { ciphertext[i + 16] })
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
-      @aead.XChaCha20Poly1305,
-      key,
-      nonce,
-      b"",
-      ct,
-      tag,
-    )
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    b"",
+    ct,
+    tag,
+  )
   match result {
     Ok(pt) => pt
     Err(@aead.AuthenticationFailed) => raise AuthenticationFailed
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
   }
 }
 
@@ -126,11 +126,10 @@ pub fn box_beforenm(
   sender_privkey : @x25519.PrivateKey,
 ) -> SharedKey raise NaclBoxError {
   let ecdh_result : Result[@x25519.SharedSecret, @x25519.X25519Error] = try? @x25519.diffie_hellman(
-      sender_privkey,
-      recipient_pubkey,
-    )
+    sender_privkey, recipient_pubkey,
+  )
   match ecdh_result {
-    Err(e) => raise KeyGenerationError(e.to_string())
+    Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok(shared) => {
       // HChaCha20 with a 16-byte all-zero "nonce" — libsodium convention.
       let zeros16 = Bytes::makei(16, fn(_) { b'\x00' })

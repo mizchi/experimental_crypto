@@ -1,13 +1,26 @@
 // JWT (RFC 7519) over JWS (RFC 7515) compact serialization.
 //
 // Supported algorithms:
-//   - sign + verify: HS256, EdDSA (RFC 8037 §3.1)
-//   - verify-only:   RS256 (RFC 7515 §3.3, RFC 8017 PKCS#1 v1.5)
-// Everything else (ES256, HS384/512, RS384/512, ES384/512, PS256/384/512)
-// is recognized in `Algorithm` for completeness but raises
-// `UnsupportedAlgorithm` at sign / verify time. Adding a new alg is a
-// matter of extending `Key` / `VerifyKey` and a `match` arm in
-// `sign` / `verify`.
+//   - sign + verify: HS256, EdDSA (RFC 8037 §3.1), RS256, ES256, ES384,
+//                    PS256, PS384, PS512 (RFC 7518 §3.5)
+// Everything else (HS384/512, RS384/512, ES512) is recognized in
+// `Algorithm` for completeness but raises `UnsupportedAlgorithm` at sign
+// / verify time. Adding a new alg is a matter of extending `Key` /
+// `VerifyKey` and a `match` arm in `sign` / `verify`.
+//
+// PSx caveat: RFC 7518 §3.5 requires sLen = hLen for PS256 / PS384 / PS512,
+// but the workspace does not yet expose a vetted RNG for the JWT layer.
+// To keep the roundtrip self-consistent without a hidden non-deterministic
+// dependency, both `sign` and `verify` for PSx use **deterministic PSS with
+// sLen = 0** (allowed by RFC 8017 §A.2.3). This means:
+//   * tokens we produce will NOT verify under strict RFC 7518 verifiers
+//     (which expect sLen = hLen);
+//   * tokens produced by strict RFC 7518 verifiers will NOT verify here.
+// Callers that need either direction of RFC 7518 interop should call
+// `@rsa.RsaPrivateKey::sign_pss` / `@rsa.RsaPublicKey::verify_pss`
+// directly with a real RNG-supplied salt and assemble or split the
+// compact JWS by hand. The defaults here are an interop-bug-resistant
+// closed loop, not an RFC 7518 implementation.
 
 ///|
 pub(all) enum Algorithm {
@@ -24,12 +37,22 @@ pub(all) enum Algorithm {
   PS384
   PS512
   EdDSA
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
   EdDsa(privkey~ : @ed25519.PrivateKey)
+  // RS256: RSASSA-PKCS1-v1_5 sign with SHA-256.
+  Rs256(privkey~ : @rsa.RsaPrivateKey)
+  // ES256 / ES384: ECDSA-SHA-{256,384} sign with RFC 6979 deterministic nonce.
+  Es256(privkey~ : @p256.PrivateKey)
+  Es384(privkey~ : @p384.PrivateKey)
+  // PS256 / PS384 / PS512: RSASSA-PSS sign with deterministic empty salt.
+  // See the module comment for the sLen = 0 caveat vs RFC 7518 §3.5.
+  Ps256(privkey~ : @rsa.RsaPrivateKey)
+  Ps384(privkey~ : @rsa.RsaPrivateKey)
+  Ps512(privkey~ : @rsa.RsaPrivateKey)
 }
 
 ///|
@@ -44,6 +67,12 @@ pub(all) enum VerifyKey {
   Es256(pubkey~ : @p256.PublicKey)
   // ES384 (ECDSA with P-384 + SHA-384, RFC 7518 §3.4). JOSE raw r||s = 96B.
   Es384(pubkey~ : @p384.PublicKey)
+  // PS256 / PS384 / PS512: RSASSA-PSS verify with sLen = 0 (matches our
+  // sign path, NOT the RFC 7518 sLen = hLen convention — see module
+  // comment for the interop tradeoff).
+  Ps256(pubkey~ : @rsa.RsaPublicKey)
+  Ps384(pubkey~ : @rsa.RsaPublicKey)
+  Ps512(pubkey~ : @rsa.RsaPublicKey)
 }
 
 ///|
@@ -58,7 +87,7 @@ pub suberror JwtError {
   InvalidAudience
   InvalidIssuer
   ClaimsParseError(String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct VerifiedJwt {
@@ -66,7 +95,7 @@ pub(all) struct VerifiedJwt {
   claims : Map[String, Json]
   alg : Algorithm
   kid : String?
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct VerifyOptions {
@@ -75,7 +104,7 @@ pub(all) struct VerifyOptions {
   require_exp : Bool
   issuer : String?
   audience : String?
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub fn VerifyOptions::default(now : Int64) -> VerifyOptions {
@@ -91,13 +120,7 @@ fn base64url_encode(b : Bytes) -> String {
   let s = @base64.encode(b[:], padding=false)
   let buf = StringBuilder::new()
   for c in s {
-    let c2 = if c == '+' {
-      '-'
-    } else if c == '/' {
-      '_'
-    } else {
-      c
-    }
+    let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
     buf.write_char(c2)
   }
   buf.to_string()
@@ -118,16 +141,10 @@ fn base64url_decode(s : String) -> Bytes raise JwtError {
       (c >= '0' && c <= '9') ||
       c == '-' ||
       c == '_'
-    if not(is_valid) {
+    if !is_valid {
       raise InvalidToken("invalid base64url character")
     }
-    let c2 = if c == '-' {
-      '+'
-    } else if c == '_' {
-      '/'
-    } else {
-      c
-    }
+    let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
     buf.write_char(c2)
     n = n + 1
   }
@@ -188,6 +205,12 @@ fn key_alg(k : Key) -> Algorithm {
   match k {
     Hs256(..) => HS256
     EdDsa(..) => EdDSA
+    Rs256(..) => RS256
+    Es256(..) => ES256
+    Es384(..) => ES384
+    Ps256(..) => PS256
+    Ps384(..) => PS384
+    Ps512(..) => PS512
   }
 }
 
@@ -199,6 +222,9 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     Rs256(..) => RS256
     Es256(..) => ES256
     Es384(..) => ES384
+    Ps256(..) => PS256
+    Ps384(..) => PS384
+    Ps512(..) => PS512
   }
 }
 
@@ -207,7 +233,7 @@ fn build_header_json(alg : Algorithm, kid : String?) -> Json {
   // Header order is irrelevant for verification (the signing input is the
   // exact base64url-encoded bytes we produce here), so we just emit the
   // fields we care about.
-  let m : Map[String, Json] = Map::new()
+  let m : Map[String, Json] = Map([])
   m["alg"] = Json::string(alg_to_str(alg))
   m["typ"] = Json::string("JWT")
   match kid {
@@ -232,7 +258,9 @@ fn json_to_compact_string(j : Json) -> String {
 pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let alg = key_alg(key)
   let header = build_header_json(alg, kid)
-  let header_b64 = base64url_encode(@utf8.encode(json_to_compact_string(header)[:]))
+  let header_b64 = base64url_encode(
+    @utf8.encode(json_to_compact_string(header)[:]),
+  )
   let payload_b64 = base64url_encode(
     @utf8.encode(json_to_compact_string(payload)[:]),
   )
@@ -241,6 +269,37 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let signature : Bytes = match key {
     Hs256(secret~) => @hash.hmac_sha256(secret, signing_bytes)
     EdDsa(privkey~) => privkey.sign(signing_bytes)
+    Rs256(privkey~) =>
+      privkey.sign(signing_bytes, @rsa.HashAlg::Sha256) catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "RS256 sign failed: " + @debug.to_string(e),
+          )
+      }
+    Es256(privkey~) => privkey.sign(signing_bytes)
+    Es384(privkey~) => privkey.sign(signing_bytes)
+    // PSS with sLen = 0 (deterministic) — see module comment.
+    Ps256(privkey~) =>
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, b"") catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS256 sign failed: " + @debug.to_string(e),
+          )
+      }
+    Ps384(privkey~) =>
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha384, b"") catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS384 sign failed: " + @debug.to_string(e),
+          )
+      }
+    Ps512(privkey~) =>
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha512, b"") catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS512 sign failed: " + @debug.to_string(e),
+          )
+      }
   }
   signing_input + "." + base64url_encode(signature)
 }
@@ -287,9 +346,7 @@ fn audience_matches(claim : Json, expected : String) -> Bool {
     Array(arr) => {
       for v in arr {
         match v {
-          String(s) => if s == expected {
-              return true
-            }
+          String(s) => if s == expected { return true }
           _ => ()
         }
       }
@@ -309,9 +366,9 @@ pub fn verify(
   if parts.length() != 3 {
     raise InvalidToken("expected 3 segments")
   }
-  let header_b64 = parts[0].to_string()
-  let payload_b64 = parts[1].to_string()
-  let sig_b64 = parts[2].to_string()
+  let header_b64 = parts[0].to_owned()
+  let payload_b64 = parts[1].to_owned()
+  let sig_b64 = parts[2].to_owned()
 
   // ---- header ----
   let header_bytes = base64url_decode(header_b64)
@@ -325,6 +382,25 @@ pub fn verify(
   }
   if alg != verify_key_alg(key) {
     raise KeyAlgorithmMismatch
+  }
+  // RFC 7515 §4.1.11: a verifier MUST reject any JWS whose `crit` header
+  // names extensions the verifier does not recognise. We recognise none,
+  // so the presence of a non-empty `crit` array is itself a refusal
+  // signal. This blocks all "smuggle a critical extension that we
+  // silently ignore" attacks.
+  match header.get("crit") {
+    Some(_) =>
+      raise InvalidHeader(
+        "crit header is present but no extensions are supported",
+      )
+    None => ()
+  }
+  // RFC 7797: `"b64":false` changes the signing-input construction;
+  // we sign over the literal base64 segments, never the raw payload.
+  // Reject so an attacker can't bypass our integrity check.
+  match header.get("b64") {
+    Some(_) => raise InvalidHeader("b64 header is not supported")
+    None => ()
   }
 
   // ---- signature ----
@@ -349,12 +425,50 @@ pub fn verify(
       }
     (ES256, Es256(pubkey~)) =>
       // RFC 7515 §3.4: the JWS signature is r||s, 64 bytes total.
-      @p256.verify(pubkey, signing_bytes, provided_sig, @p256.SignatureFormat::Raw) catch {
+      @p256.verify(
+        pubkey,
+        signing_bytes,
+        provided_sig,
+        @p256.SignatureFormat::Raw,
+      ) catch {
         _ => raise InvalidSignature
       }
     (ES384, Es384(pubkey~)) =>
       // r||s, 96 bytes total for ES384.
-      @p384.verify(pubkey, signing_bytes, provided_sig, @p384.SignatureFormat::Raw) catch {
+      @p384.verify(
+        pubkey,
+        signing_bytes,
+        provided_sig,
+        @p384.SignatureFormat::Raw,
+      ) catch {
+        _ => raise InvalidSignature
+      }
+    // PSS verify with sLen = 0 (matches the sign path; see module comment).
+    (PS256, Ps256(pubkey~)) =>
+      pubkey.verify_pss(
+        signing_bytes,
+        provided_sig,
+        @rsa.HashAlg::Sha256,
+        salt_len=0,
+      ) catch {
+        _ => raise InvalidSignature
+      }
+    (PS384, Ps384(pubkey~)) =>
+      pubkey.verify_pss(
+        signing_bytes,
+        provided_sig,
+        @rsa.HashAlg::Sha384,
+        salt_len=0,
+      ) catch {
+        _ => raise InvalidSignature
+      }
+    (PS512, Ps512(pubkey~)) =>
+      pubkey.verify_pss(
+        signing_bytes,
+        provided_sig,
+        @rsa.HashAlg::Sha512,
+        salt_len=0,
+      ) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>
@@ -362,7 +476,7 @@ pub fn verify(
       // we hit a key shape we never wired up. Both are spec-side gaps.
       raise UnsupportedAlgorithm(alg_to_str(alg))
   }
-  if not(ok) {
+  if !ok {
     raise InvalidSignature
   }
 
@@ -377,35 +491,29 @@ pub fn verify(
   let claims : Map[String, Json] = try {
     match @json.parse(payload_str[:]) {
       Object(m) => m
-      _ => Map::new()
+      _ => Map([])
     }
   } catch {
-    _ => Map::new()
+    _ => Map([])
   }
 
   // ---- exp / nbf / iss / aud ----
   let exp = get_numeric_date(claims, "exp")
-  if opts.require_exp && exp.is_empty() {
+  if opts.require_exp && exp is None {
     raise ClaimsParseError("exp claim is required")
   }
   match exp {
-    Some(e) => if e + opts.clock_skew_sec < opts.now {
-        raise Expired
-      }
+    Some(e) => if e + opts.clock_skew_sec < opts.now { raise Expired }
     None => ()
   }
   match get_numeric_date(claims, "nbf") {
-    Some(nbf) => if nbf > opts.now + opts.clock_skew_sec {
-        raise NotYetValid
-      }
+    Some(nbf) => if nbf > opts.now + opts.clock_skew_sec { raise NotYetValid }
     None => ()
   }
   match opts.issuer {
     Some(expected) =>
       match get_string(claims, "iss") {
-        Some(s) => if s != expected {
-            raise InvalidIssuer
-          }
+        Some(s) => if s != expected { raise InvalidIssuer }
         None => raise InvalidIssuer
       }
     None => ()
@@ -413,9 +521,7 @@ pub fn verify(
   match opts.audience {
     Some(expected) =>
       match claims.get("aud") {
-        Some(v) => if not(audience_matches(v, expected)) {
-            raise InvalidAudience
-          }
+        Some(v) => if !audience_matches(v, expected) { raise InvalidAudience }
         None => raise InvalidAudience
       }
     None => ()

@@ -23,37 +23,42 @@
 
 ///|
 fn p256_p() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF",
+    radix=16,
   )
 }
 
 ///|
 fn p256_b() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B",
+    radix=16,
   )
 }
 
 ///|
 fn p256_n() -> BigInt {
   // Order of the base point.
-  BigInt::from_hex(
+  BigInt::from_string(
     "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551",
+    radix=16,
   )
 }
 
 ///|
 fn p256_gx() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296",
+    radix=16,
   )
 }
 
 ///|
 fn p256_gy() -> BigInt {
-  BigInt::from_hex(
+  BigInt::from_string(
     "4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5",
+    radix=16,
   )
 }
 
@@ -109,23 +114,13 @@ fn is_on_curve(p_pt : Point) -> Bool {
     return true
   }
   let p = p256_p()
-  let lhs = (p_pt.y * p_pt.y) % p
-  let x3 = (p_pt.x * p_pt.x % p * p_pt.x) % p
+  let lhs = p_pt.y * p_pt.y % p
+  let x3 = p_pt.x * p_pt.x % p * p_pt.x % p
   // a = -3 (mod p), expressed as `(p - 3) * x mod p` to keep everything
   // non-negative before the final mod.
-  let three_x = (BigInt::from_int(3) * p_pt.x) % p
+  let three_x = BigInt::from_int(3) * p_pt.x % p
   let rhs = mod_pos(x3 - three_x + p256_b(), p)
   lhs == rhs
-}
-
-///|
-// Negation: (x, -y mod p). The identity negates to itself.
-fn point_neg(pt : Point) -> Point {
-  if pt.inf {
-    return pt
-  }
-  let p = p256_p()
-  { x: pt.x, y: mod_pos(p - pt.y, p), inf: false }
 }
 
 ///|
@@ -238,8 +233,9 @@ pub suberror P256Error {
   PointNotOnCurve
   InvalidDerSignature(String)
   UnexpectedSpkiOid(String)
+  InvalidPrivateKey(String)
   Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Parse an uncompressed SEC1 point `04 || X(32) || Y(32)` (65 bytes total).
@@ -257,7 +253,7 @@ pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise P256Error {
   let x = BigInt::from_octets(x_bytes[:])
   let y = BigInt::from_octets(y_bytes[:])
   let point : Point = { x, y, inf: false }
-  if not(is_on_curve(point)) {
+  if !is_on_curve(point) {
     raise PointNotOnCurve
   }
   { point, }
@@ -330,9 +326,7 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise P256Error {
   let curve_oid = match alg_items[1].value {
     Oid(o) => o.to_string()
     _ =>
-      raise InvalidPointEncoding(
-        "SPKI: expected namedCurve OID in parameters",
-      )
+      raise InvalidPointEncoding("SPKI: expected namedCurve OID in parameters")
   }
   if curve_oid != secp256r1_named_curve_str {
     raise UnexpectedSpkiOid(curve_oid)
@@ -357,7 +351,7 @@ pub(all) enum SignatureFormat {
   Raw
   // X.509 / CMS / PKIX: ASN.1 DER SEQUENCE { INTEGER r, INTEGER s }.
   Der
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 // Parse a DER INTEGER as a non-negative BigInt. ECDSA r and s are always
@@ -434,7 +428,7 @@ pub fn verify(
   signature : Bytes,
   format : SignatureFormat,
 ) -> Bool raise P256Error {
-  if not(is_on_curve(pubkey.point)) {
+  if !is_on_curve(pubkey.point) {
     return false
   }
   let (r, s) = parse_signature(signature, format)
@@ -460,4 +454,447 @@ pub fn verify(
     return false
   }
   sum.x % n == r
+}
+
+// ─── private key + sign (RFC 6979 deterministic ECDSA) ───────────────────
+
+///|
+pub struct PrivateKey {
+  d : BigInt
+}
+
+///|
+/// Construct a private key from a 32-byte big-endian scalar. Rejects values
+/// that are 0 or ≥ n.
+pub fn PrivateKey::from_bytes(b : Bytes) -> PrivateKey raise P256Error {
+  if b.length() != 32 {
+    raise InvalidPrivateKey(
+      "expected 32-byte scalar, got " + b.length().to_string(),
+    )
+  }
+  // Reject all-zero input explicitly (defensive — BigInt's parsing of
+  // a fully-zero buffer is not guaranteed to round-trip through compare).
+  let mut all_zero = true
+  for i = 0; i < 32; i = i + 1 {
+    if b[i] != b'\x00' {
+      all_zero = false
+      break
+    }
+  }
+  if all_zero {
+    raise InvalidPrivateKey("scalar is zero")
+  }
+  let d = BigInt::from_octets(b[:])
+  let n = p256_n()
+  if d.compare(n) >= 0 {
+    raise InvalidPrivateKey("scalar >= n")
+  }
+  { d, }
+}
+
+///|
+pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
+  let point = scalar_mult(self.d, generator())
+  { point, }
+}
+
+///|
+/// Sign `message` with ECDSA-SHA-256 using RFC 6979 deterministic nonce.
+///
+/// Returns the signature in the requested format. The output is
+/// reproducible: same key + same message ⇒ same signature, no RNG needed
+/// (and so we sidestep the most common ECDSA footgun: nonce reuse / bias).
+///
+/// Side-channel caveat: RFC 6979 prevents nonce-bias attacks but does
+/// NOT make the implementation constant-time. The underlying `scalar_mult`
+/// is variable-time on the secret nonce `k` (because of `@bigint.pow`
+/// inside `mod_inverse` and the early-exit on leading-zero bits in the
+/// double-and-add ladder). Treat this as a sign-only-on-trusted-hosts
+/// primitive until we add a Montgomery-ladder fixed-time scalar mult.
+pub fn PrivateKey::sign(
+  self : PrivateKey,
+  message : Bytes,
+  format? : SignatureFormat = Raw,
+) -> Bytes {
+  let n = p256_n()
+  let e_bytes = @hash.sha256(message)
+  let e = BigInt::from_octets(e_bytes[:])
+  // RFC 6979 nonce loop. We use the d/e values + 32-byte ECDSA reductions.
+  let mut k_ctr = 0
+  let mut r = BigInt::from_int(0)
+  let mut s = BigInt::from_int(0)
+  let max_iter = 16 // RFC 6979 guarantees a usable nonce well within this
+  let mut found = false
+  let mut nonce_state = rfc6979_init(self.d, e_bytes, 32, n)
+  while !found && k_ctr < max_iter {
+    let (k, next_state) = rfc6979_next(nonce_state, 32, n)
+    nonce_state = next_state
+    // R = k * G, r = R.x mod n
+    let r_point = scalar_mult(k, generator())
+    if !r_point.inf {
+      r = r_point.x % n
+      if r.compare_int(0) > 0 {
+        // s = k^-1 * (e + r * d) mod n
+        let k_inv = mod_inverse(k, n)
+        let s_calc = k_inv * ((e + r * self.d) % n) % n
+        if s_calc.compare_int(0) > 0 {
+          s = s_calc
+          found = true
+        }
+      }
+    }
+    k_ctr = k_ctr + 1
+  }
+  if !found {
+    abort("ECDSA P-256 sign: nonce loop diverged (should be impossible)")
+  }
+  encode_signature(r, s, format)
+}
+
+///|
+fn encode_signature(r : BigInt, s : BigInt, format : SignatureFormat) -> Bytes {
+  match format {
+    Raw => {
+      let r_bytes = r.to_octets(length=32)
+      let s_bytes = s.to_octets(length=32)
+      Bytes::makei(64, fn(i) {
+        if i < 32 {
+          r_bytes[i]
+        } else {
+          s_bytes[i - 32]
+        }
+      })
+    }
+    Der => encode_signature_der(r, s)
+  }
+}
+
+///|
+fn encode_signature_der(r : BigInt, s : BigInt) -> Bytes {
+  let r_bytes = encode_der_integer(r)
+  let s_bytes = encode_der_integer(s)
+  let inner_len = r_bytes.length() + s_bytes.length()
+  let len_prefix = encode_der_length_field(inner_len)
+  let total = 1 + len_prefix.length() + inner_len
+  Bytes::makei(total, fn(i) {
+    if i == 0 {
+      b'\x30' // SEQUENCE
+    } else if i < 1 + len_prefix.length() {
+      len_prefix[i - 1]
+    } else if i - 1 - len_prefix.length() < r_bytes.length() {
+      r_bytes[i - 1 - len_prefix.length()]
+    } else {
+      s_bytes[i - 1 - len_prefix.length() - r_bytes.length()]
+    }
+  })
+}
+
+///|
+// Encode a positive BigInt as a DER INTEGER (tag + length + value), with
+// the leading 0x00 sign byte inserted when the high bit of the magnitude
+// is set.
+fn encode_der_integer(v : BigInt) -> Bytes {
+  // Get the magnitude as the smallest BE representation.
+  let mut mag = v.to_octets()
+  // Strip leading zero bytes (BigInt::to_octets may include them).
+  let mut start = 0
+  while start < mag.length() - 1 && mag[start] == b'\x00' {
+    start = start + 1
+  }
+  if start > 0 {
+    mag = Bytes::makei(mag.length() - start, fn(i) { mag[i + start] })
+  }
+  let needs_sign = (mag[0].to_int() & 0x80) != 0
+  let body_len = mag.length() + (if needs_sign { 1 } else { 0 })
+  let len_prefix = encode_der_length_field(body_len)
+  let total = 1 + len_prefix.length() + body_len
+  Bytes::makei(total, fn(i) {
+    if i == 0 {
+      b'\x02' // INTEGER
+    } else if i < 1 + len_prefix.length() {
+      len_prefix[i - 1]
+    } else if needs_sign && i == 1 + len_prefix.length() {
+      b'\x00'
+    } else {
+      let mag_idx = i -
+        1 -
+        len_prefix.length() -
+        (if needs_sign { 1 } else { 0 })
+      mag[mag_idx]
+    }
+  })
+}
+
+///|
+fn encode_der_length_field(n : Int) -> Bytes {
+  if n < 0x80 {
+    Bytes::makei(1, fn(_) { n.to_byte() })
+  } else if n < 0x100 {
+    Bytes::makei(2, fn(i) { if i == 0 { b'\x81' } else { n.to_byte() } })
+  } else if n < 0x10000 {
+    Bytes::makei(3, fn(i) {
+      if i == 0 {
+        b'\x82'
+      } else if i == 1 {
+        ((n >> 8) & 0xff).to_byte()
+      } else {
+        (n & 0xff).to_byte()
+      }
+    })
+  } else {
+    abort("DER length too big for short-form encoding")
+  }
+}
+
+// ─── RFC 6979 deterministic nonce derivation ─────────────────────────────
+
+///|
+priv struct Rfc6979State {
+  v : Bytes
+  k : Bytes
+}
+
+///|
+fn rfc6979_init(d : BigInt, h1 : Bytes, rlen : Int, q : BigInt) -> Rfc6979State {
+  let hlen = h1.length()
+  // V = 0x01 0x01 ... (hlen)
+  // K = 0x00 0x00 ... (hlen)
+  let v0 = Bytes::makei(hlen, fn(_) { b'\x01' })
+  let k0 = Bytes::makei(hlen, fn(_) { b'\x00' })
+  let x_oct = int2octets(d, rlen)
+  let bb_h1 = bits2octets(h1, q, rlen)
+  // K = HMAC_K(V || 0x00 || int2octets(x) || bits2octets(h1))
+  let k1 = @hash.hmac_sha256(k0, concat4(v0, b"\x00", x_oct, bb_h1))
+  let v1 = @hash.hmac_sha256(k1, v0)
+  let k2 = @hash.hmac_sha256(k1, concat4(v1, b"\x01", x_oct, bb_h1))
+  let v2 = @hash.hmac_sha256(k2, v1)
+  { v: v2, k: k2 }
+}
+
+///|
+fn rfc6979_next(
+  state : Rfc6979State,
+  rlen : Int,
+  q : BigInt,
+) -> (BigInt, Rfc6979State) {
+  let qlen_bits = bit_length(q)
+  let mut v = state.v
+  // Build T of at least qlen bits.
+  let mut t : Bytes = b""
+  while t.length() < rlen {
+    v = @hash.hmac_sha256(state.k, v)
+    t = concat2(t, v)
+  }
+  let k_int = bits2int(t, qlen_bits)
+  if k_int.compare_int(0) > 0 && k_int.compare(q) < 0 {
+    // Successful candidate. Re-seed state so the *next* call resumes
+    // correctly per RFC 6979 (only matters if signing retries).
+    let new_k = @hash.hmac_sha256(state.k, concat2(v, b"\x00"))
+    let new_v = @hash.hmac_sha256(new_k, v)
+    return (k_int, { v: new_v, k: new_k })
+  }
+  // Reject this k, churn the state and try again.
+  let new_k = @hash.hmac_sha256(state.k, concat2(v, b"\x00"))
+  let new_v = @hash.hmac_sha256(new_k, v)
+  rfc6979_next({ v: new_v, k: new_k }, rlen, q)
+}
+
+///|
+fn int2octets(x : BigInt, rlen : Int) -> Bytes {
+  x.to_octets(length=rlen)
+}
+
+///|
+fn bits2octets(b : Bytes, q : BigInt, rlen : Int) -> Bytes {
+  let z1 = bits2int(b, bit_length(q))
+  let z2 = z1 % q
+  let z3 = if z2.compare_int(0) < 0 { z2 + q } else { z2 }
+  z3.to_octets(length=rlen)
+}
+
+///|
+fn bits2int(b : Bytes, qlen_bits : Int) -> BigInt {
+  // Interpret leftmost qlen_bits of b as an integer.
+  let blen = b.length() * 8
+  let mut v = BigInt::from_octets(b[:])
+  if blen > qlen_bits {
+    let shift = blen - qlen_bits
+    v = v >> shift
+  }
+  v
+}
+
+///|
+fn bit_length(x : BigInt) -> Int {
+  let bytes = x.to_octets()
+  // Strip leading zeros.
+  let mut start = 0
+  while start < bytes.length() && bytes[start] == b'\x00' {
+    start = start + 1
+  }
+  if start >= bytes.length() {
+    return 0
+  }
+  let leading = bytes[start].to_int()
+  let mut bits = (bytes.length() - start - 1) * 8
+  let mut b = leading
+  while b > 0 {
+    bits = bits + 1
+    b = b >> 1
+  }
+  bits
+}
+
+///|
+fn concat2(a : Bytes, b : Bytes) -> Bytes {
+  Bytes::makei(a.length() + b.length(), fn(i) {
+    if i < a.length() {
+      a[i]
+    } else {
+      b[i - a.length()]
+    }
+  })
+}
+
+///|
+fn concat4(a : Bytes, b : Bytes, c : Bytes, d : Bytes) -> Bytes {
+  let na = a.length()
+  let nb = b.length()
+  let nc = c.length()
+  let nd = d.length()
+  Bytes::makei(na + nb + nc + nd, fn(i) {
+    if i < na {
+      a[i]
+    } else if i < na + nb {
+      b[i - na]
+    } else if i < na + nb + nc {
+      c[i - na - nb]
+    } else {
+      d[i - na - nb - nc]
+    }
+  })
+}
+
+// ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
+
+///|
+fn ec_public_key_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 2, 1])
+}
+
+///|
+/// Load a P-256 private key from a PKCS#8 PrivateKeyInfo DER blob.
+/// The private_key field contains a SEC1 ECPrivateKey SEQUENCE:
+///   ECPrivateKey ::= SEQUENCE {
+///     version INTEGER (1),
+///     privateKey OCTET STRING,   -- raw scalar bytes
+///     parameters [0] OPTIONAL,
+///     publicKey [1] OPTIONAL
+///   }
+pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P256Error {
+  let info = @pkcs8.parse_der(der) catch {
+    e => raise InvalidPrivateKey("pkcs8: " + @debug.to_string(e))
+  }
+  if info.algorithm.algorithm != ec_public_key_oid_for_pkcs8() {
+    raise InvalidPrivateKey(
+      "expected id-ecPublicKey, got " + info.algorithm.algorithm.to_string(),
+    )
+  }
+  // RFC 5958 §2: AlgorithmIdentifier.parameters MUST carry the named-curve
+  // OID for id-ecPublicKey. Without this check, a PKCS#8 blob for any
+  // EC curve (P-384, P-521, …) could be silently parsed as a P-256 key
+  // whenever the inner scalar fits in 32 bytes.
+  match info.algorithm.parameters {
+    Some(param_bytes) => {
+      let elem = @asn1.decode_der(param_bytes) catch { e => raise Asn1(e) }
+      let curve_oid = match elem.value {
+        Oid(o) => o.to_string()
+        _ => raise InvalidPrivateKey("PKCS#8 EC parameters not OID")
+      }
+      if curve_oid != secp256r1_named_curve_str {
+        raise InvalidPrivateKey(
+          "wrong namedCurve in PKCS#8 (expected " +
+          secp256r1_named_curve_str +
+          ", got " +
+          curve_oid +
+          ")",
+        )
+      }
+    }
+    None => raise InvalidPrivateKey("PKCS#8 EC parameters missing")
+  }
+  // The inner SEC1 ECPrivateKey is in info.private_key.
+  let inner_elem = @asn1.decode_der(info.private_key) catch {
+    e => raise Asn1(e)
+  }
+  let items = match inner_elem.value {
+    Sequence(xs) => xs
+    _ => raise InvalidPrivateKey("SEC1 ECPrivateKey not a SEQUENCE")
+  }
+  if items.length() < 2 {
+    raise InvalidPrivateKey("SEC1 ECPrivateKey arity < 2")
+  }
+  // items[0] is INTEGER version, items[1] is OCTET STRING privateKey.
+  let scalar_bytes = match items[1].value {
+    OctetString(b) => b
+    _ => raise InvalidPrivateKey("SEC1 privateKey not OCTET STRING")
+  }
+  // If the SEC1 inner carries its own `parameters [0]` named-curve OID,
+  // it MUST agree with the outer one (RFC 5915 §3 / RFC 5958 §2).
+  for i = 2; i < items.length(); i = i + 1 {
+    let it = items[i]
+    if it.tag.class_ == @asn1.TagClass::ContextSpecific && it.tag.number == 0U {
+      let inner_param_bytes = match it.value {
+        Unknown(b) => b
+        _ => raise InvalidPrivateKey("SEC1 inner parameters: unexpected shape")
+      }
+      let inner_param_elem = @asn1.decode_der(inner_param_bytes) catch {
+        e => raise Asn1(e)
+      }
+      let inner_curve_oid = match inner_param_elem.value {
+        Oid(o) => o.to_string()
+        _ => raise InvalidPrivateKey("SEC1 inner parameters not OID")
+      }
+      if inner_curve_oid != secp256r1_named_curve_str {
+        raise InvalidPrivateKey(
+          "SEC1 inner namedCurve mismatch (expected " +
+          secp256r1_named_curve_str +
+          ", got " +
+          inner_curve_oid +
+          ")",
+        )
+      }
+    }
+  }
+  // Some emitters omit leading zeros; left-pad to 32 bytes.
+  let padded = if scalar_bytes.length() == 32 {
+    scalar_bytes
+  } else if scalar_bytes.length() < 32 {
+    let pad = 32 - scalar_bytes.length()
+    Bytes::makei(32, fn(i) {
+      if i < pad {
+        b'\x00'
+      } else {
+        scalar_bytes[i - pad]
+      }
+    })
+  } else {
+    raise InvalidPrivateKey(
+      "EC scalar wider than 32 bytes: " + scalar_bytes.length().to_string(),
+    )
+  }
+  PrivateKey::from_bytes(padded)
+}
+
+///|
+pub fn PrivateKey::from_pkcs8_pem(
+  pem_str : String,
+) -> PrivateKey raise P256Error {
+  let block = @pem.decode(pem_str) catch { _ => raise InvalidPrivateKey("pem") }
+  if block.label != "PRIVATE KEY" {
+    raise InvalidPrivateKey(
+      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
+    )
+  }
+  PrivateKey::from_pkcs8_der(block.data)
 }

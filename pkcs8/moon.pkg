@@ -2,8 +2,12 @@ import {
   "mizchi/asn1",
   "mizchi/pkix",
   "mizchi/pem",
+  "mizchi/pbkdf2",
+  "mizchi/aead",
+  "moonbitlang/core/debug",
 }
 
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
 } for "test"

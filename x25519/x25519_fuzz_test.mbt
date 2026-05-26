@@ -49,7 +49,7 @@ test "fuzz x25519: ECDH commutativity" {
     let r1 = try? @x25519.diffie_hellman(sk_a, pk_b)
     let r2 = try? @x25519.diffie_hellman(sk_b, pk_a)
     match (r1, r2) {
-      (Ok(s1), Ok(s2)) => assert_eq(s1.to_bytes(), s2.to_bytes())
+      (Ok(s1), Ok(s2)) => @debug.assert_eq(s1.to_bytes(), s2.to_bytes())
       // Symmetry: if one side hits AllZeroSharedSecret the other must too,
       // since the resulting u-coord depends only on the unordered pair.
       (Err(_), Err(_)) => ()
@@ -68,10 +68,12 @@ test "fuzz x25519: all-zero u-coord rejects as AllZeroSharedSecret" {
   for raw in (@quickcheck.samples(n) : Array[Bytes]) {
     let seed = ensure_32(raw)
     let sk = @x25519.PrivateKey::from_bytes(seed)
-    match (try? @x25519.diffie_hellman(sk, pk_zero)) {
-      Err(@x25519.AllZeroSharedSecret) => ()
-      Err(other) => abort("unexpected error on zero u: \{other}")
-      Ok(_) => abort("zero u-coord must yield AllZeroSharedSecret")
+    try @x25519.diffie_hellman(sk, pk_zero) catch {
+      @x25519.AllZeroSharedSecret => ()
+      other =>
+        abort("unexpected error on zero u: " + @debug.to_string(other) + "")
+    } noraise {
+      _ => abort("zero u-coord must yield AllZeroSharedSecret")
     }
   }
 }
@@ -99,16 +101,18 @@ test "fuzz x25519: non-32-byte input raises Invalid*Length" {
       continue
     }
     // PrivateKey::from_bytes must reject.
-    match (try? @x25519.PrivateKey::from_bytes(raw)) {
-      Err(@x25519.InvalidScalarLength(got)) => assert_eq(got, raw.length())
-      Err(other) => abort("unexpected scalar error: \{other}")
-      Ok(_) => abort("PrivateKey::from_bytes accepted non-32-byte input")
+    try @x25519.PrivateKey::from_bytes(raw) catch {
+      @x25519.InvalidScalarLength(got) => @debug.assert_eq(got, raw.length())
+      other => abort("unexpected scalar error: " + @debug.to_string(other) + "")
+    } noraise {
+      _ => abort("PrivateKey::from_bytes accepted non-32-byte input")
     }
     // PublicKey::from_bytes must reject.
-    match (try? @x25519.PublicKey::from_bytes(raw)) {
-      Err(@x25519.InvalidPointLength(got)) => assert_eq(got, raw.length())
-      Err(other) => abort("unexpected point error: \{other}")
-      Ok(_) => abort("PublicKey::from_bytes accepted non-32-byte input")
+    try @x25519.PublicKey::from_bytes(raw) catch {
+      @x25519.InvalidPointLength(got) => @debug.assert_eq(got, raw.length())
+      other => abort("unexpected point error: " + @debug.to_string(other) + "")
+    } noraise {
+      _ => abort("PublicKey::from_bytes accepted non-32-byte input")
     }
   }
 }

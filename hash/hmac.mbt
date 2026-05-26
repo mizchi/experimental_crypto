@@ -97,6 +97,131 @@ pub fn hmac_sha256(key : Bytes, msg : Bytes) -> Bytes {
 }
 
 ///|
+// ─── HMAC-SHA-1 / HMAC-SHA-384 / HMAC-SHA-512 (RFC 2104, generic) ───────
+//
+// Used by RFC 6979 deterministic-nonce ECDSA (SHA-384/512), HOTP/TOTP
+// (SHA-1). Performance-insensitive (a handful of HMAC calls per
+// signature / OTP), so we implement them via the generic recipe instead
+// of the pre-baked context dance used for SHA-256.
+
+///|
+/// HMAC-SHA-1 of `msg` under `key`. Returns the 20-byte tag.
+pub fn hmac_sha1(key : Bytes, msg : Bytes) -> Bytes {
+  hmac_generic_64block(sha1, 20, key, msg)
+}
+
+///|
+/// HMAC-SHA-384 of `msg` under `key`. Returns the 48-byte tag.
+pub fn hmac_sha384(key : Bytes, msg : Bytes) -> Bytes {
+  hmac_generic_128block(sha384, 48, key, msg)
+}
+
+///|
+/// HMAC-SHA-512 of `msg` under `key`. Returns the 64-byte tag.
+pub fn hmac_sha512(key : Bytes, msg : Bytes) -> Bytes {
+  hmac_generic_128block(sha512, 128, key, msg)
+}
+
+///|
+// Generic HMAC for SHA-2 functions whose block size is 128 bytes (SHA-384
+// and SHA-512). `output_size_or_block_size` is the byte length of the
+// hash output for SHA-384 (48) or SHA-512 (64). For HMAC we don't actually
+// need that here — see the actual outer hash. Kept for clarity.
+fn hmac_generic_128block(
+  hash_fn : (Bytes) -> Bytes,
+  _output_size : Int,
+  key : Bytes,
+  msg : Bytes,
+) -> Bytes {
+  let block_size = 128
+  let padded = FixedArray::make(block_size, b'\x00')
+  let k = if key.length() > block_size { hash_fn(key) } else { key }
+  for i = 0; i < k.length(); i = i + 1 {
+    padded.unsafe_set(i, k[i])
+  }
+  let ipad = FixedArray::make(block_size, b'\x00')
+  let opad = FixedArray::make(block_size, b'\x00')
+  for i = 0; i < block_size; i = i + 1 {
+    let b = padded.unsafe_get(i).to_int()
+    ipad.unsafe_set(i, (b ^ 0x36).to_byte())
+    opad.unsafe_set(i, (b ^ 0x5c).to_byte())
+  }
+  // inner = hash(ipad || msg)
+  let inner_input = FixedArray::make(block_size + msg.length(), b'\x00')
+  for i = 0; i < block_size; i = i + 1 {
+    inner_input.unsafe_set(i, ipad.unsafe_get(i))
+  }
+  for i = 0; i < msg.length(); i = i + 1 {
+    inner_input.unsafe_set(block_size + i, msg[i])
+  }
+  let inner_input_bytes = Bytes::makei(block_size + msg.length(), fn(j) {
+    inner_input.unsafe_get(j)
+  })
+  let inner_hash = hash_fn(inner_input_bytes)
+  // outer = hash(opad || inner_hash)
+  let outer_input = FixedArray::make(block_size + inner_hash.length(), b'\x00')
+  for i = 0; i < block_size; i = i + 1 {
+    outer_input.unsafe_set(i, opad.unsafe_get(i))
+  }
+  for i = 0; i < inner_hash.length(); i = i + 1 {
+    outer_input.unsafe_set(block_size + i, inner_hash[i])
+  }
+  let outer_input_bytes = Bytes::makei(block_size + inner_hash.length(), fn(j) {
+    outer_input.unsafe_get(j)
+  })
+  hash_fn(outer_input_bytes)
+}
+
+///|
+// Generic HMAC for SHA-1 (and any other 64-byte-block hash). `_output_size`
+// is the byte length of the hash output (20 for SHA-1). Kept for parity
+// with `hmac_generic_128block`.
+fn hmac_generic_64block(
+  hash_fn : (Bytes) -> Bytes,
+  _output_size : Int,
+  key : Bytes,
+  msg : Bytes,
+) -> Bytes {
+  let block_size = 64
+  let padded = FixedArray::make(block_size, b'\x00')
+  let k = if key.length() > block_size { hash_fn(key) } else { key }
+  for i = 0; i < k.length(); i = i + 1 {
+    padded.unsafe_set(i, k[i])
+  }
+  let ipad = FixedArray::make(block_size, b'\x00')
+  let opad = FixedArray::make(block_size, b'\x00')
+  for i = 0; i < block_size; i = i + 1 {
+    let b = padded.unsafe_get(i).to_int()
+    ipad.unsafe_set(i, (b ^ 0x36).to_byte())
+    opad.unsafe_set(i, (b ^ 0x5c).to_byte())
+  }
+  // inner = hash(ipad || msg)
+  let inner_input = FixedArray::make(block_size + msg.length(), b'\x00')
+  for i = 0; i < block_size; i = i + 1 {
+    inner_input.unsafe_set(i, ipad.unsafe_get(i))
+  }
+  for i = 0; i < msg.length(); i = i + 1 {
+    inner_input.unsafe_set(block_size + i, msg[i])
+  }
+  let inner_input_bytes = Bytes::makei(block_size + msg.length(), fn(j) {
+    inner_input.unsafe_get(j)
+  })
+  let inner_hash = hash_fn(inner_input_bytes)
+  // outer = hash(opad || inner_hash)
+  let outer_input = FixedArray::make(block_size + inner_hash.length(), b'\x00')
+  for i = 0; i < block_size; i = i + 1 {
+    outer_input.unsafe_set(i, opad.unsafe_get(i))
+  }
+  for i = 0; i < inner_hash.length(); i = i + 1 {
+    outer_input.unsafe_set(block_size + i, inner_hash[i])
+  }
+  let outer_input_bytes = Bytes::makei(block_size + inner_hash.length(), fn(j) {
+    outer_input.unsafe_get(j)
+  })
+  hash_fn(outer_input_bytes)
+}
+
+///|
 /// Constant-time byte-sequence equality. Returns true iff `a` and `b` have
 /// the same length and the same contents. Time depends on max(|a|, |b|)
 /// rather than the position of the first difference.

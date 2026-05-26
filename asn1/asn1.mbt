@@ -4,14 +4,14 @@ pub(all) enum TagClass {
   Application
   ContextSpecific
   Private
-} derive(Eq, Show, Hash)
+} derive(Eq, Debug, Hash)
 
 ///|
 pub struct Tag {
   class_ : TagClass
   number : UInt
   constructed : Bool
-} derive(Eq, Show, Hash)
+} derive(Eq, Debug, Hash)
 
 ///|
 pub fn Tag::universal(number : UInt, constructed? : Bool = false) -> Tag {
@@ -65,10 +65,35 @@ pub let tag_generalized_time : Tag = Tag::universal(24)
 ///|
 pub struct ObjectIdentifier {
   arcs : Array[UInt]
-} derive(Eq, Show, Hash)
+} derive(Eq, Debug, Hash)
 
 ///|
+/// Construct an OID from its arc sequence. Validates that the first two
+/// arcs follow X.660 §3.5 (arcs[0] ∈ {0, 1, 2}, and if arcs[0] < 2 then
+/// arcs[1] < 40). Without this check, `from_arcs([5, 10])` would DER-
+/// encode to the same single byte (`40*5+10 = 210`, but the encoder also
+/// happens to drop the first arc's upper bits) as `from_arcs([2, 130])`,
+/// while `derive(Eq)` would say the two values differ — yielding two
+/// distinct OIDs in MoonBit that round-trip to the same DER on the wire.
 pub fn ObjectIdentifier::from_arcs(arcs : Array[UInt]) -> ObjectIdentifier {
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => abort(msg)
+    None => ()
+  }
+  { arcs, }
+}
+
+///|
+/// Same as `from_arcs` but raises `Asn1Error::InvalidEncoding` on the
+/// validation failures instead of aborting the process. Use this when
+/// the arcs come from untrusted input that you'd rather not crash on.
+pub fn ObjectIdentifier::from_arcs_checked(
+  arcs : Array[UInt],
+) -> ObjectIdentifier raise Asn1Error {
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => raise InvalidEncoding(msg)
+    None => ()
+  }
   { arcs, }
 }
 
@@ -84,7 +109,7 @@ pub fn ObjectIdentifier::from_string(
   let mut has_digit = false
   for c in s {
     if c == '.' {
-      if not(has_digit) {
+      if !has_digit {
         raise InvalidEncoding("empty arc in OID")
       }
       arcs.push(current)
@@ -92,26 +117,41 @@ pub fn ObjectIdentifier::from_string(
       has_digit = false
     } else if c >= '0' && c <= '9' {
       let d = (c.to_int() - '0'.to_int()).reinterpret_as_uint()
+      if current > (0xFFFFFFFFU - d) / 10U {
+        raise InvalidEncoding("OID arc overflows UInt")
+      }
       current = current * 10U + d
       has_digit = true
     } else {
       raise InvalidEncoding("non-digit in OID string")
     }
   }
-  if not(has_digit) {
+  if !has_digit {
     raise InvalidEncoding("trailing dot in OID")
   }
   arcs.push(current)
-  if arcs.length() < 2 {
-    raise InvalidEncoding("OID must have at least two arcs")
-  }
-  if arcs[0] > 2U {
-    raise InvalidEncoding("first arc must be 0, 1, or 2")
-  }
-  if arcs[0] < 2U && arcs[1] >= 40U {
-    raise InvalidEncoding("second arc must be < 40 when first arc is 0 or 1")
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => raise InvalidEncoding(msg)
+    None => ()
   }
   { arcs, }
+}
+
+///|
+fn oid_arc_validation_error(arcs : Array[UInt]) -> String? {
+  if arcs.length() < 2 {
+    return Some("OID must have at least 2 arcs")
+  }
+  if arcs[0] > 2U {
+    return Some("OID arcs[0] must be 0, 1, or 2")
+  }
+  if arcs[0] < 2U && arcs[1] >= 40U {
+    return Some("OID arcs[1] must be < 40 when arcs[0] is 0 or 1")
+  }
+  if arcs[0] == 2U && arcs[1] > 0xFFFFFFFFU - 80U {
+    return Some("OID arcs[1] too large for DER first subidentifier")
+  }
+  None
 }
 
 ///|
@@ -119,7 +159,7 @@ pub fn ObjectIdentifier::to_string(self : ObjectIdentifier) -> String {
   let buf = StringBuilder::new()
   let mut first = true
   for a in self.arcs {
-    if not(first) {
+    if !first {
       buf.write_char('.')
     }
     buf.write_string(a.to_string())
@@ -131,13 +171,23 @@ pub fn ObjectIdentifier::to_string(self : ObjectIdentifier) -> String {
 ///|
 fn encode_oid(enc : Encoder, oid : ObjectIdentifier) -> Unit {
   // Caller is expected to provide a validated OID; we still guard a bit.
-  if oid.arcs.length() < 2 {
-    abort("encode_oid: OID has fewer than 2 arcs")
+  match oid_arc_validation_error(oid.arcs) {
+    Some(msg) => abort("encode_oid: " + msg)
+    None => ()
   }
-  let first = oid.arcs[0] * 40U + oid.arcs[1]
+  let first = oid_first_subidentifier(oid)
   write_base128(enc, first)
   for i in 2..<oid.arcs.length() {
     write_base128(enc, oid.arcs[i])
+  }
+}
+
+///|
+fn oid_first_subidentifier(oid : ObjectIdentifier) -> UInt {
+  if oid.arcs[0] < 2U {
+    oid.arcs[0] * 40U + oid.arcs[1]
+  } else {
+    80U + oid.arcs[1]
   }
 }
 
@@ -166,7 +216,7 @@ fn decode_oid(bytes : Bytes) -> ObjectIdentifier raise Asn1Error {
     raise InvalidEncoding("OID payload empty")
   }
   let arcs : Array[UInt] = []
-  let first = bytes[0].to_int().reinterpret_as_uint()
+  let (first, next) = read_base128_from_bytes(bytes, 0)
   if first < 40U {
     arcs.push(0U)
     arcs.push(first)
@@ -177,45 +227,59 @@ fn decode_oid(bytes : Bytes) -> ObjectIdentifier raise Asn1Error {
     arcs.push(2U)
     arcs.push(first - 80U)
   }
-  let mut i = 1
+  let mut i = next
+  while i < bytes.length() {
+    let (value, j) = read_base128_from_bytes(bytes, i)
+    arcs.push(value)
+    i = j
+  }
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => raise InvalidEncoding(msg)
+    None => ()
+  }
+  { arcs, }
+}
+
+///|
+fn read_base128_from_bytes(
+  bytes : Bytes,
+  start : Int,
+) -> (UInt, Int) raise Asn1Error {
+  let mut i = start
+  let mut value : UInt = 0U
+  let mut first_in_arc = true
   // UInt overflow guard: if value already exceeds this, shifting left by 7
   // would lose high bits. UInt::max_value >> 7 == 0x01FFFFFF on 32-bit UInt.
   let shift_overflow_threshold : UInt = 0xFFFFFFFFU >> 7
-  while i < bytes.length() {
-    let mut value : UInt = 0U
-    let mut first_in_arc = true
-    while true {
-      if i >= bytes.length() {
-        raise InvalidEncoding("truncated OID arc")
-      }
-      let b = bytes[i].to_int()
-      // X.690 §8.19.2: each base-128 sub-identifier must be minimally encoded.
-      // The first continuation byte of an arc cannot be 0x80 because that
-      // would mean a leading zero (continuation set but value bits all zero).
-      if first_in_arc && b == 0x80 {
-        raise InvalidEncoding("non-minimal OID base-128 encoding")
-      }
-      // Reject any byte that would shift the accumulator past UInt range.
-      if value > shift_overflow_threshold {
-        raise InvalidEncoding("OID arc overflows UInt")
-      }
-      value = (value << 7) | (b & 0x7F).reinterpret_as_uint()
-      i = i + 1
-      first_in_arc = false
-      if (b & 0x80) == 0 {
-        break
-      }
+  while true {
+    if i >= bytes.length() {
+      raise InvalidEncoding("truncated OID arc")
     }
-    arcs.push(value)
+    let b = bytes[i].to_int()
+    // X.690 §8.19.2: each base-128 sub-identifier must be minimally encoded.
+    // The first continuation byte of an arc cannot be 0x80 because that
+    // would mean a leading zero (continuation set but value bits all zero).
+    if first_in_arc && b == 0x80 {
+      raise InvalidEncoding("non-minimal OID base-128 encoding")
+    }
+    if value > shift_overflow_threshold {
+      raise InvalidEncoding("OID arc overflows UInt")
+    }
+    value = (value << 7) | (b & 0x7F).reinterpret_as_uint()
+    i = i + 1
+    first_in_arc = false
+    if (b & 0x80) == 0 {
+      break
+    }
   }
-  { arcs, }
+  (value, i)
 }
 
 ///|
 pub(all) struct BitString {
   bytes : Bytes
   unused_bits : Int
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub(all) enum Value {
@@ -233,13 +297,13 @@ pub(all) enum Value {
   Sequence(Array[Element])
   Set(Array[Element])
   Unknown(Bytes) // raw content for tags this module does not interpret
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub struct Element {
   tag : Tag
   value : Value
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub fn Element::new(tag : Tag, value : Value) -> Element {
@@ -254,13 +318,13 @@ pub suberror Asn1Error {
   InvalidEncoding(String)
   Unsupported(String)
   TrailingBytes(Int)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub fn decode_der(input : Bytes) -> Element raise Asn1Error {
   let dec = Decoder::new(input)
   let elem = dec.read_element()
-  if not(dec.is_empty()) {
+  if !dec.is_empty() {
     raise TrailingBytes(dec.remaining())
   }
   elem
@@ -270,7 +334,7 @@ pub fn decode_der(input : Bytes) -> Element raise Asn1Error {
 pub fn decode_der_all(input : Bytes) -> Array[Element] raise Asn1Error {
   let dec = Decoder::new(input)
   let items = []
-  while not(dec.is_empty()) {
+  while !dec.is_empty() {
     items.push(dec.read_element())
   }
   items
@@ -343,16 +407,28 @@ pub fn read_tag(dec : Decoder) -> Tag raise Asn1Error {
   } else {
     let mut n : UInt = 0U
     let mut done = false
-    while not(done) {
+    let mut first_in_number = true
+    let shift_overflow_threshold : UInt = 0xFFFFFFFFU >> 7
+    while !done {
       if dec.remaining() < 1 {
         raise TruncatedInput
       }
       let b = dec.input[dec.pos].to_int()
       dec.pos = dec.pos + 1
+      if first_in_number && b == 0x80 {
+        raise InvalidEncoding("non-minimal high-tag-number encoding")
+      }
+      if n > shift_overflow_threshold {
+        raise InvalidEncoding("tag number overflows UInt")
+      }
       n = (n << 7) | (b & 0x7F).reinterpret_as_uint()
+      first_in_number = false
       if (b & 0x80) == 0 {
         done = true
       }
+    }
+    if n < 31U {
+      raise InvalidEncoding("high-tag-number form used for tag < 31")
     }
     n
   }
@@ -468,12 +544,31 @@ fn read_bytes(dec : Decoder, n : Int) -> Bytes raise Asn1Error {
 ///|
 pub fn Decoder::read_element(self : Decoder) -> Element raise Asn1Error {
   let tag = read_tag(self)
+  validate_der_tag_form(tag)
   let length = read_length(self)
   if self.remaining() < length {
     raise TruncatedInput
   }
   let value = decode_value(self, tag, length)
   { tag, value }
+}
+
+///|
+fn validate_der_tag_form(tag : Tag) -> Unit raise Asn1Error {
+  if tag.class_ != Universal {
+    return
+  }
+  match tag.number {
+    16U | 17U =>
+      if !tag.constructed {
+        raise InvalidEncoding("constructed universal type encoded as primitive")
+      }
+    1U | 2U | 3U | 4U | 5U | 6U | 12U | 19U | 22U | 23U | 24U =>
+      if tag.constructed {
+        raise InvalidEncoding("primitive universal type encoded as constructed")
+      }
+    _ => ()
+  }
 }
 
 ///|
@@ -506,7 +601,7 @@ fn decode_value(
       16U => {
         let inner = child_decoder(dec.current_depth, read_bytes(dec, length))
         let items = []
-        while not(inner.is_empty()) {
+        while !inner.is_empty() {
           items.push(inner.read_element())
         }
         Sequence(items)
@@ -514,9 +609,10 @@ fn decode_value(
       17U => {
         let inner = child_decoder(dec.current_depth, read_bytes(dec, length))
         let items = []
-        while not(inner.is_empty()) {
+        while !inner.is_empty() {
           items.push(inner.read_element())
         }
+        validate_der_set_order(items)
         Set(items)
       }
       _ => Unknown(read_bytes(dec, length))
@@ -567,10 +663,22 @@ fn decode_value(
       }
       6U => Oid(decode_oid(read_bytes(dec, length)))
       12U => Utf8String(decode_utf8_bytes(read_bytes(dec, length)))
-      19U => PrintableString(decode_ascii_bytes(read_bytes(dec, length)))
+      19U => {
+        let s = decode_ascii_bytes(read_bytes(dec, length))
+        validate_printable_string(s)
+        PrintableString(s)
+      }
       22U => Ia5String(decode_ascii_bytes(read_bytes(dec, length)))
-      23U => UtcTime(decode_ascii_bytes(read_bytes(dec, length)))
-      24U => GeneralizedTime(decode_ascii_bytes(read_bytes(dec, length)))
+      23U => {
+        let s = decode_ascii_bytes(read_bytes(dec, length))
+        validate_time_string(s, tag_utc_time)
+        UtcTime(s)
+      }
+      24U => {
+        let s = decode_ascii_bytes(read_bytes(dec, length))
+        validate_time_string(s, tag_generalized_time)
+        GeneralizedTime(s)
+      }
       3U => BitString(decode_bit_string(read_bytes(dec, length)))
       _ => Unknown(read_bytes(dec, length))
     }
@@ -596,6 +704,123 @@ fn decode_ascii_bytes(b : Bytes) -> String raise Asn1Error {
 }
 
 ///|
+fn validate_ascii_string(s : String) -> Unit raise Asn1Error {
+  for c in s {
+    if c.to_int() > 0x7F {
+      raise InvalidEncoding("non-ASCII character in ASCII string")
+    }
+  }
+}
+
+///|
+fn validate_printable_string(s : String) -> Unit raise Asn1Error {
+  for c in s {
+    if !is_printable_string_char(c) {
+      raise InvalidEncoding("character not allowed in PrintableString")
+    }
+  }
+}
+
+///|
+fn is_printable_string_char(c : Char) -> Bool {
+  let cp = c.to_int()
+  (cp >= 0x41 && cp <= 0x5A) || // A-Z
+  (cp >= 0x61 && cp <= 0x7A) || // a-z
+  (cp >= 0x30 && cp <= 0x39) || // 0-9
+  cp == 0x20 || // space
+  cp == 0x27 || // apostrophe
+  cp == 0x28 || // (
+  cp == 0x29 || // )
+  cp == 0x2B || // +
+  cp == 0x2C || // ,
+  cp == 0x2D || // -
+  cp == 0x2E || // .
+  cp == 0x2F || // /
+  cp == 0x3A || // :
+  cp == 0x3D || // =
+  cp == 0x3F // ?
+}
+
+///|
+fn validate_time_string(s : String, tag : Tag) -> Unit raise Asn1Error {
+  validate_ascii_string(s)
+  let (digits, year_at, month_at, day_at, hour_at, minute_at, second_at) = if tag ==
+    tag_utc_time {
+    (12, 0, 2, 4, 6, 8, 10)
+  } else if tag == tag_generalized_time {
+    (14, 0, 4, 6, 8, 10, 12)
+  } else {
+    raise InvalidEncoding("expected UTCTime / GeneralizedTime tag")
+  }
+  if s.length() != digits + 1 {
+    raise InvalidEncoding("non-canonical time length")
+  }
+  if s.get_char(digits).unwrap() != 'Z' {
+    raise InvalidEncoding("DER time must use Z timezone")
+  }
+  for i in 0..<digits {
+    let c = s.get_char(i).unwrap()
+    if c < '0' || c > '9' {
+      raise InvalidEncoding("non-digit in time")
+    }
+  }
+  let year = if tag == tag_utc_time {
+    let yy = decimal2(s, year_at)
+    if yy >= 50 {
+      1900 + yy
+    } else {
+      2000 + yy
+    }
+  } else {
+    decimal4(s, year_at)
+  }
+  if year <= 0 {
+    raise InvalidEncoding("invalid time year")
+  }
+  let month = decimal2(s, month_at)
+  let day = decimal2(s, day_at)
+  let hour = decimal2(s, hour_at)
+  let minute = decimal2(s, minute_at)
+  let second = decimal2(s, second_at)
+  if month < 1 || month > 12 {
+    raise InvalidEncoding("invalid time month")
+  }
+  if day < 1 || day > days_in_month(year, month) {
+    raise InvalidEncoding("invalid time day")
+  }
+  if hour > 23 || minute > 59 || second > 59 {
+    raise InvalidEncoding("invalid time clock")
+  }
+}
+
+///|
+fn decimal2(s : String, offset : Int) -> Int {
+  let hi = s.get_char(offset).unwrap().to_int() - '0'.to_int()
+  let lo = s.get_char(offset + 1).unwrap().to_int() - '0'.to_int()
+  hi * 10 + lo
+}
+
+///|
+fn decimal4(s : String, offset : Int) -> Int {
+  decimal2(s, offset) * 100 + decimal2(s, offset + 2)
+}
+
+///|
+fn days_in_month(year : Int, month : Int) -> Int {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn is_leap_year(year : Int) -> Bool {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+///|
 fn decode_bit_string(b : Bytes) -> BitString raise Asn1Error {
   if b.length() < 1 {
     raise InvalidEncoding("BitString missing unused-bits header")
@@ -608,7 +833,66 @@ fn decode_bit_string(b : Bytes) -> BitString raise Asn1Error {
     raise InvalidEncoding("BitString unused_bits non-zero with empty data")
   }
   let bytes = Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  validate_bit_string_tail(bytes, unused_bits) catch {
+    _ => raise InvalidEncoding("BitString unused tail bits must be zero")
+  }
   { bytes, unused_bits }
+}
+
+///|
+fn validate_bit_string_tail(
+  bytes : Bytes,
+  unused_bits : Int,
+) -> Unit raise Asn1Error {
+  if unused_bits < 0 || unused_bits > 7 {
+    raise InvalidEncoding("BitString unused_bits out of range")
+  }
+  if bytes.length() == 0 {
+    if unused_bits != 0 {
+      raise InvalidEncoding("BitString unused_bits non-zero with empty data")
+    }
+    return
+  }
+  if unused_bits > 0 {
+    let mask = (1 << unused_bits) - 1
+    let last = bytes[bytes.length() - 1].to_int()
+    if (last & mask) != 0 {
+      raise InvalidEncoding("BitString unused tail bits must be zero")
+    }
+  }
+}
+
+///|
+fn validate_der_set_order(items : Array[Element]) -> Unit raise Asn1Error {
+  let mut prev : Bytes? = None
+  for item in items {
+    let current = element_to_bytes_at(item, 0)
+    match prev {
+      Some(p) =>
+        if bytes_lex_compare(p, current) > 0 {
+          raise InvalidEncoding("SET items not in DER order")
+        }
+      None => ()
+    }
+    prev = Some(current)
+  }
+}
+
+///|
+fn bytes_lex_compare(a : Bytes, b : Bytes) -> Int {
+  let la = a.length()
+  let lb = b.length()
+  let mut i = 0
+  let n = if la < lb { la } else { lb }
+  while i < n {
+    let av = a[i].to_int()
+    let bv = b[i].to_int()
+    if av != bv {
+      return av - bv
+    }
+    i = i + 1
+  }
+  la - lb
 }
 
 ///|
@@ -636,32 +920,69 @@ pub fn Encoder::new() -> Encoder {
 ///|
 pub fn Encoder::write_element(self : Encoder, element : Element) -> Unit {
   // Single-pass encoding: compute payload size first (alloc-free traversal),
-  // then write tag + length + payload directly into the outer buffer. This
-  // avoids the inner Encoder + Bytes copy that the old two-pass version did.
-  let payload_size = value_encoded_size(element.value)
-  write_tag(self, element.tag)
-  write_length(self, payload_size)
-  encode_value(self, element.value)
+  // then write tag + length + payload directly into the outer buffer.
+  // Depth is bounded the same way the decoder bounds it (MAX_DEPTH=32);
+  // without this an attacker-constructed Element with deeply nested
+  // Sequence/Set could overflow the native stack via mutual recursion of
+  // value_encoded_size and element_encoded_size.
+  write_element_at(self, element, 0)
 }
 
 ///|
-fn value_encoded_size(value : Value) -> Int {
+fn write_element_at(enc : Encoder, element : Element, depth : Int) -> Unit {
+  if depth > MAX_DEPTH {
+    abort("asn1 encoder: depth exceeds MAX_DEPTH")
+  }
+  let payload_size = value_encoded_size_at(element.value, depth)
+  write_tag(enc, element.tag)
+  write_length(enc, payload_size)
+  encode_value_at(enc, element.value, depth)
+}
+
+///|
+fn value_encoded_size_at(value : Value, depth : Int) -> Int {
+  if depth > MAX_DEPTH {
+    abort("asn1 encoder: depth exceeds MAX_DEPTH")
+  }
   match value {
     Null => 0
     Boolean(_) => 1
     Integer(b) => b.length()
     OctetString(b) => b.length()
     Utf8String(s) => utf8_byte_count(s)
-    PrintableString(s) => utf8_byte_count(s)
-    Ia5String(s) => utf8_byte_count(s)
-    UtcTime(s) => utf8_byte_count(s)
-    GeneralizedTime(s) => utf8_byte_count(s)
-    BitString(bs) => 1 + bs.bytes.length()
+    PrintableString(s) => {
+      validate_printable_string(s) catch {
+        e => abort("encode PrintableString: " + repr(e))
+      }
+      utf8_byte_count(s)
+    }
+    Ia5String(s) => {
+      validate_ascii_string(s) catch {
+        e => abort("encode IA5String: " + repr(e))
+      }
+      utf8_byte_count(s)
+    }
+    UtcTime(s) => {
+      validate_time_string(s, tag_utc_time) catch {
+        e => abort("encode UTCTime: " + repr(e))
+      }
+      utf8_byte_count(s)
+    }
+    GeneralizedTime(s) => {
+      validate_time_string(s, tag_generalized_time) catch {
+        e => abort("encode GeneralizedTime: " + repr(e))
+      }
+      utf8_byte_count(s)
+    }
+    BitString(bs) => {
+      validate_bit_string_for_encode(bs)
+      1 + bs.bytes.length()
+    }
     Oid(oid) => oid_encoded_size(oid)
     Sequence(items) | Set(items) => {
       let mut total = 0
       for item in items {
-        total = total + element_encoded_size(item)
+        total = total + element_encoded_size_at(item, depth + 1)
       }
       total
     }
@@ -670,9 +991,16 @@ fn value_encoded_size(value : Value) -> Int {
 }
 
 ///|
-fn element_encoded_size(elem : Element) -> Int {
-  let payload = value_encoded_size(elem.value)
+fn element_encoded_size_at(elem : Element, depth : Int) -> Int {
+  let payload = value_encoded_size_at(elem.value, depth)
   tag_encoded_size(elem.tag) + length_encoded_size(payload) + payload
+}
+
+///|
+fn element_to_bytes_at(elem : Element, depth : Int) -> Bytes {
+  let enc = Encoder::new()
+  write_element_at(enc, elem, depth)
+  enc.finish()
 }
 
 ///|
@@ -707,10 +1035,11 @@ fn length_encoded_size(length : Int) -> Int {
 
 ///|
 fn oid_encoded_size(oid : ObjectIdentifier) -> Int {
-  if oid.arcs.length() < 2 {
-    abort("oid_encoded_size: OID has fewer than 2 arcs")
+  match oid_arc_validation_error(oid.arcs) {
+    Some(msg) => abort("oid_encoded_size: " + msg)
+    None => ()
   }
-  let first = oid.arcs[0] * 40U + oid.arcs[1]
+  let first = oid_first_subidentifier(oid)
   let mut size = base128_size(first)
   for i in 2..<oid.arcs.length() {
     size = size + base128_size(oid.arcs[i])
@@ -752,7 +1081,14 @@ fn utf8_byte_count(s : String) -> Int {
 }
 
 ///|
-fn encode_value(enc : Encoder, value : Value) -> Unit {
+fn validate_bit_string_for_encode(bs : BitString) -> Unit {
+  validate_bit_string_tail(bs.bytes, bs.unused_bits) catch {
+    e => abort("encode BIT STRING: " + repr(e))
+  }
+}
+
+///|
+fn encode_value_at(enc : Encoder, value : Value, depth : Int) -> Unit {
   match value {
     Null => ()
     Boolean(b) => enc.buf.write_byte((if b { 0xFF } else { 0 }).to_byte())
@@ -763,10 +1099,16 @@ fn encode_value(enc : Encoder, value : Value) -> Unit {
     Ia5String(s) => encode_ascii_string(enc, s)
     UtcTime(s) => encode_ascii_string(enc, s)
     GeneralizedTime(s) => encode_ascii_string(enc, s)
-    Sequence(items) | Set(items) =>
+    Sequence(items) =>
       for item in items {
-        enc.write_element(item)
+        write_element_at(enc, item, depth + 1)
       }
+    Set(items) => {
+      let encoded = sorted_set_item_encodings(items, depth)
+      for item in encoded {
+        enc.buf.write_bytes(item)
+      }
+    }
     BitString(bs) => {
       enc.buf.write_byte(bs.unused_bits.to_byte())
       enc.buf.write_bytes(bs.bytes)
@@ -774,6 +1116,19 @@ fn encode_value(enc : Encoder, value : Value) -> Unit {
     Oid(oid) => encode_oid(enc, oid)
     Unknown(bytes) => enc.buf.write_bytes(bytes)
   }
+}
+
+///|
+fn sorted_set_item_encodings(
+  items : Array[Element],
+  depth : Int,
+) -> Array[Bytes] {
+  let encoded : Array[Bytes] = []
+  for item in items {
+    encoded.push(element_to_bytes_at(item, depth + 1))
+  }
+  encoded.sort_by(fn(a, b) { bytes_lex_compare(a, b) })
+  encoded
 }
 
 ///|

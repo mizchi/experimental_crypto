@@ -28,13 +28,14 @@ test "fuzz asn1: any accepted DER round-trips bit-exactly" {
   let n = 500
   let mut accepted = 0
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    match (try? @asn1.decode_der(input)) {
-      Err(_) => () // expected for random bytes
-      Ok(elem) => {
+    try @asn1.decode_der(input) catch {
+      _ => () // expected for random bytes
+    } noraise {
+      elem => {
         accepted = accepted + 1
         let re_encoded = @asn1.encode_der(elem)
         // If the parser was DER-strict, this must be byte-identical.
-        assert_eq(
+        @debug.assert_eq(
           re_encoded,
           input,
           msg="canonical roundtrip broken on accepted input",
@@ -63,7 +64,7 @@ test "fuzz asn1: tag write_tag / read_tag round-trip" {
     @asn1.write_tag(enc, tag)
     let dec = @asn1.Decoder::new(enc.finish())
     let decoded = @asn1.read_tag(dec)
-    assert_eq(decoded, tag)
+    @debug.assert_eq(decoded, tag)
   }
 }
 
@@ -79,7 +80,7 @@ test "fuzz asn1: length write_length / read_length round-trip" {
     @asn1.write_length(enc, length)
     let dec = @asn1.Decoder::new(enc.finish())
     let decoded = @asn1.read_length(dec)
-    assert_eq(decoded, length)
+    @debug.assert_eq(decoded, length)
   }
 }
 
@@ -108,7 +109,7 @@ test "fuzz asn1: oid string round-trip via from_string / to_string" {
     let s_in = arcs_to_string(arcs)
     let oid = @asn1.ObjectIdentifier::from_string(s_in)
     let s_out = oid.to_string()
-    assert_eq(s_out, s_in)
+    @debug.assert_eq(s_out, s_in)
   }
 }
 
@@ -117,7 +118,7 @@ fn arcs_to_string(arcs : Array[UInt]) -> String {
   let buf = StringBuilder::new()
   let mut first = true
   for a in arcs {
-    if not(first) {
+    if !first {
       buf.write_char('.')
     }
     buf.write_string(a.to_string())

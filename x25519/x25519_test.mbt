@@ -8,7 +8,7 @@ test "x25519: RFC 7748 §5.2 vector 1" {
   let sk = @x25519.PrivateKey::from_bytes(scalar)
   let pk = @x25519.PublicKey::from_bytes(u)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), expected)
+  @debug.assert_eq(ss.to_bytes(), expected)
 }
 
 ///|
@@ -19,7 +19,7 @@ test "x25519: RFC 7748 §5.2 vector 2" {
   let sk = @x25519.PrivateKey::from_bytes(scalar)
   let pk = @x25519.PublicKey::from_bytes(u)
   let ss = @x25519.diffie_hellman(sk, pk)
-  assert_eq(ss.to_bytes(), expected)
+  @debug.assert_eq(ss.to_bytes(), expected)
 }
 
 ///|
@@ -33,16 +33,16 @@ test "x25519: RFC 7748 §6.1 DH key exchange (Alice and Bob)" {
   // Public-key derivation
   let alice_sk = @x25519.PrivateKey::from_bytes(alice_priv)
   let alice_pk = alice_sk.public_key()
-  assert_eq(alice_pk.to_bytes(), alice_pub_expected)
+  @debug.assert_eq(alice_pk.to_bytes(), alice_pub_expected)
   let bob_sk = @x25519.PrivateKey::from_bytes(bob_priv)
   let bob_pk = bob_sk.public_key()
-  assert_eq(bob_pk.to_bytes(), bob_pub_expected)
+  @debug.assert_eq(bob_pk.to_bytes(), bob_pub_expected)
 
   // ECDH
   let ss_alice = @x25519.diffie_hellman(alice_sk, bob_pk)
   let ss_bob = @x25519.diffie_hellman(bob_sk, alice_pk)
-  assert_eq(ss_alice.to_bytes(), shared_secret_expected)
-  assert_eq(ss_bob.to_bytes(), shared_secret_expected)
+  @debug.assert_eq(ss_alice.to_bytes(), shared_secret_expected)
+  @debug.assert_eq(ss_bob.to_bytes(), shared_secret_expected)
 }
 
 ///|
@@ -53,19 +53,21 @@ test "x25519: PrivateKey clamps scalar bits per RFC 7748 §5" {
   let all_ones = Bytes::makei(32, fn(_) { b'\xff' })
   let sk = @x25519.PrivateKey::from_bytes(all_ones)
   let b = sk.to_bytes()
-  assert_eq(b[0], b'\xf8')
-  assert_eq(b[31], b'\x7f')
+  @debug.assert_eq(b[0], b'\xf8')
+  @debug.assert_eq(b[31], b'\x7f')
 }
 
 ///|
 test "x25519: rejects non-32-byte scalar or point" {
-  match (try? @x25519.PrivateKey::from_bytes(b"\x01\x02")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidScalarLength")
+  try @x25519.PrivateKey::from_bytes(b"\x01\x02") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidScalarLength")
   }
-  match (try? @x25519.PublicKey::from_bytes(b"\x01\x02")) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected InvalidPointLength")
+  try @x25519.PublicKey::from_bytes(b"\x01\x02") catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected InvalidPointLength")
   }
 }
 
@@ -75,9 +77,10 @@ test "x25519: all-zero peer key triggers AllZeroSharedSecret" {
     b"\x77\x07\x6d\x0a\x73\x18\xa5\x7d\x3c\x16\xc1\x72\x51\xb2\x66\x45\xdf\x4c\x2f\x87\xeb\xc0\x99\x2a\xb1\x77\xfb\xa5\x1d\xb9\x2c\x2a",
   )
   let pk = @x25519.PublicKey::from_bytes(Bytes::makei(32, fn(_) { b'\x00' }))
-  match (try? @x25519.diffie_hellman(sk, pk)) {
-    Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="expected AllZeroSharedSecret")
+  try @x25519.diffie_hellman(sk, pk) catch {
+    _ => ()
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected AllZeroSharedSecret")
   }
 }
 
@@ -86,5 +89,50 @@ test "x25519: PrivateKey::from_random is alias for from_bytes" {
   let seed : Bytes = b"\x77\x07\x6d\x0a\x73\x18\xa5\x7d\x3c\x16\xc1\x72\x51\xb2\x66\x45\xdf\x4c\x2f\x87\xeb\xc0\x99\x2a\xb1\x77\xfb\xa5\x1d\xb9\x2c\x2a"
   let sk_a = @x25519.PrivateKey::from_bytes(seed)
   let sk_b = @x25519.PrivateKey::from_random(seed)
-  assert_eq(sk_a.to_bytes(), sk_b.to_bytes())
+  @debug.assert_eq(sk_a.to_bytes(), sk_b.to_bytes())
+}
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK X25519 small-subgroup: pubkey=all-zero must raise AllZeroSharedSecret" {
+  // All-zero is one of the small-subgroup points. Per RFC 7748 §6.1 the
+  // resulting shared secret is all-zero and must be detected/rejected.
+  let sk = @x25519.PrivateKey::from_bytes(Bytes::makei(32, fn(_) { b'\x42' }))
+  let pk_bytes = Bytes::makei(32, fn(_) { b'\x00' })
+  let pk = @x25519.PublicKey::from_bytes(pk_bytes)
+  try @x25519.diffie_hellman(sk, pk) catch {
+    AllZeroSharedSecret => ()
+    other =>
+      abort(
+        "small-subgroup pubkey=0 NOT detected: " + @debug.to_string(other) + "",
+      )
+  } noraise {
+    _ => abort("small-subgroup pubkey=0 NOT detected: got Ok")
+  }
+}
+
+///|
+test "ATTACK X25519 small-subgroup: pubkey=1 (low-order) must raise AllZeroSharedSecret" {
+  // Another known low-order point: u=1.
+  let sk = @x25519.PrivateKey::from_bytes(Bytes::makei(32, fn(_) { b'\x42' }))
+  let pk_bytes = Bytes::makei(32, fn(i) {
+    if i == 0 {
+      b'\x01'
+    } else {
+      b'\x00'
+    }
+  })
+  let pk = @x25519.PublicKey::from_bytes(pk_bytes)
+  try @x25519.diffie_hellman(sk, pk) catch {
+    AllZeroSharedSecret => ()
+    other =>
+      abort(
+        "small-subgroup pubkey=1 NOT detected: " + @debug.to_string(other) + "",
+      )
+  } noraise {
+    _ => abort("small-subgroup pubkey=1 NOT detected: got Ok")
+  }
 }

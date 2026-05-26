@@ -1,0 +1,59 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/ocsp"
+
+import {
+  "mizchi/asn1",
+  "mizchi/pkix",
+  "mizchi/pkix_verify",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn parse_response(Bytes) -> OcspResponse raise OcspError
+
+pub fn verify(Bytes, @pkix.Certificate, @pkix.Certificate, String) -> CertStatus raise OcspError
+
+// Errors
+pub suberror OcspError {
+  ResponseNotSuccessful(Int)
+  UnsupportedResponseType(@asn1.ObjectIdentifier)
+  CertNotFound
+  UnsupportedHashAlgorithm(@asn1.ObjectIdentifier)
+  StaleResponse(String)
+  BadSignature
+  ResponderMissingOcspSigningEku
+  ResponderNotSignedByIssuer
+  ResponderIdMismatch
+  Malformed(String)
+  Asn1(@asn1.Asn1Error)
+  Pkix(@pkix.PkixError)
+  PkixVerify(@pkix_verify.PkixVerifyError)
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) enum CertStatus {
+  Good
+  Revoked(revocation_time~ : String, reason~ : Int?)
+  Unknown
+} derive(Eq, @debug.Debug)
+
+pub(all) struct OcspResponse {
+  produced_at : String
+  responses : Array[OcspSingleResponse]
+  signer_cert : @pkix.Certificate?
+} derive(@debug.Debug)
+
+pub(all) struct OcspSingleResponse {
+  cert_id_issuer_name_hash : Bytes
+  cert_id_issuer_key_hash : Bytes
+  cert_id_serial_number : Bytes
+  cert_id_hash_alg : @asn1.ObjectIdentifier
+  status : CertStatus
+  this_update : String
+  next_update : String?
+} derive(@debug.Debug)
+
+// Type aliases
+
+// Traits
+

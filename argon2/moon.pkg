@@ -1,9 +1,10 @@
 import {
   "moonbitlang/core/encoding/base64",
-  "moonbitlang/core/strconv",
+  "moonbitlang/core/string",
 }
 
 import {
+  "moonbitlang/core/debug",
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
 } for "test"

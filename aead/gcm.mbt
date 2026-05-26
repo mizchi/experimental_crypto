@@ -56,45 +56,6 @@ fn be_store_u64(out : FixedArray[Byte], off : Int, v : UInt64) -> Unit {
 }
 
 ///|
-/// GHASH multiplication X · H in GF(2^128). NIST SP 800-38D §6.3 Algorithm 1
-/// (bit-by-bit). Kept for reference / fallback; the main code path now uses
-/// the 4-bit table-driven Shoup variant below.
-///
-/// Reduction polynomial: f(x) = 1 + x + x^2 + x^7 + x^128, encoded as
-/// R = 0xe1 << 120 in the (hi, lo) representation.
-fn gf128_mul(
-  x_hi : UInt64,
-  x_lo : UInt64,
-  h_hi : UInt64,
-  h_lo : UInt64,
-) -> (UInt64, UInt64) {
-  let mut z_hi : UInt64 = 0UL
-  let mut z_lo : UInt64 = 0UL
-  let mut v_hi = h_hi
-  let mut v_lo = h_lo
-  // Iterate over the 128 bits of x from MSB (hi bit 63) down to lo bit 0.
-  for i in 0..<128 {
-    let bit = if i < 64 {
-      (x_hi >> (63 - i)) & 1UL
-    } else {
-      (x_lo >> (127 - i)) & 1UL
-    }
-    if bit == 1UL {
-      z_hi = z_hi ^ v_hi
-      z_lo = z_lo ^ v_lo
-    }
-    // V = V >> 1, with V XOR R if low bit was set (i.e., v_lo's bit 0).
-    let v_low_bit = v_lo & 1UL
-    v_lo = (v_lo >> 1) | (v_hi << 63)
-    v_hi = v_hi >> 1
-    if v_low_bit == 1UL {
-      v_hi = v_hi ^ 0xe100000000000000UL
-    }
-  }
-  (z_hi, z_lo)
-}
-
-///|
 /// 16-entry GHASH reduction-lookup table for the 4-bit Shoup method. Each
 /// entry rem_4bit[i] (i in 0..15) is the 16-bit value of `i * x^{124}` mod
 /// the GCM reduction polynomial, positioned so that `(rem_4bit[i] as u64)

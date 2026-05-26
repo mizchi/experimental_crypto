@@ -7,17 +7,16 @@ pub(all) struct PemBlock {
   label : String
   data : Bytes
   headers : Array[(String, String)] // RFC 1421 style; rare in 7468 but preserved
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror PemError {
   InvalidFormat(String)
-  UnexpectedEof
   InvalidBase64
   MissingBeginMarker
   MissingEndMarker
   LabelMismatch(begin~ : String, end~ : String)
-} derive(Show)
+} derive(Debug)
 
 ///|
 /// Default decoder. RFC 7468 lax mode: tolerates surrounding whitespace,
@@ -41,6 +40,19 @@ pub fn decode(input : String) -> PemBlock raise PemError {
 /// trivially-crafted multi-gigabyte PEM strings from causing an OOM via
 /// the line splitter. Override per-call by passing `max_input_size?`.
 pub let pem_max_input_size : Int = 16 * 1024 * 1024 // 16 MiB
+
+///|
+/// Maximum length of any single base64 body line. RFC 7468 §3 caps lines
+/// at 64 chars for strict mode; lax mode is more permissive but we still
+/// refuse pathological single-line payloads (which would force a single
+/// allocation up to pem_max_input_size).
+pub let pem_max_line_length : Int = 8 * 1024 // 8 KiB
+
+///|
+/// RFC 7468 §3 strict-mode line cap: every base64 body line in the output
+/// of `encode` is at most this many characters before the LF. The matching
+/// proof of "no emitted line exceeds the cap" lives in `mizchi/pem/wrap`.
+pub let pem_strict_line_max : Int = @wrap.pem_strict_line_max
 
 ///|
 /// RFC 7468 §3 strict mode. Requires:
@@ -77,7 +89,12 @@ pub fn decode_strict(
   let first = lines[idx]
   let label = match parse_begin_marker(first) {
     Some(l) => l
-    None => raise MissingBeginMarker
+    None =>
+      if starts_with(first, "-----BEGIN ") {
+        raise InvalidFormat("invalid PEM BEGIN label")
+      } else {
+        raise MissingBeginMarker
+      }
   }
   idx = idx + 1
   // 2. Scan base64 lines until the END marker. No headers in strict mode.
@@ -93,12 +110,15 @@ pub fn decode_strict(
         break
       }
       None => {
+        if starts_with(line, "-----END ") {
+          raise InvalidFormat("invalid PEM END label")
+        }
         // Strict mode: line must be exactly base64 chars + optional '='
         // padding, length <= 64.
         if line.length() > 64 {
           raise InvalidFormat("base64 line longer than 64 chars")
         }
-        if not(is_pure_base64_line(line)) {
+        if !is_pure_base64_line(line) {
           raise InvalidFormat("non-base64 character in PEM body")
         }
         b64.write_string(line)
@@ -116,7 +136,7 @@ pub fn decode_strict(
   // 3. Strict base64 decode: require padding. core's @base64.decode is
   // strict about padding when ignore_whitespace=false.
   let body_str = b64.to_string()
-  if not(has_proper_base64_padding(body_str)) {
+  if !has_proper_base64_padding(body_str) {
     raise InvalidBase64
   }
   let data = @base64.decode(body_str) catch { _ => raise InvalidBase64 }
@@ -159,6 +179,9 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
     let label = match parse_begin_marker(line) {
       Some(l) => l
       None => {
+        if starts_with(line, "-----BEGIN ") {
+          raise InvalidFormat("invalid PEM BEGIN label")
+        }
         // skip explanatory text between blocks (RFC 7468 lax mode)
         i = i + 1
         continue
@@ -177,7 +200,7 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
         i = i + 1
         break
       }
-      if contains_char(stripped, ':') && not(is_pure_base64_line(stripped)) {
+      if contains_char(stripped, ':') && !is_pure_base64_line(stripped) {
         let (k, v) = split_once(stripped, ':')
         headers.push((trim(k), trim(v)))
         saw_colon = true
@@ -185,7 +208,7 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
         continue
       }
       // No header section in this block; rewind to header_start.
-      if not(saw_colon) {
+      if !saw_colon {
         i = header_start
       }
       break
@@ -205,7 +228,19 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
           end_label = Some(l)
           break
         }
-        None => b64.write_string(line2)
+        None => {
+          if starts_with(line2, "-----END ") {
+            raise InvalidFormat("invalid PEM END label")
+          }
+          if line2.length() > pem_max_line_length {
+            raise InvalidFormat(
+              "base64 line exceeds pem_max_line_length (" +
+              pem_max_line_length.to_string() +
+              ")",
+            )
+          }
+          b64.write_string(line2)
+        }
       }
     }
     match end_label {
@@ -222,6 +257,8 @@ pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
 
 ///|
 pub fn encode(block : PemBlock) -> String {
+  validate_pem_label_or_abort(block.label)
+  validate_pem_headers_or_abort(block.headers)
   let buf = StringBuilder::new()
   buf.write_string("-----BEGIN ")
   buf.write_string(block.label)
@@ -238,7 +275,7 @@ pub fn encode(block : PemBlock) -> String {
   let b64 = @base64.encode(block.data[:])
   let mut pos = 0
   while pos < b64.length() {
-    let take = if pos + 64 <= b64.length() { 64 } else { b64.length() - pos }
+    let take = @wrap.pem_next_chunk_len(b64.length() - pos, pem_strict_line_max)
     buf.write_string(slice_string(b64, pos, pos + take))
     buf.write_char('\n')
     pos = pos + take
@@ -328,7 +365,7 @@ fn split_once(s : String, sep : Char) -> (String, String) {
   let tail = StringBuilder::new()
   let mut split = false
   for c in s {
-    if not(split) && c == sep {
+    if !split && c == sep {
       split = true
       continue
     }
@@ -345,10 +382,10 @@ fn split_once(s : String, sep : Char) -> (String, String) {
 fn parse_begin_marker(line : String) -> String? {
   let prefix = "-----BEGIN "
   let suffix = "-----"
-  if not(starts_with(line, prefix)) {
+  if !starts_with(line, prefix) {
     return None
   }
-  if not(ends_with(line, suffix)) {
+  if !ends_with(line, suffix) {
     return None
   }
   let inner_end = line.length() - suffix.length()
@@ -356,7 +393,7 @@ fn parse_begin_marker(line : String) -> String? {
     return None
   }
   let label = slice_string(line, prefix.length(), inner_end)
-  if label == "" {
+  if !is_valid_pem_label(label) {
     return None
   }
   Some(label)
@@ -366,10 +403,10 @@ fn parse_begin_marker(line : String) -> String? {
 fn parse_end_marker(line : String) -> String? {
   let prefix = "-----END "
   let suffix = "-----"
-  if not(starts_with(line, prefix)) {
+  if !starts_with(line, prefix) {
     return None
   }
-  if not(ends_with(line, suffix)) {
+  if !ends_with(line, suffix) {
     return None
   }
   let inner_end = line.length() - suffix.length()
@@ -377,10 +414,75 @@ fn parse_end_marker(line : String) -> String? {
     return None
   }
   let label = slice_string(line, prefix.length(), inner_end)
-  if label == "" {
+  if !is_valid_pem_label(label) {
     return None
   }
   Some(label)
+}
+
+///|
+fn is_valid_pem_label(label : String) -> Bool {
+  if label.length() == 0 {
+    return false
+  }
+  let mut idx = 0
+  for c in label {
+    if !is_pem_label_char(c) {
+      return false
+    }
+    if (idx == 0 || idx == label.length() - 1) && (c == ' ' || c == '-') {
+      return false
+    }
+    idx = idx + 1
+  }
+  true
+}
+
+///|
+fn is_pem_label_char(c : Char) -> Bool {
+  (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '-'
+}
+
+///|
+fn validate_pem_label_or_abort(label : String) -> Unit {
+  if !is_valid_pem_label(label) {
+    abort("invalid PEM label")
+  }
+}
+
+///|
+fn validate_pem_headers_or_abort(headers : Array[(String, String)]) -> Unit {
+  for h in headers {
+    if !is_valid_pem_header_name(h.0) {
+      abort("invalid PEM header name")
+    }
+    if contains_newline(h.1) {
+      abort("invalid PEM header value")
+    }
+  }
+}
+
+///|
+fn is_valid_pem_header_name(s : String) -> Bool {
+  if s.length() == 0 {
+    return false
+  }
+  for c in s {
+    if c == ':' || c.to_int() <= 0x20 || c.to_int() > 0x7e {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn contains_newline(s : String) -> Bool {
+  for c in s {
+    if c == '\r' || c == '\n' {
+      return true
+    }
+  }
+  false
 }
 
 ///|
@@ -423,7 +525,7 @@ fn is_pure_base64_line(s : String) -> Bool {
     return false
   }
   for c in s {
-    if not(is_base64_char(c)) {
+    if !is_base64_char(c) {
       return false
     }
   }

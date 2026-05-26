@@ -1,0 +1,84 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/hash"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn blake2b(Bytes, Int) -> Bytes raise Blake2bError
+
+pub fn blake2b_256(Bytes) -> Bytes
+
+pub fn blake2b_512(Bytes) -> Bytes
+
+pub fn blake2b_keyed(Bytes, Bytes, Int) -> Bytes raise Blake2bError
+
+pub fn blake3(Bytes) -> Bytes
+
+pub fn blake3_derive_key(String, Bytes) -> Bytes
+
+pub fn blake3_keyed(Bytes, Bytes, Int) -> Bytes raise Blake3Error
+
+pub fn blake3_xof(Bytes, Int) -> Bytes
+
+pub fn ct_eq(Bytes, Bytes) -> Bool
+
+pub fn hash160(Bytes) -> Bytes
+
+pub fn hmac_sha1(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha256(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha256_compute(HmacSha256Ctx, Bytes) -> Bytes
+
+pub fn hmac_sha256_init(Bytes) -> HmacSha256Ctx
+
+pub fn hmac_sha384(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha512(Bytes, Bytes) -> Bytes
+
+pub fn ripemd160(Bytes) -> Bytes
+
+pub fn sha1(Bytes) -> Bytes
+
+pub fn sha256(Bytes) -> Bytes
+
+pub fn sha384(Bytes) -> Bytes
+
+pub fn sha512(Bytes) -> Bytes
+
+// Errors
+pub suberror Blake2bError {
+  InvalidOutputLength
+  InvalidKeyLength
+} derive(@debug.Debug)
+
+pub suberror Blake3Error {
+  InvalidBlake3KeyLength
+} derive(@debug.Debug)
+
+// Types and methods
+type Blake3ChunkState
+
+pub struct Blake3State {
+  key : FixedArray[UInt]
+  flags : Int
+  mut chunk : Blake3ChunkState
+  cv_stack : Array[FixedArray[UInt]]
+}
+pub fn Blake3State::finalize(Self, Int) -> Bytes
+pub fn Blake3State::new() -> Self
+pub fn Blake3State::new_derive_key(String) -> Self
+pub fn Blake3State::new_keyed(Bytes) -> Self raise Blake3Error
+pub fn Blake3State::update(Self, Bytes) -> Unit
+
+pub struct HmacSha256Ctx {
+  inner_state : FixedArray[UInt]
+  outer_state : FixedArray[UInt]
+}
+
+// Type aliases
+
+// Traits
+

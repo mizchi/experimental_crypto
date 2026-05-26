@@ -61,9 +61,8 @@ fn uint64_to_hex(v : UInt64, pad~ : Bool) -> String {
 ///|
 pub suberror CryptoBigintError {
   InvalidLength
-  Overflow
   NotInvertible
-} derive(Show)
+} derive(Debug)
 
 // ---------------------------------------------------------------------------
 // Limb <-> BigInt conversion helpers.
@@ -192,7 +191,7 @@ pub fn Uint::to_be_bytes(self : Uint) -> Bytes {
     buf[base + 6] = ((v >> 8) & 0xFFUL).to_int().to_byte()
     buf[base + 7] = (v & 0xFFUL).to_int().to_byte()
   }
-  Bytes::from_fixedarray(buf)
+  Bytes::from_array(buf)
 }
 
 ///|
@@ -211,7 +210,7 @@ pub fn Uint::to_le_bytes(self : Uint) -> Bytes {
     buf[base + 6] = ((v >> 48) & 0xFFUL).to_int().to_byte()
     buf[base + 7] = ((v >> 56) & 0xFFUL).to_int().to_byte()
   }
-  Bytes::from_fixedarray(buf)
+  Bytes::from_array(buf)
 }
 
 ///|

@@ -1,14 +1,17 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/crypto_bigint"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 
 // Errors
 pub suberror CryptoBigintError {
   InvalidLength
-  Overflow
   NotInvertible
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct Montgomery {

@@ -8,13 +8,13 @@ pub(all) struct PrivateKeyInfo {
   private_key : Bytes // contents of the OCTET STRING privateKey (algorithm-specific)
   attributes : Array[@asn1.Element] // [0] IMPLICIT Attributes OPTIONAL
   public_key : @asn1.BitString? // [1] IMPLICIT PublicKey, v2 only
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub(all) struct EncryptedPrivateKeyInfo {
   algorithm : @pkix.AlgorithmIdentifier
   encrypted_data : Bytes
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror Pkcs8Error {
@@ -23,7 +23,13 @@ pub suberror Pkcs8Error {
   Pem(@pem.PemError)
   InvalidVersion(Int)
   UnexpectedStructure(String)
-} derive(Show)
+  // PBES2 (RFC 8018) decryption errors. See pbes2.mbt.
+  UnsupportedKdf(@asn1.ObjectIdentifier)
+  UnsupportedCipher(@asn1.ObjectIdentifier)
+  InvalidPadding
+  Pbkdf2(@pbkdf2.Pbkdf2Error)
+  Aead(@aead.AeadError)
+} derive(Debug)
 
 ///|
 let label_private_key : String = "PRIVATE KEY"
@@ -54,6 +60,9 @@ fn expect_integer_small(elem : @asn1.Element) -> Int raise Pkcs8Error {
     Integer(bytes) => {
       if bytes.length() == 0 || bytes.length() > 4 {
         raise UnexpectedStructure("INTEGER out of small range")
+      }
+      if (bytes[0].to_int() & 0x80) != 0 {
+        raise UnexpectedStructure("INTEGER is negative; expected non-negative")
       }
       let mut value = 0
       for i in 0..<bytes.length() {
@@ -108,7 +117,7 @@ fn match_context_implicit_set(
   }
   // [n] IMPLICIT SET OF Attribute: tag bits 0x80 | constructed | n.
   // The implicit replacement loses the SET tag, but the constructed bit is preserved.
-  if not(elem.tag.constructed) {
+  if !elem.tag.constructed {
     raise UnexpectedStructure(
       "[" + number.to_string() + "] IMPLICIT SET must be constructed",
     )
@@ -117,8 +126,23 @@ fn match_context_implicit_set(
     Unknown(raw) => {
       let inner = @asn1.Decoder::new(raw)
       let items : Array[@asn1.Element] = []
-      while not(inner.is_empty()) {
-        items.push(inner.read_element() catch { e => raise Asn1(e) })
+      let mut prev : Bytes? = None
+      while !inner.is_empty() {
+        let item = inner.read_element() catch { e => raise Asn1(e) }
+        let current = @asn1.encode_der(item)
+        match prev {
+          Some(p) =>
+            if bytes_lex_compare(p, current) > 0 {
+              raise UnexpectedStructure(
+                "[" +
+                number.to_string() +
+                "] IMPLICIT SET items not in DER order",
+              )
+            }
+          None => ()
+        }
+        prev = Some(current)
+        items.push(item)
       }
       Some(items)
     }
@@ -161,7 +185,33 @@ fn decode_bit_string_content(b : Bytes) -> @asn1.BitString raise Pkcs8Error {
     raise UnexpectedStructure("BIT STRING unused_bits > 7")
   }
   let bytes = Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  validate_bit_string_tail(bytes, unused_bits)
   { bytes, unused_bits }
+}
+
+///|
+fn validate_bit_string_tail(
+  bytes : Bytes,
+  unused_bits : Int,
+) -> Unit raise Pkcs8Error {
+  if unused_bits < 0 || unused_bits > 7 {
+    raise UnexpectedStructure("BIT STRING unused_bits out of range")
+  }
+  if bytes.length() == 0 {
+    if unused_bits != 0 {
+      raise UnexpectedStructure(
+        "BIT STRING unused_bits non-zero with empty data",
+      )
+    }
+    return
+  }
+  if unused_bits > 0 {
+    let mask = (1 << unused_bits) - 1
+    let last = bytes[bytes.length() - 1].to_int()
+    if (last & mask) != 0 {
+      raise UnexpectedStructure("BIT STRING unused tail bits must be zero")
+    }
+  }
 }
 
 ///|
@@ -213,6 +263,9 @@ fn wrap_context_implicit_bit_string(
   number : UInt,
   bs : @asn1.BitString,
 ) -> @asn1.Element {
+  validate_bit_string_tail(bs.bytes, bs.unused_bits) catch {
+    e => abort("invalid context BIT STRING: " + @debug.to_string(e))
+  }
   let buf = Buffer()
   buf.write_byte(bs.unused_bits.to_byte())
   buf.write_bytes(bs.bytes)
@@ -236,12 +289,17 @@ pub fn parse_der(der : Bytes) -> PrivateKeyInfo raise Pkcs8Error {
   let private_key = expect_octet_string(items[2])
   let mut attributes : Array[@asn1.Element] = []
   let mut public_key : @asn1.BitString? = None
+  let mut saw_attributes = false
   let mut i = 3
   while i < items.length() {
     let item = items[i]
     match match_context_implicit_set(item, 0U) {
       Some(attrs) => {
+        if saw_attributes {
+          raise UnexpectedStructure("duplicate attributes")
+        }
         attributes = attrs
+        saw_attributes = true
         i = i + 1
         continue
       }
@@ -251,6 +309,10 @@ pub fn parse_der(der : Bytes) -> PrivateKeyInfo raise Pkcs8Error {
       Some(bs) => {
         if version < 1 {
           raise UnexpectedStructure("[1] publicKey requires v2 (version=1)")
+        }
+        match public_key {
+          Some(_) => raise UnexpectedStructure("duplicate publicKey")
+          None => ()
         }
         public_key = Some(bs)
         i = i + 1

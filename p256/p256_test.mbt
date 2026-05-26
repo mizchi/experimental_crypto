@@ -22,7 +22,7 @@ fn hex(s : String) -> Bytes {
   while i < len {
     let hi = nibble(s.get_char(i * 2).unwrap())
     let lo = nibble(s.get_char(i * 2 + 1).unwrap())
-    out.unsafe_set(i, ((hi * 16) + lo).to_byte())
+    out.unsafe_set(i, (hi * 16 + lo).to_byte())
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out.unsafe_get(j) })
@@ -34,8 +34,12 @@ fn hex(s : String) -> Bytes {
 // signing input from §A.3.4. base64url-decoded to hex once and embedded here
 // so this test stays self-contained.
 fn rfc7515_a3_pubkey() -> @p256.PublicKey raise {
-  let x = hex("7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445")
-  let y = hex("c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad")
+  let x = hex(
+    "7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445",
+  )
+  let y = hex(
+    "c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad",
+  )
   let bytes = Bytes::makei(65, fn(i) {
     if i == 0 {
       b'\x04'
@@ -132,19 +136,21 @@ test "p256: wrong signature length rejected (Raw)" {
 }
 
 ///|
-test "p256: SignatureFormat Show" {
-  inspect(@p256.SignatureFormat::Raw, content="Raw")
-  inspect(@p256.SignatureFormat::Der, content="Der")
+test "p256: SignatureFormat Debug" {
+  @debug.assert_eq(@debug.to_string(@p256.SignatureFormat::Raw), "Raw")
+  @debug.assert_eq(@debug.to_string(@p256.SignatureFormat::Der), "Der")
 }
 
 ///|
 test "p256: roundtrip uncompressed" {
   let pk = rfc7515_a3_pubkey()
   let bytes = pk.to_uncompressed()
-  assert_eq(bytes.length(), 65)
-  assert_eq(bytes[0], b'\x04')
+  @debug.assert_eq(bytes.length(), 65)
+  @debug.assert_eq(bytes[0], b'\x04')
   let pk2 = @p256.PublicKey::from_uncompressed(bytes)
-  assert_true(@p256.verify(pk2, rfc7515_a3_signing_input(), rfc7515_a3_signature(), Raw))
+  assert_true(
+    @p256.verify(pk2, rfc7515_a3_signing_input(), rfc7515_a3_signature(), Raw),
+  )
 }
 
 ///|
@@ -175,9 +181,11 @@ test "p256: from_uncompressed rejects bad tag byte" {
     if i == 0 {
       b'\x02'
     } else if i < 33 {
-      hex("7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445")[i - 1]
+      hex("7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445")[i -
+      1]
     } else {
-      hex("c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad")[i - 33]
+      hex("c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad")[i -
+      33]
     }
   })
   let raised = try {
@@ -195,12 +203,22 @@ test "p256: DER signature round (re-encode A.3 r/s as SEQUENCE)" {
   // Manually wrap the A.3 r,s into ASN.1 DER SEQUENCE { INTEGER r, INTEGER s }
   // and verify the Der format path. r and s both have high bit set in some
   // bytes — we add a 0x00 sign byte when the top bit of the first byte is 1.
-  let r = hex("0ed1215379636c483c2f7f155807d402a3b228033af97c7e17819ac3169ea665")
-  let s = hex("c50a07d38c3c70e5d8f12daf084a5480a66590c5f293509a8f3f7f8a83a354d5")
+  let r = hex(
+    "0ed1215379636c483c2f7f155807d402a3b228033af97c7e17819ac3169ea665",
+  )
+  let s = hex(
+    "c50a07d38c3c70e5d8f12daf084a5480a66590c5f293509a8f3f7f8a83a354d5",
+  )
   fn der_int(b : Bytes) -> Bytes {
     let needs_pad = (b[0].to_int() & 0x80) != 0
     let body_len = b.length() + (if needs_pad { 1 } else { 0 })
-    let head = Bytes::makei(2, fn(i) { if i == 0 { b'\x02' } else { body_len.to_byte() } })
+    let head = Bytes::makei(2, fn(i) {
+      if i == 0 {
+        b'\x02'
+      } else {
+        body_len.to_byte()
+      }
+    })
     let body = if needs_pad {
       Bytes::makei(body_len, fn(i) { if i == 0 { b'\x00' } else { b[i - 1] } })
     } else {
@@ -232,4 +250,165 @@ test "p256: DER signature round (re-encode A.3 r/s as SEQUENCE)" {
   let pk = rfc7515_a3_pubkey()
   let msg = rfc7515_a3_signing_input()
   assert_true(@p256.verify(pk, msg, seq, Der))
+}
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
+  let pk = rfc7515_a3_pubkey()
+  let msg = rfc7515_a3_signing_input()
+  // r = original r, s = 0. The Java vulnerability accepted this because the
+  // verifier skipped the `1 <= s < n` range check.
+  let sig = rfc7515_a3_signature()
+  let bad = Bytes::makei(64, fn(i) { if i < 32 { sig[i] } else { b'\x00' } })
+  assert_false(@p256.verify(pk, msg, bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2022-21449: r=s=0 must be rejected" {
+  let pk = rfc7515_a3_pubkey()
+  let msg = rfc7515_a3_signing_input()
+  let bad = Bytes::makei(64, fn(_i) { b'\x00' })
+  assert_false(@p256.verify(pk, msg, bad, Raw))
+}
+
+///|
+test "ATTACK: s = n (boundary, must reject)" {
+  let pk = rfc7515_a3_pubkey()
+  let msg = rfc7515_a3_signing_input()
+  // n (P-256 order) as 32-byte BE. Spec says 1 <= s < n, so s = n is invalid.
+  let n_hex = "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+  let r = rfc7515_a3_signature()
+  let s_eq_n = hex(n_hex)
+  let bad = Bytes::makei(64, fn(i) {
+    if i < 32 {
+      r[i]
+    } else {
+      s_eq_n[i - 32]
+    }
+  })
+  assert_false(@p256.verify(pk, msg, bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2020-0601 (Curveball)-style: off-curve pubkey rejected at parse" {
+  // Curveball relied on accepting an attacker-supplied EC point that's NOT
+  // on the named curve. We assert from_uncompressed catches this.
+  let off_curve = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 32 {
+      b'\x01'
+    } else if i == 64 {
+      b'\x02'
+    } else {
+      b'\x00'
+    }
+  })
+  let raised = try {
+    let _ = @p256.PublicKey::from_uncompressed(off_curve)
+    false
+  } catch {
+    PointNotOnCurve => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+// -----------------------------------------------------------------------------
+// Sign + roundtrip (RFC 6979 deterministic ECDSA)
+// -----------------------------------------------------------------------------
+
+///|
+test "p256: sign+verify roundtrip is deterministic" {
+  let scalar = hex(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let msg : Bytes = b"sample"
+  let sig1 = sk.sign(msg)
+  let sig2 = sk.sign(msg)
+  // Determinism: same input ⇒ same signature.
+  @debug.assert_eq(sig1, sig2)
+  // Verify.
+  assert_true(@p256.verify(pk, msg, sig1, Raw))
+}
+
+///|
+test "p256: sign tampered message produces a different signature" {
+  let scalar = hex(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let sig_a = sk.sign(b"sample")
+  let sig_b = sk.sign(b"test")
+  assert_false(sig_a == sig_b)
+  // Cross verification fails.
+  assert_false(@p256.verify(pk, b"sample", sig_b, Raw))
+  assert_false(@p256.verify(pk, b"test", sig_a, Raw))
+}
+
+///|
+test "p256: from_bytes rejects out-of-range scalar" {
+  // All-zero scalar
+  let zero = Bytes::makei(32, fn(_) { b'\x00' })
+  try @p256.PrivateKey::from_bytes(zero) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("expected raise on zero scalar, got Ok")
+  }
+}
+
+///|
+test "p256: sign emits a DER signature when requested" {
+  let scalar = hex(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let der_sig = sk.sign(b"sample", format=Der)
+  // DER SEQUENCE prefix.
+  @debug.assert_eq(der_sig[0], b'\x30')
+  assert_true(@p256.verify(pk, b"sample", der_sig, Der))
+}
+
+///|
+test "p256: from_pkcs8_pem loads an openssl-generated PEM" {
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIKluN20zxOVotJ6D
+    #|u3JIHFhXAiovZC/vYulSsZbP1i+hRANCAASZi/TRHBhjVyUAbwUFd8C7kWyWtNFG
+    #|kjXilOlARkbCYLJgZoJIQoD3SK88mEVVSuVHYi43m3JjkKRbStcft0HJ
+    #|-----END PRIVATE KEY-----
+  let sk = @p256.PrivateKey::from_pkcs8_pem(pem_text)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pem-loaded P-256 sign"
+  let sig = sk.sign(msg)
+  assert_true(@p256.verify(pk, msg, sig, Raw))
+}
+
+///|
+test "ATTACK: p256.from_pkcs8_pem rejects a P-384 key blob (curve-OID downgrade)" {
+  // PKCS#8 with id-ecPublicKey + secp384r1 namedCurve OID + SEC1 ECPrivateKey
+  // body. The fixture below is a real openssl-generated P-384 key in PEM.
+  // We verify @p256 rejects rather than silently treating it as a P-256.
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDB5tCYMSWNSIeCO+xAm
+    #|D78GjwMnnnCp4nT74NUF6KaXNB8Bzzc4lOL01OqDD3oLnEihZANiAARWQ04gZkVe
+    #|wHRhBlYjUd2NWqlqcc1QPABBoo5HuHj7sNHEDfgQ8aGzPpQkLDPDC6mxbLh8LDpD
+    #|EQAdR3rdJ6X8/E1RoyA5pPaAg3yWcAuY9eOoyU1bU0POSI3JlmuamJg=
+    #|-----END PRIVATE KEY-----
+  try @p256.PrivateKey::from_pkcs8_pem(pem_text) catch {
+    InvalidPrivateKey(_) => () // expected — wrong namedCurve
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("P-384 key silently loaded as P-256")
+  }
 }

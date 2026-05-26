@@ -13,6 +13,13 @@ name = "mizchi/ed25519"
 
 version = "0.1.0"
 
+import {
+  "mizchi/asn1@0.1.0",
+  "mizchi/pkcs8@0.1.0",
+  "mizchi/pem@0.1.0",
+  "mizchi/pkix@0.1.0",
+}
+
 readme = "README.mbt.md"
 
 repository = ""

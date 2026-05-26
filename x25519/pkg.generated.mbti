@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/x25519"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn diffie_hellman(PrivateKey, PublicKey) -> SharedSecret raise X25519Error
 
@@ -9,7 +13,7 @@ pub suberror X25519Error {
   InvalidScalarLength(Int)
   InvalidPointLength(Int)
   AllZeroSharedSecret
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub struct PrivateKey {
@@ -23,7 +27,7 @@ pub impl Show for PrivateKey
 
 pub struct PublicKey {
   bytes : FixedArray[Byte]
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 pub fn PublicKey::from_bytes(Bytes) -> Self raise X25519Error
 pub fn PublicKey::to_bytes(Self) -> Bytes
 

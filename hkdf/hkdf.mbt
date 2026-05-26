@@ -11,14 +11,14 @@ pub(all) enum HashAlg {
   Sha256
   Sha384
   Sha512
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub suberror HkdfError {
   OutputTooLong
   InvalidLength
   UnsupportedHash(HashAlg)
-} derive(Show)
+} derive(Debug)
 
 ///|
 pub fn output_size(hash : HashAlg) -> Int {
@@ -27,14 +27,6 @@ pub fn output_size(hash : HashAlg) -> Int {
     Sha256 => 32
     Sha384 => 48
     Sha512 => 64
-  }
-}
-
-///|
-fn block_size(hash : HashAlg) -> Int {
-  match hash {
-    Sha224 | Sha256 => 64
-    Sha384 | Sha512 => 128
   }
 }
 
@@ -98,14 +90,17 @@ pub fn expand(
   if length < 0 {
     raise InvalidLength
   }
+  if length == 0 {
+    return b""
+  }
   let hash_len = output_size(hash)
   if length > 255 * hash_len {
     raise OutputTooLong
   }
+  let n_blocks = @wrap.hkdf_block_count(length, hash_len)
   let buf = Buffer()
   let mut prev = b""
-  let mut counter = 1
-  while buf.length() < length {
+  for counter = 1; counter <= n_blocks; counter = counter + 1 {
     // T(i) = HMAC(PRK, T(i-1) | info | counter)
     let msg_buf = Buffer()
     msg_buf.write_bytes(prev)
@@ -114,7 +109,6 @@ pub fn expand(
     let t = hmac_compute(hash, prk, msg_buf.to_bytes())
     buf.write_bytes(t)
     prev = t
-    counter = counter + 1
   }
   truncate(buf.to_bytes(), length)
 }

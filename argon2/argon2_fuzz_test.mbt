@@ -43,15 +43,44 @@ test "fuzz argon2: invalid params rejected" {
     let raw = if raws[i] < 0 { -raws[i] } else { raws[i] }
     // Pick one of four out-of-range axes per iteration.
     let bad : @argon2.Params = match raw % 4 {
-      0 => { variant: Argon2id, m_cost: 8, t_cost: 0, parallelism: 1, output_len: 32 } // t_cost < 1
-      1 => { variant: Argon2id, m_cost: 8, t_cost: 1, parallelism: 0, output_len: 32 } // parallelism < 1
+      0 =>
+        {
+          variant: Argon2id,
+          m_cost: 8,
+          t_cost: 0,
+          parallelism: 1,
+          output_len: 32,
+        } // t_cost < 1
+      1 =>
+        {
+          variant: Argon2id,
+          m_cost: 8,
+          t_cost: 1,
+          parallelism: 0,
+          output_len: 32,
+        } // parallelism < 1
       // m_cost must be >= 8 * parallelism; with parallelism=2 the floor is 16, so 8 is invalid.
-      2 => { variant: Argon2id, m_cost: 8, t_cost: 1, parallelism: 2, output_len: 32 }
-      _ => { variant: Argon2id, m_cost: 8, t_cost: 1, parallelism: 1, output_len: 2 } // output_len < 4
+      2 =>
+        {
+          variant: Argon2id,
+          m_cost: 8,
+          t_cost: 1,
+          parallelism: 2,
+          output_len: 32,
+        }
+      _ =>
+        {
+          variant: Argon2id,
+          m_cost: 8,
+          t_cost: 1,
+          parallelism: 1,
+          output_len: 2,
+        } // output_len < 4
     }
-    match (try? @argon2.hash_raw(bad, pwds[i], salts[i])) {
-      Err(_) => ()
-      Ok(_) => fail("out-of-range argon2 params must reject")
+    try @argon2.hash_raw(bad, pwds[i], salts[i]) catch {
+      _ => ()
+    } noraise {
+      _ => fail("out-of-range argon2 params must reject")
     }
   }
 }
@@ -66,7 +95,7 @@ test "fuzz argon2: small params never panic" {
     let out = @argon2.hash_raw(params, pwds[i], pad_salt(salts[i])) catch {
       _ => abort("unreachable: small params should succeed")
     }
-    assert_eq(out.length(), params.output_len)
+    @debug.assert_eq(out.length(), params.output_len)
   }
 }
 
@@ -108,9 +137,10 @@ test "fuzz argon2: wrong password fails verify_encoded" {
         b'\xff'
       }
     })
-    match (try? @argon2.verify_encoded(encoded, wrong)) {
-      Err(_) => () // expected
-      Ok(_) => fail("verify_encoded must reject a wrong password")
+    try @argon2.verify_encoded(encoded, wrong) catch {
+      _ => () // expected
+    } noraise {
+      _ => fail("verify_encoded must reject a wrong password")
     }
   }
 }

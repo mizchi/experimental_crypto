@@ -1,0 +1,25 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/totp"
+
+// Values
+pub fn hotp(Bytes, UInt64, digits? : Int, hash? : TotpHash) -> String
+
+pub fn provisioning_uri(String, Bytes, issuer? : String, digits? : Int, step_seconds? : Int, hash? : TotpHash) -> String
+
+pub fn totp(Bytes, Int64, step_seconds? : Int, t0? : Int64, digits? : Int, hash? : TotpHash) -> String
+
+pub fn verify_totp(Bytes, String, Int64, step_seconds? : Int, t0? : Int64, digits? : Int, hash? : TotpHash, skew? : Int) -> Bool
+
+// Errors
+
+// Types and methods
+pub(all) enum TotpHash {
+  Sha1
+  Sha256
+  Sha512
+}
+
+// Type aliases
+
+// Traits
+

@@ -1,0 +1,46 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/crl"
+
+import {
+  "mizchi/asn1",
+  "mizchi/pkix",
+  "mizchi/pkix_verify",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn is_revoked(Crl, Bytes) -> Bool
+
+pub fn parse(Bytes) -> Crl raise CrlError
+
+pub fn verify(Bytes, @pkix.Certificate, String) -> Crl raise CrlError
+
+// Errors
+pub suberror CrlError {
+  BadSignature
+  StaleCrl(String)
+  IssuerMismatch
+  AlgorithmMismatch
+  Malformed(String)
+  Asn1(@asn1.Asn1Error)
+  Pkix(@pkix.PkixError)
+  PkixVerify(@pkix_verify.PkixVerifyError)
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct Crl {
+  issuer : @pkix.Name
+  this_update : String
+  next_update : String?
+  revoked : Array[CrlEntry]
+} derive(@debug.Debug)
+
+pub(all) struct CrlEntry {
+  serial : Bytes
+  revocation_date : String
+} derive(@debug.Debug)
+
+// Type aliases
+
+// Traits
+

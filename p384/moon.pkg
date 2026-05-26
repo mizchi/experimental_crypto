@@ -1,4 +1,8 @@
 import {
-  "mizchi/asn1" @asn1,
-  "mizchi/hash" @hash,
+  "mizchi/asn1",
+  "mizchi/hash",
+  "mizchi/pkcs8",
+  "mizchi/pem",
+  "mizchi/pkix",
+  "moonbitlang/core/debug",
 }

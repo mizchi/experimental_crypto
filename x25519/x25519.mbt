@@ -41,7 +41,7 @@ pub impl Show for PrivateKey with fn output(self, logger) {
 ///|
 pub struct PublicKey {
   bytes : FixedArray[Byte] // 32 bytes
-} derive(Eq, Show)
+} derive(Eq, Debug)
 
 ///|
 pub struct SharedSecret {
@@ -64,7 +64,7 @@ pub suberror X25519Error {
   InvalidScalarLength(Int)
   InvalidPointLength(Int)
   AllZeroSharedSecret // small-subgroup attack signal
-} derive(Show)
+} derive(Debug)
 
 ///|
 fn ensure_32_bytes(
