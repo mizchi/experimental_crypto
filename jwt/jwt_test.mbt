@@ -504,3 +504,44 @@ test "ES256: KeyAlgorithmMismatch when alg=HS256 but key is Es256" {
     other => abort("expected KeyAlgorithmMismatch, got \{other}")
   }
 }
+
+// -----------------------------------------------------------------------------
+// ES384: end-to-end (token + key generated via openssl secp384r1 + SHA-384)
+// -----------------------------------------------------------------------------
+
+///|
+fn es384_pubkey() -> @p384.PublicKey raise {
+  // Same SPKI as p384's openssl-generated key.
+  let spki = hex_to_bytes(
+    "3076301006072a8648ce3d020106052b8104002203620004fa918c3751c0b9adcd761351c9852ff7635ee3b696150bca4655a37583b5fc3f7c2e3aeb55eb4bc5d94e04e6ccc577f7cfab8c58bc51062ab204523d6e065fe54352340f069d5a395ededcbf1a363178b035a281dd2ee60369317f985a654b05",
+  )
+  @p384.PublicKey::from_spki_der(spki)
+}
+
+///|
+test "ES384: token signed by openssl verifies" {
+  // Generated with openssl secp384r1 + SHA-384 against signing input
+  // `<header>.<payload>` from a JWT with `{"alg":"ES384","typ":"JWT"}` and
+  // payload `{"sub":"mizchi","iss":"test"}`.
+  let token = "eyJhbGciOiJFUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.IVF1bDvZX38ltujtQQIWXhPwZDUlHOx6FtRDDA4v1Q1ZS69tUr_BbH3sY3x8pxvp1x_ESP-nEzknjsz5vM6i51HOk1T3z0V_U_pnrCmbpIo--miUMdJIIHrUWofOCb9J"
+  let pk = es384_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es384(pubkey=pk), opts)
+  assert_eq(v.alg, @jwt.Algorithm::ES384)
+  match v.claims.get("sub") {
+    Some(String(s)) => assert_eq(s, "mizchi")
+    _ => abort("missing sub")
+  }
+}
+
+///|
+test "ES384: tampered signature fails" {
+  // Flip the first char of the signature segment.
+  let bad = "eyJhbGciOiJFUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.JVF1bDvZX38ltujtQQIWXhPwZDUlHOx6FtRDDA4v1Q1ZS69tUr_BbH3sY3x8pxvp1x_ESP-nEzknjsz5vM6i51HOk1T3z0V_U_pnrCmbpIo--miUMdJIIHrUWofOCb9J"
+  let pk = es384_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(bad, @jwt.VerifyKey::Es384(pubkey=pk), opts)) {
+    Err(InvalidSignature) => ()
+    other => abort("expected InvalidSignature, got \{other}")
+  }
+}

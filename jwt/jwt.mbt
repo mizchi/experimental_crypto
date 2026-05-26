@@ -42,6 +42,8 @@ pub(all) enum VerifyKey {
   // ES256 (ECDSA with P-256 + SHA-256, RFC 7518 §3.4). Signature is the JOSE
   // raw form r||s (64 bytes); verify-only for now.
   Es256(pubkey~ : @p256.PublicKey)
+  // ES384 (ECDSA with P-384 + SHA-384, RFC 7518 §3.4). JOSE raw r||s = 96B.
+  Es384(pubkey~ : @p384.PublicKey)
 }
 
 ///|
@@ -196,6 +198,7 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     EdDsa(..) => EdDSA
     Rs256(..) => RS256
     Es256(..) => ES256
+    Es384(..) => ES384
   }
 }
 
@@ -347,6 +350,11 @@ pub fn verify(
     (ES256, Es256(pubkey~)) =>
       // RFC 7515 §3.4: the JWS signature is r||s, 64 bytes total.
       @p256.verify(pubkey, signing_bytes, provided_sig, @p256.SignatureFormat::Raw) catch {
+        _ => raise InvalidSignature
+      }
+    (ES384, Es384(pubkey~)) =>
+      // r||s, 96 bytes total for ES384.
+      @p384.verify(pubkey, signing_bytes, provided_sig, @p384.SignatureFormat::Raw) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>

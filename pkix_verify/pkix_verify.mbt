@@ -21,6 +21,7 @@ pub(all) enum PublicKey {
   Ed25519(@ed25519.PublicKey)
   Rsa(@rsa.RsaPublicKey)
   P256(@p256.PublicKey)
+  P384(@p384.PublicKey)
 }
 
 ///|
@@ -39,6 +40,7 @@ pub suberror PkixVerifyError {
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
   P256(@p256.P256Error)
+  P384(@p384.P384Error)
   Asn1(@asn1.Asn1Error)
 } derive(Show)
 
@@ -81,6 +83,18 @@ fn ecdsa_with_sha256_oid() -> @asn1.ObjectIdentifier {
 }
 
 ///|
+// secp384r1 (P-384) namedCurve, RFC 5480 §2.1.1.1.
+fn secp384r1_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 3, 132, 0, 34])
+}
+
+///|
+// ecdsa-with-SHA384, RFC 5758 §3.2.
+fn ecdsa_with_sha384_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 4, 3, 3])
+}
+
+///|
 // basicConstraints, RFC 5280 §4.2.1.9.
 fn basic_constraints_oid() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19])
@@ -111,15 +125,12 @@ pub fn extract_public_key(
     Rsa(pk)
   } else if alg == ec_public_key_oid() {
     // RFC 5480 §2.1.1: AlgorithmIdentifier parameters MUST be a namedCurve
-    // OID for the EC curve being used. We only handle P-256 here.
-    match spki.algorithm.parameters {
+    // OID for the EC curve being used. We handle P-256 and P-384.
+    let curve_oid = match spki.algorithm.parameters {
       Some(param_bytes) => {
         let elem = @asn1.decode_der(param_bytes) catch { e => raise Asn1(e) }
         match elem.value {
-          Oid(o) =>
-            if o != secp256r1_oid() {
-              raise UnsupportedPublicKeyAlgorithm(alg)
-            }
+          Oid(o) => o
           _ => raise UnsupportedPublicKeyAlgorithm(alg)
         }
       }
@@ -128,10 +139,19 @@ pub fn extract_public_key(
     if spki.subject_public_key.unused_bits != 0 {
       raise UnsupportedPublicKeyAlgorithm(alg)
     }
-    let pk = @p256.PublicKey::from_uncompressed(spki.subject_public_key.bytes) catch {
-      e => raise P256(e)
+    if curve_oid == secp256r1_oid() {
+      let pk = @p256.PublicKey::from_uncompressed(spki.subject_public_key.bytes) catch {
+        e => raise P256(e)
+      }
+      P256(pk)
+    } else if curve_oid == secp384r1_oid() {
+      let pk = @p384.PublicKey::from_uncompressed(spki.subject_public_key.bytes) catch {
+        e => raise P384(e)
+      }
+      P384(pk)
+    } else {
+      raise UnsupportedPublicKeyAlgorithm(alg)
     }
-    P256(pk)
   } else {
     raise UnsupportedPublicKeyAlgorithm(alg)
   }
@@ -190,6 +210,23 @@ pub fn verify_signature(
           @p256.SignatureFormat::Der,
         ) catch {
           e => raise P256(e)
+        }
+        if not(ok) {
+          raise SignatureMismatch
+        }
+      }
+      _ => raise UnsupportedSignatureAlgorithm(alg)
+    }
+  } else if alg == ecdsa_with_sha384_oid() {
+    match issuer_pubkey {
+      P384(pk) => {
+        let ok = @p384.verify(
+          pk,
+          message,
+          sig_bytes,
+          @p384.SignatureFormat::Der,
+        ) catch {
+          e => raise P384(e)
         }
         if not(ok) {
           raise SignatureMismatch
