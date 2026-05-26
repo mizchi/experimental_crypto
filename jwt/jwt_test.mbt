@@ -1177,6 +1177,72 @@ test "rfc9068: happy path with at+jwt typ" {
 }
 
 ///|
+test "rfc9068: cnf object is exposed for proof binding" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["sub"] = Json::string("user-42")
+  m["aud"] = Json::string("https://rs.example.com/")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("c0ffee-id")
+  m["client_id"] = Json::string("s6BhdRkqt3")
+  let jwk : Map[String, Json] = Map([])
+  jwk["kty"] = Json::string("EC")
+  let cnf : Map[String, Json] = Map([])
+  cnf["jkt"] = Json::string("proof-key-thumbprint")
+  cnf["x5t#S256"] = Json::string("cert-thumbprint")
+  cnf["jwk"] = Json::object(jwk)
+  m["cnf"] = Json::object(cnf)
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now, "https://as.example.com/", "https://rs.example.com/",
+  )
+  let t = @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  match t.cnf {
+    Some(c) => {
+      @debug.assert_eq(c.jkt, Some("proof-key-thumbprint"))
+      @debug.assert_eq(c.x5t_s256, Some("cert-thumbprint"))
+      match c.jwk {
+        Some(j) =>
+          match j.get("kty") {
+            Some(String(s)) => @debug.assert_eq(s, "EC")
+            _ => abort("missing cnf.jwk.kty")
+          }
+        None => abort("missing cnf.jwk")
+      }
+    }
+    None => abort("missing cnf")
+  }
+}
+
+///|
+test "rfc9068: scalar cnf is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["sub"] = Json::string("user-42")
+  m["aud"] = Json::string("https://rs.example.com/")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("c0ffee-id")
+  m["client_id"] = Json::string("s6BhdRkqt3")
+  m["cnf"] = Json::string("proof-key-thumbprint")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now, "https://as.example.com/", "https://rs.example.com/",
+  )
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected ClaimsParseError, got Ok")
+  }
+}
+
+///|
 test "rfc9068: aud as JSON array containing the resource indicator" {
   let now = 1_700_000_000L
   let secret : Bytes = b"hs256-test-secret-for-9068"
@@ -1798,9 +1864,9 @@ test "ES256K: tampered token rejected" {
   let mid = n - 10
   let c = good.get_char(mid).unwrap()
   let flipped = if c == 'A' { 'B' } else { 'A' }
-  let bad = good.substring(start=0, end=mid) +
+  let bad = good[:mid].to_owned() +
     flipped.to_string() +
-    good.substring(start=mid + 1, end=n)
+    good[mid + 1:].to_owned()
   let opts = @jwt.VerifyOptions::default(0L)
   try @jwt.verify(bad, @jwt.VerifyKey::Es256k(pubkey=pk), opts) catch {
     InvalidSignature => ()
@@ -1844,4 +1910,311 @@ test "ES256K: jwks resolution via select_verify_key" {
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(token, vk, opts)
   @debug.assert_eq(v.alg, @jwt.Algorithm::ES256K)
+}
+
+// -----------------------------------------------------------------------------
+// RFC 7800 cnf + RFC 9449 DPoP
+// -----------------------------------------------------------------------------
+
+///|
+test "cnf: rfc9068 token surfaces cnf.jkt" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"cnf-test"
+  let cnf : Map[String, Json] = Map([])
+  cnf["jkt"] = Json::string("0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I")
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["sub"] = Json::string("u")
+  m["aud"] = Json::string("https://rs.example.com/")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("j1")
+  m["client_id"] = Json::string("c1")
+  m["cnf"] = Json::object(cnf)
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now, "https://as.example.com/", "https://rs.example.com/",
+  )
+  let t = @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  match t.cnf {
+    Some(c) =>
+      @debug.assert_eq(
+        c.jkt,
+        Some("0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"),
+      )
+    None => abort("cnf missing")
+  }
+}
+
+///|
+fn make_ed25519_dpop_proof(
+  sk : @ed25519.PrivateKey,
+  htm : String,
+  htu : String,
+  iat : Int64,
+  ath? : String? = None,
+  nonce? : String? = None,
+) -> String {
+  let pk = sk.public_key()
+  let pk_bytes = pk.to_bytes()
+  let x_b64u = {
+    let s = @base64.encode(pk_bytes[:], padding=false)
+    let buf = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      buf.write_char(c2)
+    }
+    buf.to_string()
+  }
+  // Inline JWK in header. Sort fields lexicographically as RFC 7638
+  // canonical form expects (kty, crv, x).
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("EdDSA")
+  header["typ"] = Json::string("dpop+jwt")
+  let jwk : Map[String, Json] = Map([])
+  jwk["kty"] = Json::string("OKP")
+  jwk["crv"] = Json::string("Ed25519")
+  jwk["x"] = Json::string(x_b64u)
+  header["jwk"] = Json::object(jwk)
+  let claims : Map[String, Json] = Map([])
+  claims["htm"] = Json::string(htm)
+  claims["htu"] = Json::string(htu)
+  claims["iat"] = Json::number(iat.to_double())
+  claims["jti"] = Json::string("dpop-jti-1")
+  match ath {
+    Some(s) => claims["ath"] = Json::string(s)
+    None => ()
+  }
+  match nonce {
+    Some(s) => claims["nonce"] = Json::string(s)
+    None => ()
+  }
+  // Manually assemble the JWS so we can use a custom header (sign() only
+  // emits typ/alg/kid). base64url encode header + payload, sign EdDSA.
+  let b64u = fn(b : Bytes) -> String {
+    let s = @base64.encode(b[:], padding=false)
+    let out = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      out.write_char(c2)
+    }
+    out.to_string()
+  }
+  let header_b64 = b64u(@utf8.encode(Json::object(header).stringify()[:]))
+  let claims_b64 = b64u(@utf8.encode(Json::object(claims).stringify()[:]))
+  let signing_input = header_b64 + "." + claims_b64
+  let signature = sk.sign(@utf8.encode(signing_input[:]))
+  signing_input + "." + b64u(signature)
+}
+
+///|
+test "dpop: happy path verifies proof + htm/htu/iat" {
+  let seed = Bytes::makei(32, fn(i) { (i + 11).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let proof = make_ed25519_dpop_proof(
+    sk, "POST", "https://rs.example.com/resource", now,
+  )
+  let opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "POST",
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  let r = @jwt.verify_dpop_proof(proof, opts)
+  @debug.assert_eq(r.htm, "POST")
+  @debug.assert_eq(r.htu, "https://rs.example.com/resource")
+}
+
+///|
+test "dpop: htm mismatch rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 12).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let proof = make_ed25519_dpop_proof(
+    sk, "POST", "https://rs.example.com/resource", now,
+  )
+  let opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "GET", // request says GET, proof says POST
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_dpop_proof(proof, opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
+}
+
+///|
+test "dpop: iat too old rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 13).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let proof = make_ed25519_dpop_proof(
+    sk,
+    "GET",
+    "https://rs.example.com/x",
+    now - 600L, // 10 minutes ago
+  )
+  let opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 60L,
+    clock_skew_sec: 0L,
+    http_method: "GET",
+    http_uri: "https://rs.example.com/x",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_dpop_proof(proof, opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
+}
+
+///|
+test "dpop: ath binds proof to access_token" {
+  let seed = Bytes::makei(32, fn(i) { (i + 14).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let access_token = "this-is-an-access-token"
+  let h = @hash.sha256(@utf8.encode(access_token[:]))
+  let ath = {
+    let s = @base64.encode(h[:], padding=false)
+    let buf = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      buf.write_char(c2)
+    }
+    buf.to_string()
+  }
+  let proof = make_ed25519_dpop_proof(
+    sk,
+    "GET",
+    "https://rs.example.com/resource",
+    now,
+    ath=Some(ath),
+  )
+  let opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "GET",
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: Some(access_token),
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  let r = @jwt.verify_dpop_proof(proof, opts)
+  @debug.assert_eq(r.ath, Some(ath))
+}
+
+///|
+test "dpop: wrong ath against bound_access_token rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 15).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  // Compute ath for the WRONG access token and embed it.
+  let h = @hash.sha256(@utf8.encode("other-token"[:]))
+  let ath = {
+    let s = @base64.encode(h[:], padding=false)
+    let buf = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      buf.write_char(c2)
+    }
+    buf.to_string()
+  }
+  let proof = make_ed25519_dpop_proof(
+    sk,
+    "GET",
+    "https://rs.example.com/resource",
+    now,
+    ath=Some(ath),
+  )
+  let opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "GET",
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: Some("real-token"), // mismatch
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_dpop_proof(proof, opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
+}
+
+///|
+test "dpop: HMAC alg in proof rejected" {
+  // DPoP forbids symmetric algs. Build a synthetic HMAC proof and confirm
+  // verify_dpop_proof refuses before signature work.
+  let secret : Bytes = b"oops-hmac-dpop"
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["typ"] = Json::string("dpop+jwt")
+  // jwk is a placeholder (HMAC has no jwk shape anyway); the alg check
+  // should fire first.
+  let jwk : Map[String, Json] = Map([])
+  jwk["kty"] = Json::string("oct")
+  header["jwk"] = Json::object(jwk)
+  let claims : Map[String, Json] = Map([])
+  claims["htm"] = Json::string("GET")
+  claims["htu"] = Json::string("https://rs.example.com/r")
+  claims["iat"] = Json::number(1_700_000_000.0)
+  claims["jti"] = Json::string("j")
+  let b64u = fn(b : Bytes) -> String {
+    let s = @base64.encode(b[:], padding=false)
+    let buf = StringBuilder::new()
+    for c in s {
+      let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+      buf.write_char(c2)
+    }
+    buf.to_string()
+  }
+  let header_b64 = b64u(@utf8.encode(Json::object(header).stringify()[:]))
+  let claims_b64 = b64u(@utf8.encode(Json::object(claims).stringify()[:]))
+  let signing_input = header_b64 + "." + claims_b64
+  let sig = @hash.hmac_sha256(secret, @utf8.encode(signing_input[:]))
+  let proof = signing_input + "." + b64u(sig)
+  let opts : @jwt.DpopVerifyOptions = {
+    now: 1_700_000_000L,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "GET",
+    http_uri: "https://rs.example.com/r",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_dpop_proof(proof, opts) catch {
+    InvalidDpopProof(_) => ()
+    e => abort("expected InvalidDpopProof, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidDpopProof, got Ok")
+  }
 }

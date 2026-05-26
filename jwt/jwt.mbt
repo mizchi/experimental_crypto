@@ -139,6 +139,15 @@ pub suberror JwtError {
   // MUST both equal the client_id; if they disagree the assertion is
   // not from the claimed client.
   SubjectMismatch
+  // RFC 9449 — Demonstrating Proof of Possession (DPoP). The proof JWT
+  // failed one of: typ="dpop+jwt"; HTTP method / URI binding; iat
+  // freshness; jkt binding against the paired access token; ath hash
+  // of the access token; embedded `jwk` header missing or malformed.
+  InvalidDpopProof(String)
+  // The access token's `cnf.jkt` does not match the SHA-256 thumbprint
+  // of the DPoP proof's embedded jwk. Separated from InvalidDpopProof
+  // so callers can branch on token-binding failure specifically.
+  CnfJktMismatch
 } derive(Debug)
 
 ///|
@@ -147,6 +156,17 @@ pub(all) struct VerifiedJwt {
   claims : Map[String, Json]
   alg : Algorithm
   kid : String?
+} derive(Debug)
+
+///|
+pub(all) struct Cnf {
+  // Full JWK if the IdP shipped it inline. Stored as the raw JSON map
+  // so callers can re-parse with `@jwk.parse_public` when needed.
+  jwk : Map[String, Json]?
+  // JWK SHA-256 thumbprint (RFC 7638) base64url. DPoP relies on this.
+  jkt : String?
+  // Client-cert SHA-256 thumbprint base64url. mTLS uses this.
+  x5t_s256 : String?
 } derive(Debug)
 
 ///|
@@ -916,6 +936,11 @@ pub(all) struct Rfc9068Token {
   acr : String?
   amr : Array[String]?
   scope : Array[String]?
+  // RFC 7800 confirmation claim. If present, encodes the proof-of-
+  // possession key (DPoP `jkt`, mTLS `x5t#S256`, or full `jwk`). The
+  // resource server validates it against the DPoP proof / mTLS cert
+  // out of band — see verify_dpop_proof.
+  cnf : Cnf?
   jwt : VerifiedJwt
 }
 
@@ -1032,6 +1057,7 @@ fn finalise_rfc9068(
     acr: get_string(v.claims, "acr"),
     amr: extract_string_array(v.claims, "amr"),
     scope,
+    cnf: extract_cnf(v.claims),
     jwt: v,
   }
 }
@@ -1208,6 +1234,9 @@ pub(all) struct OidcIdToken {
   email_verified : Bool?
   name : String?
   preferred_username : String?
+  // RFC 7800 confirmation claim (rare on ID tokens, common on
+  // OAuth access tokens). Exposed for symmetry with Rfc9068Token.
+  cnf : Cnf?
   jwt : VerifiedJwt
 }
 
@@ -1359,6 +1388,7 @@ fn finalise_oidc_id_token(
     email_verified: get_bool(v.claims, "email_verified"),
     name: get_string(v.claims, "name"),
     preferred_username: get_string(v.claims, "preferred_username"),
+    cnf: extract_cnf(v.claims),
     jwt: v,
   }
 }
@@ -1504,4 +1534,284 @@ pub fn verify_client_assertion_jwks(
   let header = peek_header(token)
   let key = select_verify_key(set, header)
   verify_client_assertion(token, key, opts)
+}
+
+// -----------------------------------------------------------------------------
+// RFC 7800 — Proof-of-Possession Key Semantics (cnf claim)
+// -----------------------------------------------------------------------------
+//
+// `cnf` is a JSON object whose members encode how the holder proves
+// possession of an asymmetric key (or a shared secret) bound to the
+// token. The three forms we recognise:
+//   * jwk          — full JWK of the holder's key
+//   * jkt          — base64url(SHA-256(canonical JWK)) thumbprint
+//                    (used by DPoP, RFC 9449)
+//   * x5t#S256     — base64url(SHA-256(client cert)) thumbprint
+//                    (used by OAuth mTLS client auth, RFC 8705)
+
+///|
+fn extract_cnf(claims : Map[String, Json]) -> Cnf? raise JwtError {
+  match claims.get("cnf") {
+    None => None
+    Some(Object(m)) => {
+      let jwk = match m.get("jwk") {
+        Some(Object(inner)) => Some(inner)
+        _ => None
+      }
+      let jkt = get_string(m, "jkt")
+      let x5t_s256 = get_string(m, "x5t#S256")
+      Some({ jwk, jkt, x5t_s256 })
+    }
+    Some(_) => raise ClaimsParseError("claim 'cnf' is not an object")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// RFC 9449 — Demonstrating Proof of Possession (DPoP)
+// -----------------------------------------------------------------------------
+//
+// A DPoP proof JWT is a small companion JWS that travels alongside an
+// OAuth access token. The resource server validates the proof against
+// the request and against the access token's `cnf.jkt` to confirm the
+// caller controls the private key paired with the access token.
+//
+// Proof shape (§4):
+//   header.typ  = "dpop+jwt"
+//   header.alg  ∈ {ES256, ES256K, ES384, ES512, EdDSA, RS256, PS256, …}
+//                 — no symmetric algs, no "none"
+//   header.jwk  = the holder's JWK (public part only)
+//   claims.jti  = unique per-request nonce (replay defence, RS state)
+//   claims.htm  = HTTP method, e.g., "GET"
+//   claims.htu  = HTTP URI without query/fragment
+//   claims.iat  = issued-at, recent
+//   claims.ath  = base64url(SHA-256(access_token))  — when bound
+//   claims.nonce = optional, supplied by the server for nonce protocol
+
+///|
+pub(all) struct DpopVerifyOptions {
+  now : Int64
+  // How recently the proof must have been issued. RFC 9449 §4.3 step 11
+  // recommends short windows (e.g., a few seconds to a minute). We
+  // accept iat ∈ (now - max_iat_age_sec, now + clock_skew_sec).
+  max_iat_age_sec : Int64
+  clock_skew_sec : Int64
+  // HTTP method the request is using ("GET", "POST", …). MUST match
+  // the proof's `htm` exactly. RFC 9449 §4.3 step 9.
+  http_method : String
+  // HTTP URI without query string or fragment. MUST match `htu`. §4.3
+  // step 10.
+  http_uri : String
+  // If `Some(at)`, the proof MUST carry `ath` = base64url(SHA-256(at))
+  // and the access token's cnf.jkt MUST equal SHA-256 thumbprint of
+  // the proof's `jwk` header.
+  bound_access_token : String?
+  // If `Some(jkt)`, the proof's embedded jwk thumbprint MUST equal jkt.
+  // Use this when the access token's cnf is unwrapped already.
+  expected_jkt : String?
+  // If `Some(n)`, the proof MUST carry `nonce` = n (server-issued).
+  expected_nonce : String?
+  // Algorithm allow-list. None permits any asymmetric alg `verify`
+  // accepts. Symmetric algs are blocked at the typed VerifyKey layer.
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct VerifiedDpop {
+  htm : String
+  htu : String
+  iat : Int64
+  jti : String
+  ath : String?
+  nonce : String?
+  // Holder's JWK from the proof header. The thumbprint (jkt) below is
+  // what binds the proof to a cnf-carrying access token.
+  jwk : Map[String, Json]
+  jkt : String
+  jwt : VerifiedJwt
+}
+
+///|
+/// Verify a DPoP proof JWT (§4.3). Returns the structured result if
+/// every check passes; raises `InvalidDpopProof(reason)` otherwise.
+///
+/// The verifying key is extracted from the proof's `jwk` header rather
+/// than from a JWKS — DPoP keys are caller-supplied per request, not
+/// IdP-rotated. Callers MUST still gate on `expected_jkt` (or pass an
+/// access token via `bound_access_token`) to ensure the proof's key
+/// is the one the resource server authorised.
+pub fn verify_dpop_proof(
+  token : String,
+  opts : DpopVerifyOptions,
+) -> VerifiedDpop raise JwtError {
+  let header = peek_header(token)
+  // typ MUST be "dpop+jwt" (§4.3 step 3).
+  let typ = match get_string(header, "typ") {
+    Some(s) => s
+    None => raise InvalidDpopProof("missing typ header")
+  }
+  if typ != "dpop+jwt" {
+    raise InvalidDpopProof("typ must be 'dpop+jwt', got '" + typ + "'")
+  }
+  // Pull the embedded JWK and derive a VerifyKey from it. The IdP / RS
+  // never sees this key in advance; it's the holder's per-session
+  // ephemeral public key.
+  let jwk_obj = match header.get("jwk") {
+    Some(Object(m)) => m
+    _ => raise InvalidDpopProof("missing jwk header")
+  }
+  let alg_str = match get_string(header, "alg") {
+    Some(s) => s
+    None => raise InvalidDpopProof("missing alg header")
+  }
+  let alg = alg_from_str(alg_str) catch {
+    e => raise InvalidDpopProof("unknown alg: " + @debug.to_string(e))
+  }
+  // Block symmetric algs — DPoP is asymmetric only (§4.2).
+  match alg {
+    HS256 | HS384 | HS512 =>
+      raise InvalidDpopProof("HMAC alg not allowed for DPoP")
+    _ => ()
+  }
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise InvalidDpopProof(
+          "alg '" + alg_to_str(alg) + "' not in allow-list",
+        )
+      }
+    }
+    None => ()
+  }
+  // Build a JWKS entry from the inline jwk so we can reuse the existing
+  // resolver path; round-trip through @jwk.parse_set ensures the same
+  // strict shape (n/e/x/y constraints, kty matching alg).
+  let jwk = parse_inline_jwk(jwk_obj, alg)
+  let jkt = jwk_thumbprint_base64url(jwk_obj)
+  let vk = jwk_to_verify_key(jwk, alg)
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+    typ_allowed: None,
+  }
+  let v = verify(token, vk, base) catch {
+    _ => raise InvalidDpopProof("signature verify failed")
+  }
+  let htm = match get_string(v.claims, "htm") {
+    Some(s) => s
+    None => raise InvalidDpopProof("missing htm claim")
+  }
+  if htm != opts.http_method {
+    raise InvalidDpopProof("htm '" + htm + "' does not match HTTP method")
+  }
+  let htu = match get_string(v.claims, "htu") {
+    Some(s) => s
+    None => raise InvalidDpopProof("missing htu claim")
+  }
+  if htu != opts.http_uri {
+    raise InvalidDpopProof("htu does not match HTTP URI")
+  }
+  let iat = match get_numeric_date(v.claims, "iat") {
+    Some(n) => n
+    None => raise InvalidDpopProof("missing iat claim")
+  }
+  if iat + opts.max_iat_age_sec + opts.clock_skew_sec < opts.now {
+    raise InvalidDpopProof("iat too old")
+  }
+  if iat > opts.now + opts.clock_skew_sec {
+    raise InvalidDpopProof("iat in the future")
+  }
+  let jti = match get_string(v.claims, "jti") {
+    Some(s) => s
+    None => raise InvalidDpopProof("missing jti claim")
+  }
+  let nonce = get_string(v.claims, "nonce")
+  match opts.expected_nonce {
+    Some(want) =>
+      match nonce {
+        Some(got) => if want != got { raise InvalidDpopProof("nonce mismatch") }
+        None => raise InvalidDpopProof("nonce required but absent")
+      }
+    None => ()
+  }
+  let ath = get_string(v.claims, "ath")
+  match opts.bound_access_token {
+    Some(at) => {
+      let expected_ath = sha256_base64url(at)
+      match ath {
+        Some(got) =>
+          if got != expected_ath {
+            raise InvalidDpopProof("ath does not match access_token hash")
+          }
+        None => raise InvalidDpopProof("ath required but absent")
+      }
+    }
+    None => ()
+  }
+  match opts.expected_jkt {
+    Some(want) => if want != jkt { raise CnfJktMismatch }
+    None => ()
+  }
+  { htm, htu, iat, jti, ath, nonce, jwk: jwk_obj, jkt, jwt: v }
+}
+
+///|
+/// Build a `@jwk.Jwk` from an inline JWK map for the DPoP `jwk` header.
+/// Re-uses the strict parser (`@jwk.parse_public`) so the same shape
+/// constraints apply (kty must match alg, no private fields tolerated
+/// inside a DPoP header).
+fn parse_inline_jwk(
+  jwk_obj : Map[String, Json],
+  alg : Algorithm,
+) -> @jwk.Jwk raise JwtError {
+  // Stringify the JWK map so we can hand it to @jwk.parse_public. The
+  // round-trip costs a JSON encode/decode but keeps the validation
+  // logic centralised.
+  let s = Json::object(jwk_obj).stringify()
+  let parsed = @jwk.parse_public(s) catch {
+    e => raise InvalidDpopProof("invalid jwk: " + @debug.to_string(e))
+  }
+  // Cross-check kty against alg so a DPoP header that says alg=ES256
+  // but supplies an RSA key gets rejected before signature work.
+  match (alg, parsed) {
+    (ES256, EcP256(..))
+    | (ES384, EcP384(..))
+    | (ES256K, EcSecp256k1(..))
+    | (EdDSA, OkpEd25519(..))
+    | (RS256, Rsa(..))
+    | (RS384, Rsa(..))
+    | (RS512, Rsa(..))
+    | (PS256, Rsa(..))
+    | (PS384, Rsa(..))
+    | (PS512, Rsa(..)) => parsed
+    _ => raise InvalidDpopProof("jwk kty does not match alg")
+  }
+}
+
+///|
+fn jwk_thumbprint_base64url(
+  jwk_obj : Map[String, Json],
+) -> String raise JwtError {
+  let s = Json::object(jwk_obj).stringify()
+  let parsed = @jwk.parse_public(s) catch {
+    e => raise InvalidDpopProof("invalid jwk: " + @debug.to_string(e))
+  }
+  @jwk.thumbprint_base64url(parsed) catch {
+    e => raise InvalidDpopProof("thumbprint failed: " + @debug.to_string(e))
+  }
+}
+
+///|
+fn sha256_base64url(s : String) -> String {
+  let h = @hash.sha256(@utf8.encode(s[:]))
+  base64url_encode(h)
 }
