@@ -368,6 +368,27 @@ priv struct ParsedPhc {
 ///|
 /// Parses a PHC-formatted scrypt string. Returns the params plus the decoded
 /// salt and hash bytes. Raises `InvalidEncoded` on malformed input.
+fn is_canonical_decimal(s : String) -> Bool {
+  // Accept "0" exactly, or [1-9][0-9]* with no sign and no leading zero.
+  if s.length() == 0 {
+    return false
+  }
+  if s == "0" {
+    return true
+  }
+  for i = 0; i < s.length(); i = i + 1 {
+    let c = s.get_char(i).unwrap()
+    if i == 0 && (c < '1' || c > '9') {
+      return false
+    }
+    if i > 0 && (c < '0' || c > '9') {
+      return false
+    }
+  }
+  true
+}
+
+///|
 fn parse_phc(encoded : String) -> ParsedPhc raise ScryptError {
   // Split on '$'. A valid scrypt PHC string has the form
   //   $scrypt$ln=<n>,r=<r>,p=<p>$<salt>$<hash>
@@ -385,18 +406,42 @@ fn parse_phc(encoded : String) -> ParsedPhc raise ScryptError {
   let mut log_n = -1
   let mut r = -1
   let mut p = -1
+  let mut ln_set = false
+  let mut r_set = false
+  let mut p_set = false
   for kv in parts[2].split(",") {
     match kv.split_once("=") {
       Some((k, v)) => {
+        // Strict canonical: only [0-9]+, no leading +, no leading zeros
+        // beyond a single 0. PHC string format spec §3.2 calls these
+        // "decimal" parameter values; everything else makes verification
+        // path-sensitive.
+        if not(is_canonical_decimal(v.to_string())) {
+          raise InvalidEncoded(
+            "non-canonical parameter value (expected unsigned decimal)",
+          )
+        }
         let num = @strconv.parse_int(v) catch {
           _ => raise InvalidEncoded("non-integer parameter value")
         }
         if k == "ln" {
+          if ln_set {
+            raise InvalidEncoded("duplicate 'ln' parameter")
+          }
           log_n = num
+          ln_set = true
         } else if k == "r" {
+          if r_set {
+            raise InvalidEncoded("duplicate 'r' parameter")
+          }
           r = num
+          r_set = true
         } else if k == "p" {
+          if p_set {
+            raise InvalidEncoded("duplicate 'p' parameter")
+          }
           p = num
+          p_set = true
         } else {
           raise InvalidEncoded("unknown parameter")
         }

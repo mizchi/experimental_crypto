@@ -229,6 +229,23 @@ struct HmacSha256Ctx {
 }
 
 ///|
+/// Best-effort zero of the precomputed HMAC state words. The two
+/// `inner_state` / `outer_state` arrays are derived from the password
+/// (via ipad/opad XOR + one SHA-256 compression); zeroing them shortens
+/// the window during which an offline dictionary attacker with heap
+/// read access could substitute them for the password's HMAC key. Best-
+/// effort because MoonBit gives no guarantee against compiler dead-store
+/// elimination or GC copies. See review #2 finding 8.
+fn HmacSha256Ctx::clear(self : HmacSha256Ctx) -> Unit {
+  for i in 0..<self.inner_state.length() {
+    self.inner_state[i] = 0U
+  }
+  for i in 0..<self.outer_state.length() {
+    self.outer_state[i] = 0U
+  }
+}
+
+///|
 fn hmac_sha256_init(key : Bytes) -> HmacSha256Ctx {
   let block_size = 64
   let padded = FixedArray::make(block_size, b'\x00')
@@ -375,5 +392,19 @@ fn pbkdf2_sha256(
       out.unsafe_set(base + i, t.unsafe_get(i))
     }
   }
-  Bytes::makei(dk_len, fn(j) { out.unsafe_get(j) })
+  let result = Bytes::makei(dk_len, fn(j) { out.unsafe_get(j) })
+  // Best-effort wipe of password-derived intermediate state. See review #2
+  // finding 8. The HMAC ctx holds the ipad/opad-compressed state words,
+  // u/t hold the latest U_i / accumulated T (both PRF outputs under the
+  // password's key), and the first salt_len+4 bytes of u1_msg hold the
+  // final salt || INT(block) (non-secret but cheap to clear together).
+  ctx.clear()
+  for i in 0..<32 {
+    u[i] = b'\x00'
+    t[i] = b'\x00'
+  }
+  for i in 0..<u1_msg.length() {
+    u1_msg[i] = b'\x00'
+  }
+  result
 }

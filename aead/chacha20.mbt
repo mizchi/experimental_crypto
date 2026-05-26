@@ -229,5 +229,33 @@ fn chacha20_xor_inner(
     off = off + take
     ctr = ctr + 1U
   }
-  Bytes::makei(n, fn(i) { out[i] })
+  let result = Bytes::makei(n, fn(i) { out[i] })
+  // Best-effort wipe of the scratch keystream buffer. The last block's
+  // keystream is key/nonce-derived secret material; zero it before the
+  // FixedArray becomes GC-reachable garbage. Best-effort because the
+  // compiler may elide as dead-store and GC may have already relocated
+  // earlier copies. See security_review2.md finding 18.
+  for i in 0..<64 {
+    ks[i] = b'\x00'
+  }
+  result
+}
+
+///|
+/// Generate the first 32-byte ChaCha20 keystream block into a FixedArray.
+/// Used by Poly1305 one-time key generation so the caller can wipe the
+/// secret after tag computation (see review #2 finding 7).
+fn chacha20_first32_fa(key : Bytes, nonce : Bytes) -> FixedArray[Byte] {
+  let ks = FixedArray::make(64, b'\x00')
+  chacha20_block(key, nonce, 0U, ks, 0)
+  let out = FixedArray::make(32, b'\x00')
+  for i in 0..<32 {
+    out[i] = ks[i]
+  }
+  // Wipe the local 64-byte scratch (bytes 32..63 are also keystream of the
+  // counter=0 block and are never used by Poly1305).
+  for i in 0..<64 {
+    ks[i] = b'\x00'
+  }
+  out
 }

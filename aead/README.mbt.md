@@ -76,4 +76,17 @@ random selection collision-safe at any practical scale.
 - `ChaCha20Poly1305` is constant-time at the algorithm level, but
   underlying `u64 *` on wasm / JS is not formally constant-time.
 
+## Memory hygiene
+
+The ChaCha20-Poly1305 path makes a best-effort attempt to zero
+short-lived secrets before returning: the one-time Poly1305 key
+and the per-call ChaCha20 keystream scratch buffer are overwritten
+in their `FixedArray[Byte]` backing storage. This is best-effort
+only — MoonBit gives no guarantee against compiler dead-store
+elimination, and the GC may have already relocated copies before
+the wipe runs. It shortens the window during which a heap dump or
+cold-boot attack could recover the secret, but is not a substitute
+for OS-level memory protection. AES-GCM round keys and GHASH state
+are not wiped today.
+
 See the workspace-root `security_review.md` for the full audit.

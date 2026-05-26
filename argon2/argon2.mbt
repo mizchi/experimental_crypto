@@ -153,6 +153,27 @@ priv struct ParsedPhc {
 }
 
 ///|
+fn is_canonical_decimal(s : String) -> Bool {
+  // "0" exactly, or [1-9][0-9]* with no sign and no leading zeros.
+  if s.length() == 0 {
+    return false
+  }
+  if s == "0" {
+    return true
+  }
+  for i = 0; i < s.length(); i = i + 1 {
+    let c = s.get_char(i).unwrap()
+    if i == 0 && (c < '1' || c > '9') {
+      return false
+    }
+    if i > 0 && (c < '0' || c > '9') {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Parses a PHC-formatted Argon2 string. Returns the params plus the decoded
 /// salt and hash bytes. Raises `InvalidEncoded` on malformed input.
 fn parse_phc(encoded : String) -> ParsedPhc raise Argon2Error {
@@ -185,18 +206,38 @@ fn parse_phc(encoded : String) -> ParsedPhc raise Argon2Error {
   let mut m_cost = -1
   let mut t_cost = -1
   let mut parallelism = -1
+  let mut m_set = false
+  let mut t_set = false
+  let mut p_set = false
   for kv in parts[3].split(",") {
     match kv.split_once("=") {
       Some((k, v)) => {
+        if not(is_canonical_decimal(v.to_string())) {
+          raise InvalidEncoded(
+            "non-canonical parameter value (expected unsigned decimal)",
+          )
+        }
         let num = @strconv.parse_int(v) catch {
           _ => raise InvalidEncoded("non-integer parameter value")
         }
         if k == "m" {
+          if m_set {
+            raise InvalidEncoded("duplicate 'm' parameter")
+          }
           m_cost = num
+          m_set = true
         } else if k == "t" {
+          if t_set {
+            raise InvalidEncoded("duplicate 't' parameter")
+          }
           t_cost = num
+          t_set = true
         } else if k == "p" {
+          if p_set {
+            raise InvalidEncoded("duplicate 'p' parameter")
+          }
           parallelism = num
+          p_set = true
         } else {
           raise InvalidEncoded("unknown parameter")
         }

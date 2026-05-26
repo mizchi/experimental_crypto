@@ -52,7 +52,11 @@ test "RFC 8439 §2.5.2 Poly1305 known-answer" {
   // "Cryptographic Forum Research Group"
   let msg_lit = b"Cryptographic Forum Research Group"
   let msg = Bytes::makei(msg_lit.length(), fn(i) { msg_lit[i] })
-  let tag = poly1305(key, msg)
+  let key_fa = FixedArray::make(32, b'\x00')
+  for i in 0..<32 {
+    key_fa[i] = key[i]
+  }
+  let tag = poly1305_fa(key_fa, msg)
   assert_eq(to_hex_wb(tag), "a8061dc1305136c6c22b8baf0c0127a9")
 }
 
@@ -148,9 +152,10 @@ test "RFC 8439 §2.6.2 Poly1305 key generation" {
     "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
   )
   let nonce = hex_wb("000000000001020304050607")
-  let otk = poly1305_key_gen(key, nonce)
+  let otk = poly1305_key_gen_fa(key, nonce)
+  let otk_bytes = Bytes::makei(32, fn(i) { otk[i] })
   assert_eq(
-    to_hex_wb(otk),
+    to_hex_wb(otk_bytes),
     "8ad5a08b905f81cc815040274ab29471a833b637e3fd0da508dbb8e2fdd1a646",
   )
 }
@@ -218,11 +223,12 @@ test "RFC 8439 §2.8.2 poly1305_aead_tag matches expected" {
     "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
   )
   let nonce = hex_wb("070000004041424344454647")
-  let otk = poly1305_key_gen(key, nonce)
+  let otk = poly1305_key_gen_fa(key, nonce)
+  let otk_bytes = Bytes::makei(32, fn(i) { otk[i] })
   // RFC 8439 §2.8.2 says this OTK should be:
   //   7bac2b252db447af09b67a55a4e955840ae1d6731075d9eb2a9375783ed553ff
   assert_eq(
-    to_hex_wb(otk),
+    to_hex_wb(otk_bytes),
     "7bac2b252db447af09b67a55a4e955840ae1d6731075d9eb2a9375783ed553ff",
   )
   let aad = hex_wb("50515253c0c1c2c3c4c5c6c7")
@@ -236,6 +242,6 @@ test "RFC 8439 §2.8.2 poly1305_aead_tag matches expected" {
     "3ff4def08e4b7a9de576d26586cec64b" +
     "6116",
   )
-  let tag = poly1305_aead_tag(otk, aad, ct)
+  let tag = poly1305_aead_tag_fa(otk, aad, ct)
   assert_eq(to_hex_wb(tag), "1ae10b594f09e26a7e902ecbd0600691")
 }

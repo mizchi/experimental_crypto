@@ -397,7 +397,7 @@ fn aes_gcm_open(
     raise InvalidNonceSize(expected=12, got=nonce.length())
   }
   if tag.length() != 16 {
-    raise AuthenticationFailed
+    raise InvalidTagSize(expected=16, got=tag.length())
   }
   // Same NIST SP 800-38D §5.2.1.1 bound on ciphertext as on plaintext.
   check_aes_gcm_block_count(ciphertext.length())

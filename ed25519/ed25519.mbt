@@ -135,7 +135,26 @@ pub fn PrivateKey::sign(self : PrivateKey, message : Bytes) -> Bytes {
   let s_bytes = scalar_to_le_bytes(s)
 
   // signature = R (32) || S (32)
-  Bytes::makei(64, fn(i) { if i < 32 { r_encoded[i] } else { s_bytes[i - 32] } })
+  let signature = Bytes::makei(64, fn(i) {
+    if i < 32 {
+      r_encoded[i]
+    } else {
+      s_bytes[i - 32]
+    }
+  })
+  // Best-effort wipe of seed-derived intermediate secrets. See review #2
+  // finding 9. The BigInts `a_scalar`, `r`, `k` and any SHA-512 working
+  // state reachable through the (now out-of-scope) `ctx` objects are NOT
+  // wipe-able from MoonBit. The FixedArray-backed values below are.
+  for i in 0..<64 {
+    h[i] = b'\x00'
+    r_hash[i] = b'\x00'
+    k_hash[i] = b'\x00'
+  }
+  for i in 0..<32 {
+    prefix[i] = b'\x00'
+  }
+  signature
 }
 
 // ─── PublicKey API ──────────────────────────────────────────────────────
@@ -841,12 +860,11 @@ fn fe_is_negative(a : Fe) -> Int {
 ///|
 fn fe_is_zero(a : Fe) -> Bool {
   let bytes = fe_to_bytes(a)
+  let mut acc = 0
   for i in 0..<32 {
-    if bytes[i].to_int() != 0 {
-      return false
-    }
+    acc = acc | bytes[i].to_int()
   }
-  true
+  acc == 0
 }
 
 // ─── Edwards point group constants ─────────────────────────────────────
@@ -1038,12 +1056,17 @@ fn ed25519_scalar_mult(scalar : BigInt, p : EdPoint) -> EdPoint {
 
 ///|
 fn ed_points_equal(p : EdPoint, q : EdPoint) -> Bool {
-  // x1*z2 == x2*z1 AND y1*z2 == y2*z1
+  // x1*z2 == x2*z1 AND y1*z2 == y2*z1.
+  // Combine the two comparisons via & on the boolean values to avoid the
+  // short-circuit on the first inequality (matches the constant-time
+  // discipline applied to fe_eq).
   let lhs1 = fe_mul(p.x, q.z)
   let rhs1 = fe_mul(q.x, p.z)
   let lhs2 = fe_mul(p.y, q.z)
   let rhs2 = fe_mul(q.y, p.z)
-  fe_eq(lhs1, rhs1) && fe_eq(lhs2, rhs2)
+  let eq1 = fe_eq(lhs1, rhs1)
+  let eq2 = fe_eq(lhs2, rhs2)
+  eq1 && eq2
 }
 
 // ─── point compression and decompression (RFC 8032 §5.1.2 / §5.1.3) ─────
@@ -1072,11 +1095,15 @@ fn point_decompress(b : FixedArray[Byte]) -> EdPoint? {
   // bit; we just confirm canonical encoding matches.
   let y = fe_from_bytes_no_mask(y_bytes)
   // y < p iff fe_to_bytes(y) == y_bytes after stripping the sign bit.
+  // Compare all 32 bytes via OR-XOR with no early break, matching the
+  // constant-time discipline applied elsewhere in this module.
   let y_round = fe_to_bytes(y)
+  let mut diff = 0
   for i in 0..<32 {
-    if y_round[i] != y_bytes[i] {
-      return None
-    }
+    diff = diff | (y_round[i].to_int() ^ y_bytes[i].to_int())
+  }
+  if diff != 0 {
+    return None
   }
   match recover_x(y, sign) {
     Some(x) => Some({ x, y, z: fe_one(), t: fe_mul(x, y) })

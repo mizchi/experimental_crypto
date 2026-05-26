@@ -108,10 +108,21 @@ fn expect_integer_bytes(elem : @asn1.Element) -> Bytes raise PkixError {
 }
 
 ///|
+// Decodes a DER INTEGER that fits in a non-negative 31-bit Int. Used for
+// fields where we know the legal value is a small non-negative number
+// (today: TBSCertificate.version, expected 0..2). Rejects empty INTEGERs,
+// over-long ones, and any value whose first byte has the sign bit set
+// (which would denote a negative DER INTEGER, never legal for the fields
+// this helper serves).
 fn expect_integer_small(elem : @asn1.Element) -> Int raise PkixError {
   let bytes = expect_integer_bytes(elem)
   if bytes.length() == 0 || bytes.length() > 4 {
     raise UnexpectedStructure("INTEGER out of small range")
+  }
+  if (bytes[0].to_int() & 0x80) != 0 {
+    raise UnexpectedStructure(
+      "INTEGER is negative; expected a non-negative small value",
+    )
   }
   let mut value = 0
   for i in 0..<bytes.length() {

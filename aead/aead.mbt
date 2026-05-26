@@ -47,6 +47,7 @@ pub fn Algorithm::tag_size(_self : Algorithm) -> Int {
 
 ///|
 pub suberror AeadError {
+  InvalidTagSize(expected~ : Int, got~ : Int)
   InvalidKeySize(expected~ : Int, got~ : Int)
   InvalidNonceSize(expected~ : Int, got~ : Int)
   CiphertextTooShort
@@ -186,9 +187,11 @@ fn chacha20_poly1305_seal(
 ) -> (Bytes, Bytes) raise AeadError {
   validate_key_nonce(key, nonce)
   check_chacha20_block_count(plaintext.length())
-  let otk = poly1305_key_gen(key, nonce)
+  let otk_fa = poly1305_key_gen_fa(key, nonce)
   let ct = chacha20_xor(key, nonce, 1U, plaintext)
-  let tag = poly1305_aead_tag(otk, aad, ct)
+  let tag = poly1305_aead_tag_fa(otk_fa, aad, ct)
+  // Best-effort wipe of the one-time Poly1305 key. See review #2 finding 7.
+  zeroize_fa_byte(otk_fa)
   (ct, tag)
 }
 
@@ -203,10 +206,13 @@ fn chacha20_poly1305_open(
   validate_key_nonce(key, nonce)
   check_chacha20_block_count(ciphertext.length())
   if tag.length() != 16 {
-    raise AuthenticationFailed
+    raise InvalidTagSize(expected=16, got=tag.length())
   }
-  let otk = poly1305_key_gen(key, nonce)
-  let expected_tag = poly1305_aead_tag(otk, aad, ciphertext)
+  let otk_fa = poly1305_key_gen_fa(key, nonce)
+  let expected_tag = poly1305_aead_tag_fa(otk_fa, aad, ciphertext)
+  // Wipe OTK as soon as the tag has been compared; the tag check below
+  // does not need the key any more. See review #2 finding 7.
+  zeroize_fa_byte(otk_fa)
   if !constant_time_eq(tag, expected_tag) {
     raise AuthenticationFailed
   }
@@ -214,10 +220,22 @@ fn chacha20_poly1305_open(
 }
 
 ///|
-/// One-time Poly1305 key = first 32 bytes of ChaCha20(key, nonce, counter=0).
-fn poly1305_key_gen(key : Bytes, nonce : Bytes) -> Bytes {
-  let zeros = Bytes::makei(32, fn(_) { b'\x00' })
-  chacha20_xor_unchecked(key, nonce, 0U, zeros)
+/// FixedArray-backed one-time Poly1305 key. Returns the first 32 bytes of
+/// ChaCha20(key, nonce, counter=0) in a wipe-able buffer so the caller can
+/// zero it after tag computation. See review #2 finding 7.
+fn poly1305_key_gen_fa(key : Bytes, nonce : Bytes) -> FixedArray[Byte] {
+  chacha20_first32_fa(key, nonce)
+}
+
+///|
+/// Best-effort zero of a `FixedArray[Byte]`. Caller is responsible for
+/// invoking this after a secret is no longer needed. MoonBit gives no
+/// guarantee against compiler dead-store elimination or GC copies; this
+/// merely shortens the window during which the secret is reachable.
+fn zeroize_fa_byte(fa : FixedArray[Byte]) -> Unit {
+  for i in 0..<fa.length() {
+    fa[i] = b'\x00'
+  }
 }
 
 ///|
@@ -261,7 +279,7 @@ fn chacha20_xor_unchecked(
 // arithmetic is required.
 
 ///|
-fn le32(b : Bytes, off : Int) -> UInt64 {
+fn le32_fa(b : FixedArray[Byte], off : Int) -> UInt64 {
   b[off].to_uint64() |
   (b[off + 1].to_uint64() << 8) |
   (b[off + 2].to_uint64() << 16) |
@@ -303,16 +321,46 @@ fn poly1305_load_block(
 }
 
 ///|
-/// Fast Poly1305 MAC. `otk` is 32 bytes; r is the first 16 bytes (clamped)
-/// and s is the next 16 bytes.
-fn poly1305(otk : Bytes, msg : Bytes) -> Bytes {
+/// FixedArray-backed Poly1305 MAC. `otk` is 32 bytes; r is the first 16 bytes
+/// (clamped) and s is the next 16 bytes. The OTK lives in a wipe-able
+/// `FixedArray[Byte]` so the caller can zero it after the tag is computed
+/// (review #2 finding 7).
+fn poly1305_fa(otk : FixedArray[Byte], msg : Bytes) -> Bytes {
+  poly1305_core(
+    le32_fa(otk, 0),
+    le32_fa(otk, 4),
+    le32_fa(otk, 8),
+    le32_fa(otk, 12),
+    le32_fa(otk, 16),
+    le32_fa(otk, 20),
+    le32_fa(otk, 24),
+    le32_fa(otk, 28),
+    msg,
+  )
+}
+
+///|
+/// Core Poly1305 implementation. Takes the 8 little-endian 32-bit words of
+/// the one-time key already loaded as UInt64. Sharing this lets both the
+/// `Bytes` and `FixedArray[Byte]` entry points use the same arithmetic.
+fn poly1305_core(
+  k0 : UInt64,
+  k1 : UInt64,
+  k2 : UInt64,
+  k3 : UInt64,
+  k4 : UInt64,
+  k5 : UInt64,
+  k6 : UInt64,
+  k7 : UInt64,
+  msg : Bytes,
+) -> Bytes {
   // Split otk into r (clamped) and s, decomposed into 26-bit limbs.
   let mask26 : UInt64 = 0x3ffffffUL
   // Build r as a 128-bit little-endian integer in 4 32-bit pieces, then clamp.
-  let r_lo0 = le32(otk, 0) & 0x0fffffffUL
-  let r_lo1 = le32(otk, 4) & 0x0ffffffcUL
-  let r_lo2 = le32(otk, 8) & 0x0ffffffcUL
-  let r_lo3 = le32(otk, 12) & 0x0ffffffcUL
+  let r_lo0 = k0 & 0x0fffffffUL
+  let r_lo1 = k1 & 0x0ffffffcUL
+  let r_lo2 = k2 & 0x0ffffffcUL
+  let r_lo3 = k3 & 0x0ffffffcUL
   // Re-pack into 5 26-bit limbs.
   // bits  0..25  → r0 = r_lo0 & 0x3ffffff
   // bits 26..51  → r1 = (r_lo0 >> 26) | (r_lo1 << 6)  & mask26
@@ -428,10 +476,10 @@ fn poly1305(otk : Bytes, msg : Bytes) -> Bytes {
   let f3 = ((a3 >> 18) | (a4 << 8)) & 0xFFFFFFFFUL
 
   // Add s (otk[16..32]) and write little-endian 16 bytes.
-  let s0 = le32(otk, 16)
-  let s_1 = le32(otk, 20)
-  let s_2 = le32(otk, 24)
-  let s_3 = le32(otk, 28)
+  let s0 = k4
+  let s_1 = k5
+  let s_2 = k6
+  let s_3 = k7
   let mut sum0 = f0 + s0
   let mut sum1 = f1 + s_1 + (sum0 >> 32)
   let mut sum2 = f2 + s_2 + (sum1 >> 32)
@@ -460,7 +508,13 @@ fn poly1305(otk : Bytes, msg : Bytes) -> Bytes {
 /// Tag for ChaCha20-Poly1305 AEAD. mac_data layout (RFC 8439 §2.8):
 ///   aad || pad16(aad) || ciphertext || pad16(ciphertext)
 ///   || len(aad) as 64-bit LE || len(ciphertext) as 64-bit LE
-fn poly1305_aead_tag(otk : Bytes, aad : Bytes, ct : Bytes) -> Bytes {
+///
+/// `otk` is a wipe-able `FixedArray[Byte]` (review #2 finding 7).
+fn poly1305_aead_tag_fa(
+  otk : FixedArray[Byte],
+  aad : Bytes,
+  ct : Bytes,
+) -> Bytes {
   let aad_pad = (16 - aad.length() % 16) % 16
   let ct_pad = (16 - ct.length() % 16) % 16
   let total = aad.length() + aad_pad + ct.length() + ct_pad + 8 + 8
@@ -478,7 +532,6 @@ fn poly1305_aead_tag(otk : Bytes, aad : Bytes, ct : Bytes) -> Bytes {
     } else if i < aad_len_off {
       b'\x00'
     } else if i < ct_len_off {
-      // LE 64-bit aad length
       let shift = (i - aad_len_off) * 8
       ((aad_len >> shift) & 0xFFL).to_int().to_byte()
     } else {
@@ -486,7 +539,7 @@ fn poly1305_aead_tag(otk : Bytes, aad : Bytes, ct : Bytes) -> Bytes {
       ((ct_len >> shift) & 0xFFL).to_int().to_byte()
     }
   })
-  poly1305(otk, mac_data)
+  poly1305_fa(otk, mac_data)
 }
 
 ///|
