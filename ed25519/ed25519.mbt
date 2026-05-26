@@ -214,10 +214,14 @@ pub fn PublicKey::verify_strict(
     ctx.finalize()
   }
   let k = scalar_from_64_le(k_hash)
-  let sb = ed25519_scalar_base_mult(s)
-  let ka = ed25519_scalar_mult(k, a_point)
-  let r_check = ed_point_add(r_point, ka)
-  ed_points_equal(sb, r_check)
+  // s*B == R + k*A  ⇔  s*B + k*(-A) == R. Fold both scalar mults into
+  // one Shamir-trick joint mult.
+  let s_red = (s % ed_l + ed_l) % ed_l
+  let s_le = scalar_to_le_bytes(s_red)
+  let k_red = (k % ed_l + ed_l) % ed_l
+  let k_le = scalar_to_le_bytes(k_red)
+  let q = ed_shamir_double_mult(s_le, k_le, ed_point_neg(a_point))
+  ed_points_equal(q, r_point)
 }
 
 ///|
@@ -260,11 +264,14 @@ pub fn PublicKey::verify(
   }
   let k = scalar_from_64_le(k_hash)
 
-  // Check [S]B = R + [k]A by computing [S]B - [k]A and comparing to R.
-  let sb = ed25519_scalar_base_mult(s)
-  let ka = ed25519_scalar_mult(k, a_point)
-  let r_check = ed_point_add(r_point, ka)
-  ed_points_equal(sb, r_check)
+  // Check [S]B == R + [k]A by computing [S]B - [k]A and comparing to R.
+  // Combined via Shamir's trick — see ed_shamir_double_mult.
+  let s_red = (s % ed_l + ed_l) % ed_l
+  let s_le = scalar_to_le_bytes(s_red)
+  let k_red = (k % ed_l + ed_l) % ed_l
+  let k_le = scalar_to_le_bytes(k_red)
+  let q = ed_shamir_double_mult(s_le, k_le, ed_point_neg(a_point))
+  ed_points_equal(q, r_point)
 }
 
 // ─── helpers: seed → (scalar, prefix) ───────────────────────────────────
@@ -1144,6 +1151,82 @@ fn ed_points_equal(p : EdPoint, q : EdPoint) -> Bool {
   let eq1 = fe_eq(lhs1, rhs1)
   let eq2 = fe_eq(lhs2, rhs2)
   eq1 && eq2
+}
+
+///|
+// Negation in Edwards extended coordinates: (-x, y, z, -t). Used by
+// Shamir's trick below to fold the verify equation s*B == R + k*A into
+// s*B + k*(-A) == R, which can be computed as a single combined
+// scalar multiplication.
+fn ed_point_neg(p : EdPoint) -> EdPoint {
+  { x: fe_neg(p.x), y: p.y, z: p.z, t: fe_neg(p.t) }
+}
+
+///|
+// Shamir's trick — joint 2-bit window scalar multiplication. Returns
+// `s * B + k * P` for fixed base B (the static `ed_base_table`) and
+// caller-supplied P, all in one combined loop.
+//
+// Cost vs running two windowed scalar mults separately:
+//   * 128 iterations (2 bits of each scalar per iteration) instead of
+//     256 → 128 fewer ed_point_double operations
+//   * 11 ed_point_add to build the 4×4 table (vs 15 in the per-call
+//     window-table path used by ed25519_scalar_mult on its own)
+//   * 128 table lookups vs the 64+64 = 128 separate lookups before,
+//     but with a 16-entry mux instead of two 16-entry muxes
+//
+// Net: ~128 saved doublings ≈ 900 fe_mul per verify call.
+fn ed_shamir_double_mult(
+  s_bytes : FixedArray[Byte],
+  k_bytes : FixedArray[Byte],
+  p : EdPoint,
+) -> EdPoint {
+  // Build 4×4 joint table: table[i*4 + j] = i*B + j*P for i, j ∈ 0..3.
+  // i*B values for i ∈ 0..3 are already in ed_base_table; only the
+  // j*P column needs computing for j ∈ 1..3 (j=0 is identity).
+  let table = FixedArray::make(16, ed_identity())
+  // j*P column for the i=0 row.
+  table[1] = p
+  let p2 = ed_point_add(p, p)
+  table[2] = p2
+  let p3 = ed_point_add(p2, p)
+  table[3] = p3
+  // Rows i=1..3 are (i*B) + (j*P).
+  for i = 1; i < 4; i = i + 1 {
+    let ib = ed_base_table[i]
+    table[i * 4 + 0] = ib
+    table[i * 4 + 1] = ed_point_add(ib, p)
+    table[i * 4 + 2] = ed_point_add(ib, p2)
+    table[i * 4 + 3] = ed_point_add(ib, p3)
+  }
+  // Constant-time mux over the 16-entry joint table.
+  fn lookup(idx : Int) -> EdPoint {
+    let mut result = ed_identity()
+    for j = 0; j < 16; j = j + 1 {
+      let eq = if j == idx { 1UL } else { 0UL }
+      result = ed_point_cmov(result, table[j], eq)
+    }
+    result
+  }
+
+  // Process scalar bytes from high to low, 4 windows of 2 bits each.
+  let mut q = ed_identity()
+  for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
+    let s_byte = s_bytes[byte_idx].to_int()
+    let k_byte = k_bytes[byte_idx].to_int()
+    // shift = 6, 4, 2, 0 — high pair first.
+    let mut shift = 6
+    while shift >= 0 {
+      q = ed_point_double(q)
+      q = ed_point_double(q)
+      let s_pair = (s_byte >> shift) & 0x3
+      let k_pair = (k_byte >> shift) & 0x3
+      let idx = s_pair * 4 + k_pair
+      q = ed_point_add(q, lookup(idx))
+      shift = shift - 2
+    }
+  }
+  q
 }
 
 // ─── point compression and decompression (RFC 8032 §5.1.2 / §5.1.3) ─────
