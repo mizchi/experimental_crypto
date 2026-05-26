@@ -1,8 +1,4 @@
 import {
-  "moonbitlang/x/crypto",
-}
-
-import {
   "moonbitlang/core/bench",
-  "moonbitlang/core/quickcheck" as @quickcheck,
+  "moonbitlang/core/quickcheck",
 } for "test"

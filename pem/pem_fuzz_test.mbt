@@ -11,8 +11,7 @@
 test "fuzz pem: decode never panics on random strings" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[String]) {
-    let _ = (try? @pem.decode(input))
-
+    let _ = try? @pem.decode(input)
   }
 }
 
@@ -20,8 +19,7 @@ test "fuzz pem: decode never panics on random strings" {
 test "fuzz pem: decode_all never panics on random strings" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[String]) {
-    let _ = (try? @pem.decode_all(input))
-
+    let _ = try? @pem.decode_all(input)
   }
 }
 
@@ -35,7 +33,7 @@ test "fuzz pem: accepted block round-trips through encode/decode" {
       Ok(block) => {
         accepted = accepted + 1
         let re = @pem.encode(block)
-        let decoded = (try? @pem.decode(re))
+        let decoded = try? @pem.decode(re)
         match decoded {
           Ok(block2) =>
             assert_eq(
@@ -51,7 +49,6 @@ test "fuzz pem: accepted block round-trips through encode/decode" {
     }
   }
   let _ = accepted
-
 }
 
 ///|

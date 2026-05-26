@@ -20,6 +20,8 @@ pub(all) enum HashAlg {
   Sha512
 } derive(Eq, Show)
 
+type HmacSha256Ctx
+
 // Type aliases
 
 // Traits

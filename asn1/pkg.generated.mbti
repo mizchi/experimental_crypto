@@ -65,6 +65,7 @@ pub(all) struct BitString {
 pub struct Decoder {
   input : Bytes
   mut pos : Int
+  current_depth : Int
 }
 pub fn Decoder::expect_tag(Self, Tag) -> Element raise Asn1Error
 pub fn Decoder::is_empty(Self) -> Bool

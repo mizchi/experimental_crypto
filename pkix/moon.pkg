@@ -4,5 +4,5 @@ import {
 
 import {
   "mizchi/pem",
-  "moonbitlang/core/quickcheck" as @quickcheck,
+  "moonbitlang/core/quickcheck",
 } for "test"

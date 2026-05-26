@@ -32,8 +32,11 @@ There are two safe patterns:
 
 Draw the nonce from a real CSPRNG (e.g. `mizchi/getrandom`):
 
-```moonbit
-let nonce = @getrandom.bytes(12)  // 12 bytes for all algorithms here
+```moonbit nocheck
+///|
+let nonce = @getrandom.bytes(12) // 12 bytes for all algorithms here
+
+///|
 let sealed = @aead.seal(ChaCha20Poly1305, key, nonce, aad, plaintext)
 ```
 
@@ -46,9 +49,14 @@ a 2^-32 collision probability, which is the standard "rekey after
 
 A monotonically increasing 96-bit counter, persisted reliably:
 
-```moonbit
-let counter : Int64 = next_counter()  // persisted across crashes
+```moonbit nocheck
+///|
+let counter : Int64 = next_counter() // persisted across crashes
+
+///|
 let nonce = encode_u96_be(counter)
+
+///|
 let sealed = @aead.seal(ChaCha20Poly1305, key, nonce, aad, plaintext)
 ```
 

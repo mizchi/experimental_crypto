@@ -30,7 +30,6 @@ test "fuzz ed25519: seed -> public_key derivation does not panic" {
     let seed = ensure_32(raw)
     let sk = @ed25519.PrivateKey::from_seed(seed)
     let _ = sk.public_key()
-
   }
 }
 
@@ -114,7 +113,8 @@ test "fuzz ed25519: verify on arbitrary signature bytes does not panic" {
     // Strict verify: wrong length must raise InvalidSignatureLength.
     if sig.length() != 64 {
       match (try? pk.verify_strict(message, sig)) {
-        Err(@ed25519.InvalidSignatureLength(got)) => assert_eq(got, sig.length())
+        Err(@ed25519.InvalidSignatureLength(got)) =>
+          assert_eq(got, sig.length())
         Err(_) => () // other shape-related errors are acceptable too
         Ok(_) => abort("verify_strict accepted non-64-byte signature")
       }
@@ -123,7 +123,6 @@ test "fuzz ed25519: verify on arbitrary signature bytes does not panic" {
       // non-canonical S or undecompressable R. Either error or boolean is
       // fine; we only require absence of panic.
       let _ = try? pk.verify_strict(message, sig)
-
     }
   }
 }

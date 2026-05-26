@@ -1,10 +1,10 @@
 // RFC 8439 ChaCha20-Poly1305 AEAD plus NIST SP 800-38D AES-128/256-GCM.
 //
-// ChaCha20 stream cipher is provided by moonbitlang/x/crypto (ChaCha::chacha20
-// + transform). Poly1305 one-time authenticator is implemented locally with
-// 5-limb radix-2^26 field arithmetic over GF(2^130 - 5); products fit in
-// UInt64. AES (FIPS 197) and GCM (NIST SP 800-38D) are implemented in
-// aes.mbt and gcm.mbt.
+// ChaCha20 stream cipher is implemented locally in chacha20.mbt with a
+// fully-inlined double-round (10 iterations × 8 quarter-rounds). Poly1305
+// one-time authenticator is implemented here with 5-limb radix-2^26 field
+// arithmetic over GF(2^130 - 5); products fit in UInt64. AES (FIPS 197)
+// and GCM (NIST SP 800-38D) are implemented in aes.mbt and gcm.mbt.
 //
 // This code is not constant-time and should not be used where side-channel
 // resistance matters: it uses table-based S-box lookups, branching on byte
@@ -219,20 +219,7 @@ fn chacha20_xor_unchecked(
   counter : UInt,
   data : Bytes,
 ) -> Bytes {
-  let n = data.length()
-  if n == 0 {
-    return b""
-  }
-  // ChaCha::chacha20 takes ByteSource, but the @crypto package expects @bytes-like;
-  // pass Bytes slices via [:]. The transform writes into a FixedArray[Byte].
-  let cipher = try? @crypto.ChaCha::chacha20(key[:], nonce[:], counter~)
-  let cipher = match cipher {
-    Ok(c) => c
-    Err(_) => abort("ChaCha20 init failed despite validated lengths")
-  }
-  let out = FixedArray::make(n, b'\x00')
-  cipher.transform(data[:], out)
-  Bytes::makei(n, fn(i) { out[i] })
+  chacha20_xor_inner(key, nonce, counter, data)
 }
 
 // ─── Poly1305 (5-limb radix-2^26, UInt64) ─────────────────────────────────

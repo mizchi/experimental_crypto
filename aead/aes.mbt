@@ -220,25 +220,33 @@ fn aes_encrypt_block(
   nr : Int,
 ) -> Bytes {
   // Load 4 column words from input, then XOR initial round key.
-  let mut s0 = ((block[0].to_int() << 24) |
-    (block[1].to_int() << 16) |
-    (block[2].to_int() << 8) |
-    block[3].to_int()) ^
+  let mut s0 = (
+      (block[0].to_int() << 24) |
+      (block[1].to_int() << 16) |
+      (block[2].to_int() << 8) |
+      block[3].to_int()
+    ) ^
     round_keys[0]
-  let mut s1 = ((block[4].to_int() << 24) |
-    (block[5].to_int() << 16) |
-    (block[6].to_int() << 8) |
-    block[7].to_int()) ^
+  let mut s1 = (
+      (block[4].to_int() << 24) |
+      (block[5].to_int() << 16) |
+      (block[6].to_int() << 8) |
+      block[7].to_int()
+    ) ^
     round_keys[1]
-  let mut s2 = ((block[8].to_int() << 24) |
-    (block[9].to_int() << 16) |
-    (block[10].to_int() << 8) |
-    block[11].to_int()) ^
+  let mut s2 = (
+      (block[8].to_int() << 24) |
+      (block[9].to_int() << 16) |
+      (block[10].to_int() << 8) |
+      block[11].to_int()
+    ) ^
     round_keys[2]
-  let mut s3 = ((block[12].to_int() << 24) |
-    (block[13].to_int() << 16) |
-    (block[14].to_int() << 8) |
-    block[15].to_int()) ^
+  let mut s3 = (
+      (block[12].to_int() << 24) |
+      (block[13].to_int() << 16) |
+      (block[14].to_int() << 8) |
+      block[15].to_int()
+    ) ^
     round_keys[3]
 
   // Main rounds 1..nr-1: T-table.
@@ -274,25 +282,33 @@ fn aes_encrypt_block(
 
   // Final round: SubBytes + ShiftRows + AddRoundKey (no MixColumns).
   let rk_off = nr * 4
-  let f0 = ((aes_sbox[(s0 >> 24) & 0xFF] << 24) |
-    (aes_sbox[(s1 >> 16) & 0xFF] << 16) |
-    (aes_sbox[(s2 >> 8) & 0xFF] << 8) |
-    aes_sbox[s3 & 0xFF]) ^
+  let f0 = (
+      (aes_sbox[(s0 >> 24) & 0xFF] << 24) |
+      (aes_sbox[(s1 >> 16) & 0xFF] << 16) |
+      (aes_sbox[(s2 >> 8) & 0xFF] << 8) |
+      aes_sbox[s3 & 0xFF]
+    ) ^
     round_keys[rk_off]
-  let f1 = ((aes_sbox[(s1 >> 24) & 0xFF] << 24) |
-    (aes_sbox[(s2 >> 16) & 0xFF] << 16) |
-    (aes_sbox[(s3 >> 8) & 0xFF] << 8) |
-    aes_sbox[s0 & 0xFF]) ^
+  let f1 = (
+      (aes_sbox[(s1 >> 24) & 0xFF] << 24) |
+      (aes_sbox[(s2 >> 16) & 0xFF] << 16) |
+      (aes_sbox[(s3 >> 8) & 0xFF] << 8) |
+      aes_sbox[s0 & 0xFF]
+    ) ^
     round_keys[rk_off + 1]
-  let f2 = ((aes_sbox[(s2 >> 24) & 0xFF] << 24) |
-    (aes_sbox[(s3 >> 16) & 0xFF] << 16) |
-    (aes_sbox[(s0 >> 8) & 0xFF] << 8) |
-    aes_sbox[s1 & 0xFF]) ^
+  let f2 = (
+      (aes_sbox[(s2 >> 24) & 0xFF] << 24) |
+      (aes_sbox[(s3 >> 16) & 0xFF] << 16) |
+      (aes_sbox[(s0 >> 8) & 0xFF] << 8) |
+      aes_sbox[s1 & 0xFF]
+    ) ^
     round_keys[rk_off + 2]
-  let f3 = ((aes_sbox[(s3 >> 24) & 0xFF] << 24) |
-    (aes_sbox[(s0 >> 16) & 0xFF] << 16) |
-    (aes_sbox[(s1 >> 8) & 0xFF] << 8) |
-    aes_sbox[s2 & 0xFF]) ^
+  let f3 = (
+      (aes_sbox[(s3 >> 24) & 0xFF] << 24) |
+      (aes_sbox[(s0 >> 16) & 0xFF] << 16) |
+      (aes_sbox[(s1 >> 8) & 0xFF] << 8) |
+      aes_sbox[s2 & 0xFF]
+    ) ^
     round_keys[rk_off + 3]
 
   // Pack the four column words back into 16 output bytes.

@@ -193,8 +193,7 @@ fn fuzz_random_open(alg : @aead.Algorithm) -> Unit {
     let nonce = ensure_length(nonces[i], alg.nonce_size())
     let aad = aads[i]
     let input = inputs[i]
-    let _ = (try? @aead.open(alg, key, nonce, aad, input))
-
+    let _ = try? @aead.open(alg, key, nonce, aad, input)
   }
 }
 

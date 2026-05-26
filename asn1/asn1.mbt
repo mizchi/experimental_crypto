@@ -480,7 +480,10 @@ pub fn Decoder::read_element(self : Decoder) -> Element raise Asn1Error {
 /// Construct a child decoder for a nested SEQUENCE / SET payload, inheriting
 /// the parent's recursion depth + 1. Raises `Unsupported` if the new depth
 /// would exceed `MAX_DEPTH`.
-fn child_decoder(parent_depth : Int, payload : Bytes) -> Decoder raise Asn1Error {
+fn child_decoder(
+  parent_depth : Int,
+  payload : Bytes,
+) -> Decoder raise Asn1Error {
   let next_depth = parent_depth + 1
   if next_depth > MAX_DEPTH {
     raise Unsupported("nested too deep")
@@ -543,10 +546,14 @@ fn decode_value(
           let b0 = bytes[0].to_int()
           let b1 = bytes[1].to_int()
           if b0 == 0x00 && (b1 & 0x80) == 0 {
-            raise InvalidEncoding("non-canonical INTEGER (redundant 0x00 padding)")
+            raise InvalidEncoding(
+              "non-canonical INTEGER (redundant 0x00 padding)",
+            )
           }
           if b0 == 0xFF && (b1 & 0x80) != 0 {
-            raise InvalidEncoding("non-canonical INTEGER (redundant 0xFF padding)")
+            raise InvalidEncoding(
+              "non-canonical INTEGER (redundant 0xFF padding)",
+            )
           }
         }
         Integer(bytes)
@@ -732,14 +739,14 @@ fn utf8_byte_count(s : String) -> Int {
     let cp = c.to_int()
     count = count +
       (if cp < 0x80 {
-          1
-        } else if cp < 0x800 {
-          2
-        } else if cp < 0x10000 {
-          3
-        } else {
-          4
-        })
+        1
+      } else if cp < 0x800 {
+        2
+      } else if cp < 0x10000 {
+        3
+      } else {
+        4
+      })
   }
   count
 }

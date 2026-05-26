@@ -34,7 +34,7 @@ test "bench ed25519 verify" (it : @bench.T) {
   }
   let pk = sk.public_key()
   let sig = sk.sign(bench_msg)
-  it.bench(name="ed25519 verify", count=200, () =>
+  it.bench(name="ed25519 verify", count=200, () => {
     it.keep(pk.verify(bench_msg, sig))
-  )
+  })
 }

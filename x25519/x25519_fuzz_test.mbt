@@ -33,7 +33,6 @@ test "fuzz x25519: PrivateKey::from_bytes does not panic on random 32-byte seeds
     let sk = @x25519.PrivateKey::from_bytes(seed)
     // public_key derivation must also be total.
     let _ = sk.public_key()
-
   }
 }
 
@@ -89,7 +88,6 @@ test "fuzz x25519: scalarmult does not panic on random 32-byte u-coord" {
     let pk = @x25519.PublicKey::from_bytes(u)
     // AllZeroSharedSecret is fine; we only care that nothing panics.
     let _ = try? @x25519.diffie_hellman(sk, pk)
-
   }
 }
 

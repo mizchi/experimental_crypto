@@ -627,12 +627,15 @@ test "security: nested SEQUENCE deeper than MAX_DEPTH rejected" {
     })
     current = combined
     let _ = level
-
   }
   match (try? @asn1.decode_der(current)) {
     Err(@asn1.Unsupported(_)) => ()
     Err(other) =>
-      assert_eq(true, false, msg="expected Unsupported, got " + other.to_string())
+      assert_eq(
+        true,
+        false,
+        msg="expected Unsupported, got " + other.to_string(),
+      )
     Ok(_) => assert_eq(true, false, msg="expected nested-too-deep rejection")
   }
 }
@@ -646,7 +649,11 @@ test "security: length exceeding max_input_size rejected" {
   match (try? @asn1.decode_der(bytes)) {
     Err(@asn1.Unsupported(_)) => ()
     Err(other) =>
-      assert_eq(true, false, msg="expected Unsupported, got " + other.to_string())
+      assert_eq(
+        true,
+        false,
+        msg="expected Unsupported, got " + other.to_string(),
+      )
     Ok(_) => assert_eq(true, false, msg="expected length-too-large rejection")
   }
 }
@@ -661,7 +668,11 @@ test "security: OID arc UInt overflow rejected" {
   match (try? @asn1.decode_der(bytes)) {
     Err(@asn1.InvalidEncoding(_)) => ()
     Err(other) =>
-      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
+      assert_eq(
+        true,
+        false,
+        msg="expected InvalidEncoding, got " + other.to_string(),
+      )
     Ok(_) => assert_eq(true, false, msg="expected OID overflow rejection")
   }
 }
@@ -676,7 +687,11 @@ test "security: non-minimal OID base-128 rejected" {
   match (try? @asn1.decode_der(bytes)) {
     Err(@asn1.InvalidEncoding(_)) => ()
     Err(other) =>
-      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
+      assert_eq(
+        true,
+        false,
+        msg="expected InvalidEncoding, got " + other.to_string(),
+      )
     Ok(_) => assert_eq(true, false, msg="expected non-minimal OID rejection")
   }
 }
@@ -689,8 +704,13 @@ test "security: INTEGER with redundant 0x00 padding rejected" {
   match (try? @asn1.decode_der(bytes)) {
     Err(@asn1.InvalidEncoding(_)) => ()
     Err(other) =>
-      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
-    Ok(_) => assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
+      assert_eq(
+        true,
+        false,
+        msg="expected InvalidEncoding, got " + other.to_string(),
+      )
+    Ok(_) =>
+      assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
   }
 }
 
@@ -702,8 +722,13 @@ test "security: INTEGER with redundant 0xFF padding rejected" {
   match (try? @asn1.decode_der(bytes)) {
     Err(@asn1.InvalidEncoding(_)) => ()
     Err(other) =>
-      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
-    Ok(_) => assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
+      assert_eq(
+        true,
+        false,
+        msg="expected InvalidEncoding, got " + other.to_string(),
+      )
+    Ok(_) =>
+      assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
   }
 }
 
@@ -713,7 +738,8 @@ test "security: INTEGER with zero length rejected" {
   let bytes : Bytes = b"\x02\x00"
   match (try? @asn1.decode_der(bytes)) {
     Err(_) => () // InvalidLength
-    Ok(_) => assert_eq(true, false, msg="expected zero-length INTEGER rejection")
+    Ok(_) =>
+      assert_eq(true, false, msg="expected zero-length INTEGER rejection")
   }
 }
 

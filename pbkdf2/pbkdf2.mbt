@@ -141,7 +141,7 @@ fn sha256_finalize_with_tail(
   prefix_bits : UInt64,
   out : FixedArray[Byte],
 ) -> Unit {
-  let total_bits = prefix_bits + (tail_len.to_uint64() * 8UL)
+  let total_bits = prefix_bits + tail_len.to_uint64() * 8UL
   let buf = FixedArray::make(128, b'\x00')
   // copy tail
   for i = 0; i < tail_len; i = i + 1 {
@@ -208,7 +208,7 @@ fn sha256_hash_bytes(data : Bytes, out : FixedArray[Byte]) -> Unit {
     state,
     block,
     tail_len,
-    (offset.to_uint64() * 8UL),
+    offset.to_uint64() * 8UL,
     out,
   )
 }

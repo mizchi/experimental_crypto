@@ -7,8 +7,7 @@
 test "fuzz pkcs8: parse_der never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    let _ = (try? @pkcs8.parse_der(input))
-
+    let _ = try? @pkcs8.parse_der(input)
   }
 }
 
@@ -16,8 +15,7 @@ test "fuzz pkcs8: parse_der never panics on random bytes" {
 test "fuzz pkcs8: parse_encrypted_der never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    let _ = (try? @pkcs8.parse_encrypted_der(input))
-
+    let _ = try? @pkcs8.parse_encrypted_der(input)
   }
 }
 
@@ -25,8 +23,7 @@ test "fuzz pkcs8: parse_encrypted_der never panics on random bytes" {
 test "fuzz pkcs8: parse_pem never panics on random strings" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[String]) {
-    let _ = (try? @pkcs8.parse_pem(input))
-
+    let _ = try? @pkcs8.parse_pem(input)
   }
 }
 
@@ -34,7 +31,6 @@ test "fuzz pkcs8: parse_pem never panics on random strings" {
 test "fuzz pkcs8: parse_encrypted_pem never panics on random strings" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[String]) {
-    let _ = (try? @pkcs8.parse_encrypted_pem(input))
-
+    let _ = try? @pkcs8.parse_encrypted_pem(input)
   }
 }
