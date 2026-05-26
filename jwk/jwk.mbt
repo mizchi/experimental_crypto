@@ -394,8 +394,7 @@ fn parse_inner(
                 let p = @secp256k1.PrivateKey::from_bytes(d_padded) catch {
                   e => raise CryptoError("secp256k1 private: " + e.to_string())
                 }
-                if p.public_key().to_uncompressed() !=
-                  pub_key.to_uncompressed() {
+                if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
                   raise CryptoError("secp256k1 public/private mismatch")
                 }
                 Some(p)
@@ -510,9 +509,7 @@ fn jwk_to_public_map(jwk : Jwk) -> Map[String, Json] {
       m["crv"] = Json::string("Ed25519")
       m["x"] = Json::string(b64url_encode(pubkey.to_bytes()))
     }
-    Hmac(_) => {
-      m["kty"] = Json::string("oct")
-    }
+    Hmac(_) => m["kty"] = Json::string("oct")
   }
   m
 }

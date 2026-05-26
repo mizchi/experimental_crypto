@@ -41,12 +41,41 @@ Status of `mizchi/moonbit-crypto` after the T1+T2 sweep
 - [x] Reject BIT STRING encodings whose unused tail bits are not zero.
 - [x] Validate PEM labels on decode and encode so control characters,
   lowercase labels, or newline-bearing labels cannot create ambiguous armor.
-- [ ] Enforce DER SET / SET OF canonical ordering once callers that need
-  schema-preserving SET order have been audited.
-- [ ] Tighten ASN.1 string/time types beyond ASCII: PrintableString alphabet,
-  UTCTime / GeneralizedTime syntax, and canonical timezone forms.
-- [ ] Add integration fuzzing across PEM -> ASN.1 -> PKCS#8 / PKIX parser
+- [x] Enforce schema-aware DER SET ordering in PKIX RDNs and PKCS#8
+  attributes.
+- [x] Tighten PKIX validity UTCTime / GeneralizedTime syntax at parse and
+  encode boundaries.
+- [x] Reject non-positive PKIX certificate serial numbers and duplicate
+  optional TBSCertificate fields.
+- [x] Validate context-specific / IMPLICIT BIT STRING tail padding at PKIX and
+  PKCS#8 parser boundaries.
+- [x] Reject duplicate PKCS#8 optional `attributes` and `publicKey` fields.
+- [x] Enforce generic DER SET / SET OF canonical ordering in the ASN.1 decoder
+  and sort SET items at encode time.
+- [x] Tighten generic ASN.1 string/time types beyond ASCII:
+  PrintableString alphabet, UTCTime / GeneralizedTime syntax, and canonical
+  timezone forms.
+- [x] Add integration fuzzing across PEM -> ASN.1 -> PKCS#8 / PKIX parser
   boundaries.
+
+### HPKE / JWK / TOTP / BLAKE3 security review follow-up
+
+- [x] Check HPKE sequence exhaustion before AEAD Seal/Open, so a context at
+  the message limit cannot perform one extra encryption/decryption attempt.
+- [x] Validate public-all HPKE AEAD context shape (`key`, `base_nonce`) before
+  nonce computation / AEAD calls.
+- [x] Reject invalid HPKE LabeledExpand output lengths before truncating the
+  two-byte `L` prefix.
+- [x] Reject invalid JWK RSA public parameters (`n <= 1`, even `n`,
+  `e < 3`, even `e`) and non-positive private exponents.
+- [x] Reject EC / Ed25519 private JWKs whose `d` does not derive the supplied
+  public `x` / `y`.
+- [x] Treat JWK `oct` as private-only: `parse_public` rejects it and
+  `serialise_public` no longer emits the symmetric secret `k`.
+- [x] Fail closed on invalid TOTP parameters: digits outside 6..8, non-positive
+  step, `now < T0`, and excessive verification skew.
+- [x] Encode BLAKE3 derive-key context strings as UTF-8 and pin a non-ASCII
+  reference vector.
 
 ### SSH security review follow-up
 
@@ -121,8 +150,9 @@ Status of `mizchi/moonbit-crypto` after the T1+T2 sweep
 - **PGP gpg-binary interop**: `pgp_test.mbt` sign side is currently
   tautological (sign+verify with our own code). A CI step piping our
   armor into `gpg --verify` would catch sign-side drift.
-- **Cross-format fuzz**: pkcs8/asn1/pem fuzz harnesses exist but don't
-  exercise integration boundaries.
+- **Cross-format fuzz breadth**: PEM -> ASN.1 -> PKCS#8 / PKIX integration
+  fuzzing exists; extend similar integration checks to CMS / OCSP / CRL and
+  JOSE containers.
 - **Constant-time verification** via external profiler.
 
 ### Performance / footprint

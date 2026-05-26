@@ -2,3 +2,9 @@ _build/
 target/
 .mooncakes/
 *.mi
+
+# moon prove toolchain (project-local opam switch with Why3)
+.opam/
+
+# Why3 user config written by `why3 config detect`; not part of the repo
+*.why3.conf

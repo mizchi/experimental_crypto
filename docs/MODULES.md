@@ -7,7 +7,7 @@ See per-module source for full details.
 ## Encoding / foundations
 
 ### `mizchi/asn1`
-**RFC**: X.690 DER + X.680 ASN.1. **Tests**: 87.
+**RFC**: X.690 DER + X.680 ASN.1. **Tests**: 92.
 
 ```moonbit
 @asn1.decode_der(bytes : Bytes) -> Element raise Asn1Error
@@ -18,8 +18,10 @@ See per-module source for full details.
 
 Strict canonical DER. MAX_DEPTH=32 on decoder AND encoder. Rejects
 non-canonical INTEGER, high-tag-number aliases, constructed/primitive universal
-tag mismatches, non-zero BIT STRING tail padding, trailing bytes after the
-outer element, and OID base-128 / arc-overflow issues.
+tag mismatches, non-zero BIT STRING tail padding, non-canonical SET order,
+invalid PrintableString / UTCTime / GeneralizedTime values, trailing bytes
+after the outer element, and OID base-128 / arc-overflow issues. The encoder
+sorts SET items into canonical order.
 
 ### `mizchi/cose_cbor`
 **RFC**: 8949 minimum-viable for COSE. **Tests**: 41.
@@ -39,17 +41,36 @@ constant-time sign-side operations.
 CSPRNG bridge. Platform backends: `crypto.getRandomValues` on JS,
 `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native.
 
+### `mizchi/proofs`
+**Tests**: 14. **Proof goals**: 5 discharged via `moon prove` + Why3 + Z3.
+
+Proof-carrying versions of small leaf primitives that other modules rely
+on. Verifies concrete arithmetic / range invariants — not cryptographic
+theorems. See `proofs/README.md` for setup and the explicit list of
+proven properties.
+
+```moonbit
+@proofs.abs(x)                // |x|
+@proofs.mod_pos(a, m)         // result ∈ [0, m), any sign of a
+@proofs.hex_value(c)          // valid hex char → result ∈ [0, 16)
+@proofs.ct_select(mask, a, b) // mask ∈ {0,1} → branch-free select
+@proofs.reduce_once(a, m)     // freeze step for field arithmetic
+```
+
 ## Hashes + AEAD
 
 ### `mizchi/hash`
-**Tests**: 24.
+**Tests**: 55.
 
 ```moonbit
 @hash.sha1 / sha256 / sha384 / sha512 / ripemd160
 @hash.hash160(b) = ripemd160(sha256(b))                // for BIP-32
 @hash.hmac_sha256 / hmac_sha384 / hmac_sha512
+@hash.blake3 / blake3_xof / blake3_keyed / blake3_derive_key
 @hash.ct_eq(a : Bytes, b : Bytes) -> Bool              // constant-time
 ```
+
+BLAKE3 derive-key context strings are encoded as UTF-8 before hashing.
 
 ### `mizchi/aead`
 **RFC**: 8439 (ChaCha20-Poly1305), NIST SP 800-38D (AES-GCM). **Tests**: 80+.
@@ -83,11 +104,16 @@ RFC 9106 §4.1 lower/upper bounds.
 ## X.509 / PKCS#8 / PEM
 
 ### `mizchi/pkix`
-X.509 v3 parser + serialiser. Byte-stable DER round-trip. Used by
-`pkix_verify`, `cms`, `ocsp`, `crl`.
+**RFC**: 5280. **Tests**: 25.
+
+X.509 v3 parser + serialiser. Byte-stable DER round-trip. Rejects
+non-positive serial numbers, duplicate optional TBSCertificate fields,
+invalid validity time syntax, non-canonical RDN SET order, and non-zero
+padding in IMPLICIT BIT STRING fields. Used by `pkix_verify`, `cms`, `ocsp`,
+`crl`.
 
 ### `mizchi/pkcs8`
-**Tests**: ~22 (incl. PBES2).
+**Tests**: 28 (incl. PBES2).
 
 ```moonbit
 @pkcs8.parse_der / parse_pem -> PrivateKeyInfo
@@ -98,7 +124,9 @@ X.509 v3 parser + serialiser. Byte-stable DER round-trip. Used by
 
 PBES2 supports PBKDF2-HMAC-SHA-256 + AES-128/256-CBC.
 HMAC-SHA-1/384/512 and AES-192 currently rejected (`UnsupportedKdf` /
-`UnsupportedCipher`).
+`UnsupportedCipher`). v2 optional `attributes` and `publicKey` fields reject
+duplicates; attributes enforce DER SET order and publicKey rejects non-zero BIT
+STRING tail padding.
 
 ### `mizchi/pem`
 **RFC**: 7468. **Tests**: 25.
@@ -164,7 +192,7 @@ sk.sign_pss(message, hash, salt)                        // PSS
 ## Composers / chain verifiers
 
 ### `mizchi/pkix_verify`
-**RFC**: 5280 §6 chain validation. **Tests**: 24+.
+**RFC**: 5280 §6 chain validation. **Tests**: 24.
 
 ```moonbit
 @pkix_verify.verify_certificate(cert, issuer_pubkey, now)
@@ -181,6 +209,21 @@ GeneralizedTime format, outer/inner signature_algorithm cross-check.
 
 ### `mizchi/naclbox`
 libsodium-compatible `crypto_box_curve25519xchacha20poly1305`.
+
+### `mizchi/hpke`
+**RFC**: 9180. **Tests**: 16.
+
+```moonbit
+@hpke.setup_base_s(pk_r, info, sk_e=ephemeral_priv)
+@hpke.setup_base_r(enc, sk_r, info)
+ctx.seal(aad, plaintext)
+ctx.open(aad, ciphertext)
+ctx.export(exporter_context, length)
+```
+
+Mode_Base with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, and
+ChaCha20Poly1305. The caller supplies fresh ephemeral `sk_e`; this module
+does not call an RNG. Sequence exhaustion is checked before AEAD calls.
 
 ### `mizchi/bip39` + `mizchi/bip32`
 BIP-39 mnemonic + BIP-32 HD wallet on secp256k1.
@@ -220,6 +263,35 @@ PS256/384/512. Rejects `alg:none`, `crit`, `b64` headers.
 `alg`: dir, RSA-OAEP-256, A256KW. `enc`: A128GCM, A256GCM. RSA-OAEP
 unwrap is Manger-attack-shaped (single AuthenticationFailed for all
 validation failures).
+
+### `mizchi/jwk`
+**RFC**: 7517 / 7518 / 7638 / 8037. **Tests**: 19.
+
+```moonbit
+@jwk.parse_public(json)
+@jwk.parse_private(json)
+@jwk.serialise_public(jwk)
+@jwk.serialise_private(jwk)
+@jwk.thumbprint_base64url(jwk)
+```
+
+RSA public parameters are validated, EC / Ed25519 private JWKs must match the
+supplied public coordinates / public key, and `oct` symmetric keys are accepted
+only through `parse_private`.
+
+### `mizchi/totp`
+**RFC**: 4226 / 6238. **Tests**: 15.
+
+```moonbit
+@totp.hotp(key, counter, digits=6, hash=Sha1)
+@totp.totp(key, now_seconds, step_seconds=30, digits=6)
+@totp.verify_totp(key, code, now_seconds, skew=1)
+@totp.provisioning_uri(label, secret, issuer="")
+```
+
+Generation returns an empty string and verification returns `false` for invalid
+parameters: digits outside 6..8, non-positive step, `now < T0`, or skew above
+10 steps.
 
 ### `mizchi/pgp`
 **RFC**: 9580 (with RFC 4880 backward compat). **Tests**: 15.

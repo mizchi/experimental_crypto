@@ -240,7 +240,8 @@ test "unsupported kty is rejected" {
 
 ///|
 test "oct JWK is rejected by public parser" {
-  let json = #|{"kty":"oct","k":"AQIDBA"}
+  let json =
+    #|{"kty":"oct","k":"AQIDBA"}
   assert_parse_public_raises(json)
 }
 
@@ -254,9 +255,12 @@ test "serialise_public does not expose oct secret" {
 
 ///|
 test "RSA JWK rejects non-positive or even public parameters" {
-  let zero_n = #|{"kty":"RSA","n":"AA","e":"AQAB"}
-  let one_e = #|{"kty":"RSA","n":"Aw","e":"AQ"}
-  let even_e = #|{"kty":"RSA","n":"Aw","e":"Ag"}
+  let zero_n =
+    #|{"kty":"RSA","n":"AA","e":"AQAB"}
+  let one_e =
+    #|{"kty":"RSA","n":"Aw","e":"AQ"}
+  let even_e =
+    #|{"kty":"RSA","n":"Aw","e":"Ag"}
   assert_parse_public_raises(zero_n)
   assert_parse_public_raises(one_e)
   assert_parse_public_raises(even_e)

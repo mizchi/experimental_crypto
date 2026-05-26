@@ -29,8 +29,12 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
                      └────┬────────────────┬──────────────┘
                           │                │
                      ┌────┴────────────────┴──────────────┐
-        Layer 1      │ asn1   cbor   crypto_bigint        │ — encoding +
+        Layer 1      │ asn1   cose_cbor   crypto_bigint   │ — encoding +
         encoding     │ getrandom                          │   foundations
+                     └────────────────────────────────────┘
+
+        Verification │ proofs                             │ — proof-carrying
+        (sidecar)    │ (moon prove + Why3 + Z3)           │   leaf primitives
                      └────────────────────────────────────┘
 ```
 
@@ -40,7 +44,7 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 
 | Module | Spec | Role |
 |---|---|---|
-| `asn1` | X.690 (DER) / X.680 | Strict canonical DER encoder + decoder. MAX_DEPTH=32 on both ends. Rejects tag aliases, canonical INTEGER / BIT STRING / OID violations. |
+| `asn1` | X.690 (DER) / X.680 | Strict canonical DER encoder + decoder. MAX_DEPTH=32 on both ends. Rejects tag aliases, canonical INTEGER / BIT STRING / OID / SET / PrintableString / time violations. |
 | `cose_cbor` | RFC 8949 | CBOR major types 0..7 + tagged values. Floats always 8-byte. Used by COSE. Renamed from `cbor` to free the `mizchi/cbor` namespace for the upstream package. |
 | `crypto_bigint` | (Rust crypto-bigint shape) | Currently a wrapper around `@bigint`. TODO: real limb-based impl unblocks constant-time mod-exp. |
 | `getrandom` | (target-specific) | CSPRNG bridge: `crypto.getRandomValues` on JS, `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native. |
@@ -49,10 +53,10 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 
 | Module | Spec | Role |
 |---|---|---|
-| `hash` | FIPS 180-4 + RFC 2104 / 4634 / ISO 10118-3 | SHA-1, SHA-256/384/512, RIPEMD-160, HASH160, HMAC-SHA-256/384/512, ct_eq |
+| `hash` | FIPS 180-4 + RFC 2104 / 4634 / ISO 10118-3 + BLAKE specs | SHA-1, SHA-256/384/512, RIPEMD-160, HASH160, HMAC-SHA-256/384/512, BLAKE2b, BLAKE3 keyed / XOF / derive-key (UTF-8 context), ct_eq |
 | `aead` | RFC 8439 + NIST SP 800-38D | ChaCha20-Poly1305 (5-limb Poly1305), XChaCha20-Poly1305, AES-128/256-GCM, AES-128/256-CBC (Shoup 4-bit GHASH, T-table AES) |
-| `pkix` | RFC 5280 | X.509 v3 certificate parser + serialiser. Byte-stable DER round-trip. |
-| `pkcs8` | RFC 5208 / 5958 + RFC 8018 | PrivateKeyInfo + EncryptedPrivateKeyInfo. PBES2 decrypt (PBKDF2-HMAC-SHA-256 + AES-128/256-CBC). |
+| `pkix` | RFC 5280 | X.509 v3 certificate parser + serialiser. Byte-stable DER round-trip, with strict serial, validity-time, duplicate optional field, RDN SET order, and IMPLICIT BIT STRING padding checks. |
+| `pkcs8` | RFC 5208 / 5958 + RFC 8018 | PrivateKeyInfo + EncryptedPrivateKeyInfo. PBES2 decrypt (PBKDF2-HMAC-SHA-256 + AES-128/256-CBC). Rejects duplicate optional fields and non-canonical attributes/publicKey encodings. |
 | `pem` | RFC 7468 | PEM I/O. Strict (64-char) emit; lax decode with line cap (8 KiB) + total cap (16 MiB). Labels validated on decode/encode. |
 | `hkdf` | RFC 5869 | HKDF-Extract + Expand on HMAC-SHA-256. |
 | `pbkdf2` | RFC 8018 | PBKDF2-HMAC-SHA-256 with ipad/opad pre-compression for the inner loop. |
@@ -76,6 +80,7 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 |---|---|---|
 | `pkix_verify` | RFC 5280 §6 | X.509 chain validation. Ed25519, RSA-SHA256, ECDSA-SHA-2{56,384}. Critical-extension recognition, keyUsage.keyCertSign enforcement on issuers, pathLenConstraint, nameConstraints (DNS subtree intersection), optional required EKU. |
 | `naclbox` | libsodium `crypto_box_curve25519xchacha20poly1305` | Curve25519 + XChaCha20-Poly1305. Composes `x25519` + `aead`. |
+| `hpke` | RFC 9180 | Mode_Base DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305. Sequence exhaustion checked before AEAD; caller supplies fresh ephemeral `sk_e`. |
 | `bip39` | BIP-39 | English mnemonic ↔ entropy + PBKDF2-HMAC-SHA-512 seed. |
 | `bip32` | BIP-32 | Hierarchical-deterministic key derivation on secp256k1. Master + CKDpriv + neuter + `derive_path("m/44'/0'/0'/0/0")`. |
 | `cose` | RFC 9052 | COSE_Sign1 verify (ES256/384, EdDSA, RS256), COSE_Key parser, WebAuthn attestation convenience. |
@@ -86,6 +91,8 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 |---|---|---|
 | `jwt` | RFC 7515 / 7519 / 7518 | JWS / JWT sign + verify. HS256, EdDSA, RS256, ES256/384, PS256/384/512. Rejects `crit` and `b64` headers. |
 | `jwe` | RFC 7516 / 7518 | JWE compact serialisation. dir / RSA-OAEP-256 / A256KW + A128/256GCM. |
+| `jwk` | RFC 7517 / 7518 / 7638 / 8037 | JWK parse / serialise / thumbprint. Validates RSA parameters and EC / Ed25519 private-public consistency; `oct` is private-only. |
+| `totp` | RFC 4226 / 6238 | HOTP / TOTP generation, verification, and provisioning URI. Rejects invalid digit / step / skew parameters fail-closed. |
 | `pgp` | RFC 9580 (+ RFC 4880 backward compat) | OpenPGP v4 + v6 detached signature verify + sign. Ed25519, RSA, ECDSA P-256/384. |
 | `ssh` | SSHSIG-style subset | SSHSIG armor sign + verify. Ed25519, ECDSA P-256/384, RSA-SHA-2-256/512. Conservative `allowed_signers`-style parser. |
 | `cms` | RFC 5652 | CMS SignedData detached verify. SignerInfo with IssuerAndSerialNumber match. `verify_with_chain` composes with `pkix_verify`. |
@@ -97,9 +104,12 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 
 - **Strict canonical encoding everywhere**: DER decoder rejects non-canonical
   INTEGER, tag aliases, constructed/primitive universal tag mismatches, OID
-  base-128 aliases / arc overflow, non-zero BIT STRING tail padding, and
-  trailing bytes. PEM (strict mode) rejects long lines and missing padding;
-  both PEM decoders validate labels.
+  base-128 aliases / arc overflow, non-zero BIT STRING tail padding,
+  non-canonical SET ordering, invalid PrintableString characters, invalid
+  UTCTime / GeneralizedTime syntax, and trailing bytes. PEM (strict mode)
+  rejects long lines and missing padding; both PEM decoders validate labels.
+  PKIX and PKCS#8 add schema-aware checks for duplicate optional fields and
+  context-specific BIT STRING padding.
 - **Verify-first APIs**: every signature/hash primitive ships verify before
   sign. Sign was added later for ECDSA / RSA after the security audit.
 - **RFC-driven error types**: each module has its own `*Error` suberror enum
