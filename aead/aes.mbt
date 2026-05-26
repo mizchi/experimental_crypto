@@ -229,33 +229,58 @@ fn aes_encrypt_block(
   round_keys : FixedArray[Int],
   nr : Int,
 ) -> Bytes {
+  // Public Bytes-in / Bytes-out wrapper. Stream callers should use the
+  // _fa variant below which works directly on caller-provided
+  // FixedArray buffers and skips two Bytes allocations per block.
+  let in_fa = FixedArray::make(16, b'\x00')
+  for i = 0; i < 16; i = i + 1 {
+    in_fa.unsafe_set(i, block[i])
+  }
+  let out_fa = FixedArray::make(16, b'\x00')
+  aes_encrypt_block_fa(in_fa, 0, round_keys, nr, out_fa, 0)
+  Bytes::makei(16, fn(i) { out_fa.unsafe_get(i) })
+}
+
+///|
+/// Stream-friendly AES single-block encrypt: reads 16 bytes from
+/// `in_buf[in_off..in_off+16]` and writes the ciphertext into
+/// `out_buf[out_off..out_off+16]`. Used by `aes_ctr_xor` to avoid per-
+/// block Bytes allocation on the AES-GCM stream path.
+fn aes_encrypt_block_fa(
+  in_buf : FixedArray[Byte],
+  in_off : Int,
+  round_keys : FixedArray[Int],
+  nr : Int,
+  out_buf : FixedArray[Byte],
+  out_off : Int,
+) -> Unit {
   // Load 4 column words from input, then XOR initial round key.
   let mut s0 = (
-      (block[0].to_int() << 24) |
-      (block[1].to_int() << 16) |
-      (block[2].to_int() << 8) |
-      block[3].to_int()
+      (in_buf.unsafe_get(in_off).to_int() << 24) |
+      (in_buf.unsafe_get(in_off + 1).to_int() << 16) |
+      (in_buf.unsafe_get(in_off + 2).to_int() << 8) |
+      in_buf.unsafe_get(in_off + 3).to_int()
     ) ^
     round_keys[0]
   let mut s1 = (
-      (block[4].to_int() << 24) |
-      (block[5].to_int() << 16) |
-      (block[6].to_int() << 8) |
-      block[7].to_int()
+      (in_buf.unsafe_get(in_off + 4).to_int() << 24) |
+      (in_buf.unsafe_get(in_off + 5).to_int() << 16) |
+      (in_buf.unsafe_get(in_off + 6).to_int() << 8) |
+      in_buf.unsafe_get(in_off + 7).to_int()
     ) ^
     round_keys[1]
   let mut s2 = (
-      (block[8].to_int() << 24) |
-      (block[9].to_int() << 16) |
-      (block[10].to_int() << 8) |
-      block[11].to_int()
+      (in_buf.unsafe_get(in_off + 8).to_int() << 24) |
+      (in_buf.unsafe_get(in_off + 9).to_int() << 16) |
+      (in_buf.unsafe_get(in_off + 10).to_int() << 8) |
+      in_buf.unsafe_get(in_off + 11).to_int()
     ) ^
     round_keys[2]
   let mut s3 = (
-      (block[12].to_int() << 24) |
-      (block[13].to_int() << 16) |
-      (block[14].to_int() << 8) |
-      block[15].to_int()
+      (in_buf.unsafe_get(in_off + 12).to_int() << 24) |
+      (in_buf.unsafe_get(in_off + 13).to_int() << 16) |
+      (in_buf.unsafe_get(in_off + 14).to_int() << 8) |
+      in_buf.unsafe_get(in_off + 15).to_int()
     ) ^
     round_keys[3]
 
@@ -321,18 +346,24 @@ fn aes_encrypt_block(
     ) ^
     round_keys[rk_off + 3]
 
-  // Pack the four column words back into 16 output bytes.
-  Bytes::makei(16, fn(i) {
-    let col = i / 4
-    let row = i % 4
-    let w = match col {
-      0 => f0
-      1 => f1
-      2 => f2
-      _ => f3
-    }
-    ((w >> ((3 - row) * 8)) & 0xFF).to_byte()
-  })
+  // Pack the four column words straight into out_buf — no Bytes
+  // allocation, no per-byte closure dispatch.
+  out_buf.unsafe_set(out_off, ((f0 >> 24) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 1, ((f0 >> 16) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 2, ((f0 >> 8) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 3, (f0 & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 4, ((f1 >> 24) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 5, ((f1 >> 16) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 6, ((f1 >> 8) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 7, (f1 & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 8, ((f2 >> 24) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 9, ((f2 >> 16) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 10, ((f2 >> 8) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 11, (f2 & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 12, ((f3 >> 24) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 13, ((f3 >> 16) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 14, ((f3 >> 8) & 0xFF).to_byte())
+  out_buf.unsafe_set(out_off + 15, (f3 & 0xFF).to_byte())
 }
 
 ///|

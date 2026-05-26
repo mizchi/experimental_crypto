@@ -189,7 +189,7 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
   and freshness, UserInfo/JAR/JARM, Self-Issued OP, nested encrypted ID
   token, aggregated/distributed claims, Discovery, Federation, CIBA, and
   FAPI RFC 9068 policy. Current coverage via
-  `moon coverage analyze -p mizchi/jwt -- -f summary`: `858/982`.
+  `moon coverage analyze -p mizchi/jwt -- -f summary`: `860/982`.
 - [x] **JWT / OIDC offensive scenario sweep**: added attacker-oriented
   regressions for untrusted `jku` / embedded `jwk` headers, OIDC issuer
   and audience substitution, UserInfo substitution with the same `sub`,

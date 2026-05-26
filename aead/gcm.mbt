@@ -252,21 +252,28 @@ fn aes_ctr_xor(
     return b""
   }
   let out = FixedArray::make(n, b'\x00')
+  // Reuse two 16-byte scratch buffers across every block. The old code
+  // allocated 3 Bytes per block (buf, block, keystream); for a 16 KiB
+  // payload that meant 3072 short-lived allocations on the GCM hot path.
+  let ctr_buf = FixedArray::make(16, b'\x00')
+  let ks_buf = FixedArray::make(16, b'\x00')
+  // hi 64 bits of J0 stay constant; write once.
+  be_store_u64(ctr_buf, 0, ctr_hi)
   let mut ctr = ctr_lo
-  let hi = ctr_hi
   let mut i = 0
   while i < n {
     // inc32: increment the low 32 bits of the counter; high 96 stay.
     let ctr_low32 = (ctr + 1UL) & 0xFFFFFFFFUL
     ctr = (ctr & 0xFFFFFFFF00000000UL) | ctr_low32
-    let keystream = aes_encrypt_counter(round_keys, nr, hi, ctr)
+    be_store_u64(ctr_buf, 8, ctr)
+    aes_encrypt_block_fa(ctr_buf, 0, round_keys, nr, ks_buf, 0)
     let take = if n - i >= 16 { 16 } else { n - i }
     for j in 0..<take {
-      out[i + j] = (data[i + j].to_int() ^ keystream[j].to_int()).to_byte()
+      out[i + j] = (data[i + j].to_int() ^ ks_buf.unsafe_get(j).to_int()).to_byte()
     }
     i = i + take
   }
-  Bytes::makei(n, fn(i) { out[i] })
+  Bytes::makei(n, fn(i) { out.unsafe_get(i) })
 }
 
 ///|
