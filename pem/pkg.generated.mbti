@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/pem"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn decode(String) -> PemBlock raise PemError
 
@@ -21,19 +25,18 @@ pub let pem_strict_line_max : Int
 // Errors
 pub suberror PemError {
   InvalidFormat(String)
-  UnexpectedEof
   InvalidBase64
   MissingBeginMarker
   MissingEndMarker
   LabelMismatch(begin~ : String, end~ : String)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct PemBlock {
   label : String
   data : Bytes
   headers : Array[(String, String)]
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

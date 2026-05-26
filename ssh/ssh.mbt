@@ -227,28 +227,6 @@ pub fn sign_armor(
   encode_sshsig_armor(w.to_bytes())
 }
 
-///|
-// Inside a wire-format Ed25519 signature blob: algorithm string + 64 raw
-// signature bytes. Used both inside SSHSIG (where the outer envelope's
-// `signature` field is itself a wire-format blob) and on SSH userauth.
-fn parse_ed25519_sig_blob(blob : Bytes) -> Bytes raise SshError {
-  let reader = WireReader::new(blob)
-  let algo = reader.read_string_ascii()
-  if algo != ed25519_algo {
-    raise UnsupportedAlgorithm(algo)
-  }
-  let sig = reader.read_string()
-  if sig.length() != 64 {
-    raise InvalidEncoding(
-      "ssh-ed25519 signature must be 64 bytes, got " + sig.length().to_string(),
-    )
-  }
-  if !reader.is_empty() {
-    raise InvalidEncoding("trailing bytes after ssh-ed25519 signature")
-  }
-  sig
-}
-
 // ─── multi-algorithm sign ────────────────────────────────────────────────
 
 ///|

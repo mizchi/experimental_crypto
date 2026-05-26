@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/aead"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn aes_block_decrypt(Bytes, Bytes) -> Bytes raise AeadError
 
@@ -28,8 +32,7 @@ pub suberror AeadError {
   CiphertextTooShort
   AuthenticationFailed
   PlaintextTooLong
-  UnsupportedAlgorithm(Algorithm)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) enum Algorithm {
@@ -37,7 +40,7 @@ pub(all) enum Algorithm {
   Aes256Gcm
   ChaCha20Poly1305
   XChaCha20Poly1305
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 pub fn Algorithm::key_size(Self) -> Int
 pub fn Algorithm::nonce_size(Self) -> Int
 pub fn Algorithm::tag_size(Self) -> Int

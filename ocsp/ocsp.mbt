@@ -695,7 +695,7 @@ fn bytes_equal(a : Bytes, b : Bytes) -> Bool {
 fn responder_id_matches_issuer(
   rid : ResponderId,
   issuer_cert : @pkix.Certificate,
-) -> Bool raise OcspError {
+) -> Bool {
   match rid {
     ByName(name) => {
       let issuer_subject_der = @pkix.serialize_name(issuer_cert.tbs.subject)

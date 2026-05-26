@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/scrypt"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn derive_key(Params, Bytes, Bytes) -> Bytes raise ScryptError
 
@@ -11,11 +15,10 @@ pub fn verify_encoded(String, Bytes) -> Unit raise ScryptError
 // Errors
 pub suberror ScryptError {
   InvalidParams(String)
-  OutputTooLong
   Pbkdf2Failure
   InvalidEncoded(String)
   VerifyFailed
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct Params {
@@ -23,7 +26,7 @@ pub(all) struct Params {
   r : Int
   p : Int
   dk_len : Int
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 pub fn Params::recommended_interactive() -> Self
 pub fn Params::recommended_sensitive() -> Self
 

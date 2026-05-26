@@ -5,6 +5,7 @@ import {
   "mizchi/asn1",
   "mizchi/pkix",
   "mizchi/pkix_verify",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -24,7 +25,7 @@ pub suberror CrlError {
   Asn1(@asn1.Asn1Error)
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct Crl {
@@ -32,12 +33,12 @@ pub(all) struct Crl {
   this_update : String
   next_update : String?
   revoked : Array[CrlEntry]
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct CrlEntry {
   serial : Bytes
   revocation_date : String
-} derive(Show)
+} derive(@debug.Debug)
 
 // Type aliases
 

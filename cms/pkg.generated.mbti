@@ -8,6 +8,7 @@ import {
   "mizchi/pkix",
   "mizchi/pkix_verify",
   "mizchi/rsa",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -31,11 +32,10 @@ pub suberror CmsError {
   UnsupportedSignatureAlgorithm(@asn1.ObjectIdentifier)
   MessageDigestMismatch
   MissingMessageDigest
-  SignatureInvalid
   Rsa(@rsa.RsaError)
   P256(@p256.P256Error)
   P384(@p384.P384Error)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct CmsSignedData {

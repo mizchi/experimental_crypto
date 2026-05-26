@@ -420,11 +420,11 @@ test "RS256: tampered payload fails signature check" {
   // Original payload: "eyJpc3M..." (= {"iss":"joe",...})
   // Replacement   :   base64url("{\"iss\":\"jon\"}") = "eyJpc3MiOiJqb24ifQ"
   let parts = rfc7515_a2_token.split(".").to_array()
-  let bad_token = parts[0].to_string() +
+  let bad_token = parts[0].to_owned() +
     "." +
     "eyJpc3MiOiJqb24ifQ" +
     "." +
-    parts[2].to_string()
+    parts[2].to_owned()
   let opts = @jwt.VerifyOptions::default(1300819300L)
   try @jwt.verify(bad_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts) catch {
     InvalidSignature => ()
@@ -757,11 +757,11 @@ test "JWT PS256: tampered payload fails signature check" {
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
   // Swap the payload segment for a different valid base64url.
   let parts = token.split(".").to_array()
-  let bad_token = parts[0].to_string() +
+  let bad_token = parts[0].to_owned() +
     "." +
     "eyJzdWIiOiJ0YW1wZXJlZCJ9" + // base64url({"sub":"tampered"})
     "." +
-    parts[2].to_string()
+    parts[2].to_owned()
   let opts = @jwt.VerifyOptions::default(0L)
   try
     @jwt.verify(bad_token, @jwt.VerifyKey::Ps256(pubkey=sk.public_key()), opts)

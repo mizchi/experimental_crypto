@@ -120,7 +120,7 @@ test "jwe: dir + A256GCM roundtrip" {
   inspect(token.split(".").to_array().length(), content="5")
   // Encrypted-key segment must be empty for dir.
   let parts = token.split(".").to_array()
-  inspect(parts[1].to_string(), content="")
+  inspect(parts[1].to_owned(), content="")
   let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecDir(cek~))
   @debug.assert_eq(decoded, plaintext)
 }
@@ -204,23 +204,23 @@ test "jwe: tampered ciphertext fails AuthenticationFailed" {
   )
   // Flip one character in the ciphertext segment (4th of 5).
   let parts = token.split(".").to_array()
-  let mut ct = parts[3].to_string()
+  let mut ct = parts[3].to_owned()
   // Flip last character. base64url charset is [A-Za-z0-9-_]; just pick a
   // replacement that is definitely different from the current one.
   let last_idx = ct.length() - 1
   let last_view = ct[last_idx:]
-  let last_str = last_view.to_string()
+  let last_str = last_view.to_owned()
   let replacement = if last_str == "A" { "B" } else { "A" }
-  ct = ct[:last_idx].to_string() + replacement
-  let tampered = parts[0].to_string() +
+  ct = ct[:last_idx].to_owned() + replacement
+  let tampered = parts[0].to_owned() +
     "." +
-    parts[1].to_string() +
+    parts[1].to_owned() +
     "." +
-    parts[2].to_string() +
+    parts[2].to_owned() +
     "." +
     ct +
     "." +
-    parts[4].to_string()
+    parts[4].to_owned()
   let raised = try {
     let _ = @jwe.decrypt(tampered, @jwe.DecryptionKey::DecDir(cek~))
     false
@@ -273,13 +273,13 @@ test "jwe: tampered header (AAD) fails AuthenticationFailed" {
   let parts = token.split(".").to_array()
   let tampered = alt_b64 +
     "." +
-    parts[1].to_string() +
+    parts[1].to_owned() +
     "." +
-    parts[2].to_string() +
+    parts[2].to_owned() +
     "." +
-    parts[3].to_string() +
+    parts[3].to_owned() +
     "." +
-    parts[4].to_string()
+    parts[4].to_owned()
   let raised = try {
     let _ = @jwe.decrypt(tampered, @jwe.DecryptionKey::DecDir(cek~))
     false
@@ -338,7 +338,7 @@ test "jwe: produced header has alg + enc" {
     iv~,
   )
   let parts = token.split(".").to_array()
-  let header_b64 = parts[0].to_string()
+  let header_b64 = parts[0].to_owned()
   // Decode the header (it uses base64url without padding).
   let padded = {
     let buf = StringBuilder::new()

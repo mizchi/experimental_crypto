@@ -366,9 +366,9 @@ pub fn verify(
   if parts.length() != 3 {
     raise InvalidToken("expected 3 segments")
   }
-  let header_b64 = parts[0].to_string()
-  let payload_b64 = parts[1].to_string()
-  let sig_b64 = parts[2].to_string()
+  let header_b64 = parts[0].to_owned()
+  let payload_b64 = parts[1].to_owned()
+  let sig_b64 = parts[2].to_owned()
 
   // ---- header ----
   let header_bytes = base64url_decode(header_b64)
@@ -499,7 +499,7 @@ pub fn verify(
 
   // ---- exp / nbf / iss / aud ----
   let exp = get_numeric_date(claims, "exp")
-  if opts.require_exp && exp.is_empty() {
+  if opts.require_exp && exp is None {
     raise ClaimsParseError("exp claim is required")
   }
   match exp {

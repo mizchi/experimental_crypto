@@ -4,6 +4,7 @@ package "mizchi/jwe"
 import {
   "mizchi/aead",
   "mizchi/rsa",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -42,12 +43,12 @@ pub(all) enum JweAlg {
   Dir
   Rsa_oaep_256
   A256kw
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 pub(all) enum JweEnc {
   A128gcm
   A256gcm
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

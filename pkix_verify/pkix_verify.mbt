@@ -34,7 +34,6 @@ pub suberror PkixVerifyError {
   NotACA
   PathLengthExceeded
   IssuerSubjectMismatch
-  EmptyChain
   MalformedExtension(String)
   // RFC 5280 §4.2: "If a certificate contains a critical extension that the
   // application cannot process, then the application MUST reject the

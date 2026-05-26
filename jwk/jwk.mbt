@@ -601,8 +601,8 @@ fn json_string_escape(s : String) -> String {
       let hex_chars = "0123456789abcdef"
       let hi = n / 16 % 16
       let lo = n % 16
-      buf.write_char(hex_chars.unsafe_char_at(hi))
-      buf.write_char(hex_chars.unsafe_char_at(lo))
+      buf.write_char(hex_chars.get_char(hi).unwrap())
+      buf.write_char(hex_chars.get_char(lo).unwrap())
     } else {
       buf.write_char(c)
     }
@@ -631,8 +631,8 @@ fn canonical_object(pairs : Array[(String, String)]) -> String {
     let mut i = 0
     let mut result = 0
     while i < n {
-      let ca = ak.unsafe_char_at(i).to_int()
-      let cb = bk.unsafe_char_at(i).to_int()
+      let ca = ak.get_char(i).unwrap().to_int()
+      let cb = bk.get_char(i).unwrap().to_int()
       if ca != cb {
         result = ca - cb
         break

@@ -707,11 +707,11 @@ pub fn decrypt(token : String, key : DecryptionKey) -> Bytes raise JweError {
   if parts.length() != 5 {
     raise InvalidToken("expected 5 segments, got " + parts.length().to_string())
   }
-  let header_b64 = parts[0].to_string()
-  let ek_b64 = parts[1].to_string()
-  let iv_b64 = parts[2].to_string()
-  let ct_b64 = parts[3].to_string()
-  let tag_b64 = parts[4].to_string()
+  let header_b64 = parts[0].to_owned()
+  let ek_b64 = parts[1].to_owned()
+  let iv_b64 = parts[2].to_owned()
+  let ct_b64 = parts[3].to_owned()
+  let tag_b64 = parts[4].to_owned()
 
   // ── (1) Parse header ─────────────────────────────────────────────────
   let header_bytes = base64url_decode(header_b64)

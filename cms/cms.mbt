@@ -32,7 +32,6 @@ pub suberror CmsError {
   UnsupportedSignatureAlgorithm(@asn1.ObjectIdentifier)
   MessageDigestMismatch
   MissingMessageDigest
-  SignatureInvalid
   Rsa(@rsa.RsaError)
   P256(@p256.P256Error)
   P384(@p384.P384Error)
@@ -72,18 +71,8 @@ fn id_signed_data() -> @asn1.ObjectIdentifier {
 }
 
 ///|
-fn id_data() -> @asn1.ObjectIdentifier {
-  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 7, 1])
-}
-
-///|
 fn id_message_digest() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 9, 4])
-}
-
-///|
-fn id_content_type() -> @asn1.ObjectIdentifier {
-  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 9, 3])
 }
 
 ///|

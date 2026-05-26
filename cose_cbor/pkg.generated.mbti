@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/cose_cbor"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn decode(Bytes) -> CborValue raise CborError
 
@@ -22,7 +26,7 @@ pub suberror CborError {
   TrailingBytes(Int)
   NestingTooDeep
   InvalidEncoding(String)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) enum CborValue {
@@ -37,7 +41,7 @@ pub(all) enum CborValue {
   Null
   Undefined
   Float(Double)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Type aliases
 

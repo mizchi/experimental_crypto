@@ -3,6 +3,7 @@ package "mizchi/pkix"
 
 import {
   "mizchi/asn1",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -29,41 +30,40 @@ pub suberror PkixError {
   Asn1(@asn1.Asn1Error)
   UnexpectedStructure(String)
   UnsupportedVersion(Int)
-  UnsupportedAlgorithm(@asn1.ObjectIdentifier)
   InvalidTime(String)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct AlgorithmIdentifier {
   algorithm : @asn1.ObjectIdentifier
   parameters : Bytes?
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 pub(all) struct AttributeTypeAndValue {
   oid : @asn1.ObjectIdentifier
   value : @asn1.Element
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct Certificate {
   tbs : TbsCertificate
   signature_algorithm : AlgorithmIdentifier
   signature : @asn1.BitString
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct Extension {
   oid : @asn1.ObjectIdentifier
   critical : Bool
   value : Bytes
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct Name {
   rdns : Array[Array[AttributeTypeAndValue]]
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct SubjectPublicKeyInfo {
   algorithm : AlgorithmIdentifier
   subject_public_key : @asn1.BitString
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct TbsCertificate {
   version : Int
@@ -76,14 +76,14 @@ pub(all) struct TbsCertificate {
   issuer_unique_id : @asn1.BitString?
   subject_unique_id : @asn1.BitString?
   extensions : Array[Extension]
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct Validity {
   not_before : String
   not_after : String
   not_before_tag : @asn1.Tag
   not_after_tag : @asn1.Tag
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

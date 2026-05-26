@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/argon2"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn hash_encoded(Params, Bytes, Bytes) -> String raise Argon2Error
 
@@ -13,10 +17,9 @@ pub fn verify_encoded(String, Bytes) -> Unit raise Argon2Error
 // Errors
 pub suberror Argon2Error {
   InvalidParams(String)
-  InvalidOutputLength
   InvalidEncoded(String)
   VerifyFailed
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct Params {
@@ -25,7 +28,7 @@ pub(all) struct Params {
   t_cost : Int
   parallelism : Int
   output_len : Int
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 pub fn Params::default_id() -> Self
 pub fn Params::recommended_interactive() -> Self
 pub fn Params::recommended_sensitive() -> Self
@@ -34,7 +37,7 @@ pub(all) enum Variant {
   Argon2d
   Argon2i
   Argon2id
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 

@@ -208,10 +208,10 @@ fn build_pre_hash_input(sig : PgpSignature, message : Bytes) -> Bytes {
   off = off + prelude_len
   buf[off] = if sig.version == 6 { b'\x06' } else { b'\x04' }
   buf[off + 1] = b'\xff'
-  buf[off + 2] = ((prelude_len.to_uint() >> 24) & 0xffU).to_byte()
-  buf[off + 3] = ((prelude_len.to_uint() >> 16) & 0xffU).to_byte()
-  buf[off + 4] = ((prelude_len.to_uint() >> 8) & 0xffU).to_byte()
-  buf[off + 5] = (prelude_len.to_uint() & 0xffU).to_byte()
+  buf[off + 2] = ((prelude_len.reinterpret_as_uint() >> 24) & 0xffU).to_byte()
+  buf[off + 3] = ((prelude_len.reinterpret_as_uint() >> 16) & 0xffU).to_byte()
+  buf[off + 4] = ((prelude_len.reinterpret_as_uint() >> 8) & 0xffU).to_byte()
+  buf[off + 5] = (prelude_len.reinterpret_as_uint() & 0xffU).to_byte()
   Bytes::makei(total, fn(j) { buf[j] })
 }
 
@@ -296,10 +296,10 @@ pub fn sign_armor(
   prelude[2] = pubkey_algo.to_byte()
   prelude[3] = chosen_hash.to_byte()
   if version == 6 {
-    prelude[4] = ((hashed_sub_len.to_uint() >> 24) & 0xffU).to_byte()
-    prelude[5] = ((hashed_sub_len.to_uint() >> 16) & 0xffU).to_byte()
-    prelude[6] = ((hashed_sub_len.to_uint() >> 8) & 0xffU).to_byte()
-    prelude[7] = (hashed_sub_len.to_uint() & 0xffU).to_byte()
+    prelude[4] = ((hashed_sub_len.reinterpret_as_uint() >> 24) & 0xffU).to_byte()
+    prelude[5] = ((hashed_sub_len.reinterpret_as_uint() >> 16) & 0xffU).to_byte()
+    prelude[6] = ((hashed_sub_len.reinterpret_as_uint() >> 8) & 0xffU).to_byte()
+    prelude[7] = (hashed_sub_len.reinterpret_as_uint() & 0xffU).to_byte()
   } else {
     prelude[4] = ((hashed_sub_len >> 8) & 0xff).to_byte()
     prelude[5] = (hashed_sub_len & 0xff).to_byte()
@@ -455,10 +455,10 @@ fn build_pgp_pre_hash_input(
   off = off + prelude_len
   buf[off] = if version == 6 { b'\x06' } else { b'\x04' }
   buf[off + 1] = b'\xff'
-  buf[off + 2] = ((prelude_len.to_uint() >> 24) & 0xffU).to_byte()
-  buf[off + 3] = ((prelude_len.to_uint() >> 16) & 0xffU).to_byte()
-  buf[off + 4] = ((prelude_len.to_uint() >> 8) & 0xffU).to_byte()
-  buf[off + 5] = (prelude_len.to_uint() & 0xffU).to_byte()
+  buf[off + 2] = ((prelude_len.reinterpret_as_uint() >> 24) & 0xffU).to_byte()
+  buf[off + 3] = ((prelude_len.reinterpret_as_uint() >> 16) & 0xffU).to_byte()
+  buf[off + 4] = ((prelude_len.reinterpret_as_uint() >> 8) & 0xffU).to_byte()
+  buf[off + 5] = (prelude_len.reinterpret_as_uint() & 0xffU).to_byte()
   Bytes::makei(total, fn(j) { buf[j] })
 }
 

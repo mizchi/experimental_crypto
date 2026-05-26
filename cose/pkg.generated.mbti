@@ -2,12 +2,12 @@
 package "mizchi/cose"
 
 import {
-  "mizchi/asn1",
   "mizchi/cose_cbor",
   "mizchi/ed25519",
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/rsa",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -27,9 +27,7 @@ pub suberror CoseError {
   AlgorithmKeyMismatch
   InvalidKey(String)
   InvalidSignature(String)
-  VerificationFailed
-  Asn1(@asn1.Asn1Error)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct AttestationObject {
@@ -43,7 +41,7 @@ pub(all) enum CoseAlg {
   ES384
   EdDSA
   RS256
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 pub(all) enum CoseKey {
   Ec2P256(pubkey~ : @p256.PublicKey)

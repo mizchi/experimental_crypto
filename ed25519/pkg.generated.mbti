@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/ed25519"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 
 // Errors
@@ -9,7 +13,7 @@ pub suberror Ed25519Error {
   InvalidPublicKeyLength(Int)
   InvalidSignatureLength(Int)
   InvalidEncoding(String)
-}
+} derive(@debug.Debug)
 pub impl Show for Ed25519Error
 
 // Types and methods

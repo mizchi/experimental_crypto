@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/hash"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn blake2b(Bytes, Int) -> Bytes raise Blake2bError
 
@@ -48,12 +52,11 @@ pub fn sha512(Bytes) -> Bytes
 pub suberror Blake2bError {
   InvalidOutputLength
   InvalidKeyLength
-} derive(Show)
+} derive(@debug.Debug)
 
 pub suberror Blake3Error {
   InvalidBlake3KeyLength
-  InvalidBlake3OutputLength
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 type Blake3ChunkState

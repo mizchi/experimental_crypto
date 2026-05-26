@@ -6,6 +6,7 @@ import {
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/rsa",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -25,7 +26,7 @@ pub suberror JwtError {
   InvalidAudience
   InvalidIssuer
   ClaimsParseError(String)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) enum Algorithm {
@@ -42,7 +43,7 @@ pub(all) enum Algorithm {
   PS384
   PS512
   EdDSA
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
@@ -60,7 +61,7 @@ pub(all) struct VerifiedJwt {
   claims : Map[String, Json]
   alg : Algorithm
   kid : String?
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) enum VerifyKey {
   Hs256(secret~ : Bytes)
@@ -79,7 +80,7 @@ pub(all) struct VerifyOptions {
   require_exp : Bool
   issuer : String?
   audience : String?
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 pub fn VerifyOptions::default(Int64) -> Self
 
 // Type aliases

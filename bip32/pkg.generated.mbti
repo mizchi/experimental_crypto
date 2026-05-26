@@ -3,6 +3,7 @@ package "mizchi/bip32"
 
 import {
   "mizchi/secp256k1",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -19,12 +20,11 @@ pub fn neuter(ExtendedPrivateKey) -> ExtendedPublicKey
 // Errors
 pub suberror Bip32Error {
   InvalidSeedLength(Int)
-  InvalidChildIndex
   DerivationFailed(String)
   HardenedFromPublic(UInt)
   InvalidPath(String)
   Secp256k1(@secp256k1.Secp256k1Error)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct ExtendedPrivateKey {

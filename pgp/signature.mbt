@@ -168,10 +168,10 @@ pub fn compute_signature_digest(
   // Trailer: 04/06 FF <uint32 BE of prelude_len>.
   buf[off] = if sig.version == 6 { b'\x06' } else { b'\x04' }
   buf[off + 1] = b'\xff'
-  buf[off + 2] = ((prelude_len.to_uint() >> 24) & 0xffU).to_byte()
-  buf[off + 3] = ((prelude_len.to_uint() >> 16) & 0xffU).to_byte()
-  buf[off + 4] = ((prelude_len.to_uint() >> 8) & 0xffU).to_byte()
-  buf[off + 5] = (prelude_len.to_uint() & 0xffU).to_byte()
+  buf[off + 2] = ((prelude_len.reinterpret_as_uint() >> 24) & 0xffU).to_byte()
+  buf[off + 3] = ((prelude_len.reinterpret_as_uint() >> 16) & 0xffU).to_byte()
+  buf[off + 4] = ((prelude_len.reinterpret_as_uint() >> 8) & 0xffU).to_byte()
+  buf[off + 5] = (prelude_len.reinterpret_as_uint() & 0xffU).to_byte()
   let payload = Bytes::makei(total, fn(j) { buf[j] })
   hash_with_algo(sig.hash_algo, payload)
 }
@@ -184,20 +184,6 @@ fn hash_with_algo(algo : Int, data : Bytes) -> Bytes raise PgpError {
     @hash.sha384(data)
   } else if algo == hash_sha512 {
     @hash.sha512(data)
-  } else {
-    raise UnsupportedHashAlgo(algo)
-  }
-}
-
-///|
-// Returns the expected digest length for a given hash algorithm ID.
-fn hash_len(algo : Int) -> Int raise PgpError {
-  if algo == hash_sha256 {
-    32
-  } else if algo == hash_sha384 {
-    48
-  } else if algo == hash_sha512 {
-    64
   } else {
     raise UnsupportedHashAlgo(algo)
   }

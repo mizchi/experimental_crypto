@@ -6,6 +6,7 @@ import {
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/rsa",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -43,9 +44,9 @@ pub let rsa_sha512_algo : String
 
 pub fn serialize_ed25519_pubkey(@ed25519.PublicKey) -> Bytes
 
-pub fn sign_armor(@ed25519.PrivateKey, Bytes, namespace? : String, hash_algorithm? : String) -> String raise SshError
+pub fn sign_armor(@ed25519.PrivateKey, Bytes, sig_namespace? : String, hash_algorithm? : String) -> String raise SshError
 
-pub fn sign_armor_with(SshPrivateKey, Bytes, namespace? : String, hash_algorithm? : String) -> String raise SshError
+pub fn sign_armor_with(SshPrivateKey, Bytes, sig_namespace? : String, hash_algorithm? : String) -> String raise SshError
 
 pub let sshsig_begin : String
 
@@ -57,13 +58,13 @@ pub let sshsig_pem_label : String
 
 pub let sshsig_version : UInt
 
-pub fn verify_armor(String, Bytes, @ed25519.PublicKey, namespace? : String) -> Bool raise SshError
+pub fn verify_armor(String, Bytes, @ed25519.PublicKey, sig_namespace? : String) -> Bool raise SshError
 
-pub fn verify_armor_anonymous(String, Bytes, namespace? : String) -> (SshPublicKey, String) raise SshError
+pub fn verify_armor_anonymous(String, Bytes, sig_namespace? : String) -> (SshPublicKey, String) raise SshError
 
-pub fn verify_armor_with(String, Bytes, SshPublicKey, namespace? : String) -> Bool raise SshError
+pub fn verify_armor_with(String, Bytes, SshPublicKey, sig_namespace? : String) -> Bool raise SshError
 
-pub fn verify_with_allowed_signers(String, String, String, Bytes, namespace? : String) -> Bool raise SshError
+pub fn verify_with_allowed_signers(String, String, String, Bytes, sig_namespace? : String) -> Bool raise SshError
 
 // Errors
 pub suberror SshError {
@@ -74,7 +75,7 @@ pub suberror SshError {
   UnsupportedSigVersion(UInt)
   HashAlgorithmMismatch(String)
   InvalidSignature
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) struct AllowedSigner {
@@ -101,11 +102,11 @@ pub(all) struct SshPublicKeyText {
   algorithm : String
   blob : Bytes
   comment : String?
-} derive(Show)
+} derive(@debug.Debug)
 
 pub(all) struct SshSignature {
   publickey : SshPublicKey
-  namespace : String
+  sig_namespace : String
   hash_algorithm : String
   signature_blob : Bytes
 }

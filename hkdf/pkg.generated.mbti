@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/hkdf"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn expand(HashAlg, Bytes, Bytes, Int) -> Bytes raise HkdfError
 
@@ -15,7 +19,7 @@ pub suberror HkdfError {
   OutputTooLong
   InvalidLength
   UnsupportedHash(HashAlg)
-} derive(Show)
+} derive(@debug.Debug)
 
 // Types and methods
 pub(all) enum HashAlg {
@@ -23,7 +27,7 @@ pub(all) enum HashAlg {
   Sha256
   Sha384
   Sha512
-} derive(Eq, Show)
+} derive(Eq, @debug.Debug)
 
 // Type aliases
 
