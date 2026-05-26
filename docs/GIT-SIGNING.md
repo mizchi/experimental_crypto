@@ -5,7 +5,7 @@
 
 | `gpg.format` | Format | Modules involved |
 |---|---|---|
-| `ssh` (git 2.34+) | OpenSSH SSHSIG | `ssh` + `git_object` + `ed25519` / `p256` / `p384` / `rsa` |
+| `ssh` (git 2.34+) | SSHSIG-style armor | `ssh` + `git_object` + `ed25519` / `p256` / `p384` / `rsa` |
 | `openpgp` (default) | OpenPGP detached armor | `pgp` + `git_object` + `hash` + signature primitives |
 | `x509` (via gpgsm) | CMS SignedData detached | `cms` + `git_object` + `pkix_verify` + `pkix` |
 
@@ -38,7 +38,9 @@ let allowed_signers_text = /* contents of ~/.config/git/allowed_signers */
 ```
 
 Supports Ed25519, ECDSA P-256/P-384, and RSA (`rsa-sha2-256` / `rsa-sha2-512`).
-Plain `ssh-rsa` (SHA-1) is deliberately rejected.
+Plain `ssh-rsa` (SHA-1) is deliberately rejected. This module is not a
+drop-in replacement for OpenSSH's verifier; it implements a conservative
+SSHSIG-style subset used by this workspace.
 
 `mizchi/ssh.sign_armor_with(privkey, message, namespace="git")` produces
 the matching armor; use it to back a `git config gpg.program` wrapper.
@@ -96,11 +98,12 @@ let trust_anchor_pk = /* extracted from a trusted root cert */
 
 ## Verifying allowed_signers / authorized keys files
 
-`@ssh.parse_allowed_signers(text)` reads an OpenSSH allowed_signers file
-into `Array[AllowedSigner]`. `@ssh.find_signers(signers, principal)`
-honours `*` / `?` glob matching. The `namespaces="git,file"` option
-restricts which SSHSIG namespaces a key is allowed to sign in; if absent
-the key signs in any namespace.
+`@ssh.parse_allowed_signers(text)` reads a conservative allowed_signers-style
+file into `Array[AllowedSigner]`. `@ssh.find_signers(signers, principal)`
+honours `*` / `?` glob matching. The `namespaces="git,file"` option restricts
+which SSHSIG namespaces a key is allowed to sign in; if absent the key signs in
+any namespace. `cert-authority`, `valid-after`, and `valid-before` entries are
+rejected until certificate and time-aware verification are implemented.
 
 ## CI gating
 

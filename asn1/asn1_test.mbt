@@ -508,7 +508,7 @@ test "bit_string: roundtrip" {
     (b"\x00", 0),
     (b"\x6c", 2),
     (b"\xff\xff", 0),
-    (b"\xab\xcd\xef", 1),
+    (b"\xab\xcd\xee", 1),
   ]
   for c in cases {
     let original : @asn1.BitString = { bytes: c.0, unused_bits: c.1 }
@@ -887,6 +887,89 @@ test "ATTACK: BIT STRING with unused_bits > 7 must reject" {
 }
 
 ///|
+test "ATTACK: high-tag-number form for low universal tag must reject" {
+  // INTEGER (tag 2) encoded using high-tag-number form: 1f 02.
+  // DER requires the short tag form for tag numbers < 31.
+  let der : Bytes = b"\x1f\x02\x01\x00"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: non-minimal high-tag-number encoding must reject" {
+  // Universal tag 31 encoded as 1f 80 1f instead of the canonical 1f 1f.
+  let der : Bytes = b"\x1f\x80\x1f\x00"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: primitive and constructed forms for universal tags must reject" {
+  // Constructed INTEGER and primitive SEQUENCE are BER-shaped but not DER.
+  for der in [b"\x22\x01\x00", b"\x10\x00"] {
+    let raised = try {
+      let _ = @asn1.decode_der(der)
+      false
+    } catch {
+      InvalidEncoding(_) => true
+      _ => false
+    }
+    assert_true(raised)
+  }
+}
+
+///|
+test "ATTACK: BIT STRING unused tail bits must be zero" {
+  // unused_bits=1 means the final low bit is padding and must be zero.
+  let der : Bytes = b"\x03\x02\x01\x01"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "asn1: OID first subidentifier supports multi-byte base128" {
+  let oid = @asn1.ObjectIdentifier::from_string("2.999.1")
+  let der = @asn1.encode_der(@asn1.Element::new(@asn1.tag_oid, Oid(oid)))
+  let decoded = @asn1.decode_der(der)
+  match decoded.value {
+    Oid(got) => assert_eq(got.to_string(), "2.999.1")
+    _ => abort("expected OID")
+  }
+}
+
+///|
+test "ATTACK: non-minimal OID first subidentifier must reject" {
+  // OID 1.2 is first-subidentifier 42. DER form is 2a, not 80 2a.
+  let der : Bytes = b"\x06\x02\x80\x2a"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
 test "asn1: from_arcs accepts well-formed OIDs" {
   // Smoke-check that the OIDs we use across the workspace still parse via
   // from_arcs. The bad-arc abort path (arcs[0] >= 3, or arcs[1] >= 40 with
@@ -910,6 +993,22 @@ test "asn1: from_arcs_checked raises on bad arc[0]" {
 ///|
 test "asn1: from_arcs_checked raises on arc[1] >= 40 with small arc[0]" {
   match (try? @asn1.ObjectIdentifier::from_arcs_checked([1U, 40U])) {
+    Err(InvalidEncoding(_)) => ()
+    other => abort("expected InvalidEncoding, got \{other}")
+  }
+}
+
+///|
+test "asn1: from_arcs_checked raises on first-subidentifier overflow" {
+  match (try? @asn1.ObjectIdentifier::from_arcs_checked([2U, 0xFFFFFFFFU])) {
+    Err(InvalidEncoding(_)) => ()
+    other => abort("expected InvalidEncoding, got \{other}")
+  }
+}
+
+///|
+test "asn1: from_string raises on arc overflow" {
+  match (try? @asn1.ObjectIdentifier::from_string("2.4294967296")) {
     Err(InvalidEncoding(_)) => ()
     other => abort("expected InvalidEncoding, got \{other}")
   }

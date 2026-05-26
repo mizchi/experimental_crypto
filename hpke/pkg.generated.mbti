@@ -1,0 +1,34 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/hpke"
+
+// Values
+pub fn setup_base_r(Bytes, Bytes, Bytes) -> HpkeContext raise HpkeError
+
+pub fn setup_base_s(Bytes, Bytes, sk_e~ : Bytes) -> (Bytes, HpkeContext) raise HpkeError
+
+// Errors
+pub suberror HpkeError {
+  InvalidPublicKey(Int)
+  InvalidPrivateKey(Int)
+  InvalidEphemeral(Int)
+  KemFailure
+  SequenceOverflow
+  KdfFailure
+  AeadFailure
+} derive(Show)
+
+// Types and methods
+pub(all) struct HpkeContext {
+  key : Bytes
+  base_nonce : Bytes
+  mut sequence : UInt64
+  exporter_secret : Bytes
+}
+pub fn HpkeContext::export(Self, Bytes, Int) -> Bytes raise HpkeError
+pub fn HpkeContext::open(Self, Bytes, Bytes) -> Bytes raise HpkeError
+pub fn HpkeContext::seal(Self, Bytes, Bytes) -> Bytes raise HpkeError
+
+// Type aliases
+
+// Traits
+

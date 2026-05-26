@@ -6,3 +6,7 @@ import {
   "mizchi/rsa",
   "moonbitlang/core/encoding/base64",
 }
+
+import {
+  "moonbitlang/core/quickcheck",
+} for "test"

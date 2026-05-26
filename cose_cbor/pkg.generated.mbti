@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/cbor"
+package "mizchi/cose_cbor"
 
 // Values
 pub fn decode(Bytes) -> CborValue raise CborError

@@ -196,6 +196,37 @@ test "ATTACK: namespace-scoped entry refuses cross-namespace use" {
   assert_false(ok)
 }
 
+///|
+test "ATTACK: comma-separated allowed_signers options keep namespace restriction" {
+  // A preceding option must not hide namespaces="file" and accidentally
+  // make the signer valid for every namespace.
+  let restricted_text =
+    #|attacker@evil.invalid unknown=ignored,namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let ok = @ssh.verify_with_allowed_signers(
+    restricted_text,
+    "attacker@evil.invalid",
+    armored_signature,
+    fixture_message(),
+  )
+  assert_false(ok)
+}
+
+///|
+test "ATTACK: validity-window allowed_signers entries fail closed" {
+  let time_scoped_text =
+    #|time@example.com valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let signers = @ssh.parse_allowed_signers(time_scoped_text)
+  assert_eq(signers.length(), 0)
+}
+
+///|
+test "ATTACK: cert-authority allowed_signers entries fail closed" {
+  let ca_text =
+    #|*@example.com cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let signers = @ssh.parse_allowed_signers(ca_text)
+  assert_eq(signers.length(), 0)
+}
+
 // -----------------------------------------------------------------------------
 // ECDSA-SSH (ecdsa-sha2-nistp256) — real ssh-keygen output
 // -----------------------------------------------------------------------------
@@ -347,4 +378,34 @@ test "ssh: sign_armor_with Ed25519 (backward compat smoke)" {
       @ssh.SshPublicKey::Ed25519(edk.public_key()),
     ),
   )
+}
+
+///|
+test "ATTACK: empty SSHSIG namespace is rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let raised = try {
+    let _ = @ssh.sign_armor(sk, b"empty namespace", namespace="")
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: SSH mpint rejects redundant leading zeroes" {
+  let w = @ssh.WireWriter::new()
+  w.write_string_ascii("ssh-rsa")
+  w.write_string(b"\x00\x01")
+  w.write_string(b"\x01")
+  let raised = try {
+    let _ = @ssh.parse_rsa_pubkey(w.to_bytes())
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
 }

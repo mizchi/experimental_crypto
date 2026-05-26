@@ -1,11 +1,12 @@
-// SSHSIG envelope format. Reference: openssh-portable PROTOCOL.sshsig.
+// SSHSIG envelope format. Based on openssh-portable PROTOCOL.sshsig, with a
+// small package-local policy surface rather than a full OpenSSH verifier.
 //
 //   byte[6]  MAGIC_PREAMBLE  = "SSHSIG"
 //   uint32   SIG_VERSION     = 1
 //   string   publickey         (wire-format pubkey, with algorithm prefix)
 //   string   namespace         ("git" for git commits/tags)
 //   string   reserved          (empty)
-//   string   hash_algorithm    ("sha256" or "sha512")
+//   string   hash_algorithm    ("sha256", "sha384", or "sha512" here)
 //   string   signature         (wire-format signature, with algorithm prefix)
 //
 // The signature value is computed over `signed_data`:
@@ -56,12 +57,16 @@ pub fn decode_sshsig_blob(blob : Bytes) -> SshSignature raise SshError {
   }
   let pubkey_blob = reader.read_string()
   let namespace = read_string_utf8(reader)
-  let _reserved = reader.read_string()
+  let reserved = reader.read_string()
+  if reserved.length() != 0 {
+    raise InvalidEncoding("SSHSIG reserved field must be empty")
+  }
   let hash_alg = read_string_utf8(reader)
   let signature_blob = reader.read_string()
   if not(reader.is_empty()) {
     raise InvalidEncoding("trailing bytes after sshsig signature field")
   }
+  validate_namespace(namespace)
   let publickey = decode_pubkey(pubkey_blob)
   { publickey, namespace, hash_algorithm: hash_alg, signature_blob }
 }
@@ -74,6 +79,7 @@ pub fn compute_signed_data(
   hash_algorithm : String,
   message : Bytes,
 ) -> Bytes raise SshError {
+  validate_namespace(namespace)
   let h = hash_message(hash_algorithm, message)
   let w = WireWriter::new()
   w.write_bytes_raw(sshsig_magic)
@@ -91,6 +97,19 @@ fn hash_message(alg : String, message : Bytes) -> Bytes raise SshError {
     "sha384" => @hash.sha384(message)
     "sha512" => @hash.sha512(message)
     _ => raise HashAlgorithmMismatch(alg)
+  }
+}
+
+///|
+fn validate_namespace(ns : String) -> Unit raise SshError {
+  if ns == "" {
+    raise InvalidEncoding("SSHSIG namespace must not be empty")
+  }
+  for c in ns {
+    let v = c.to_int()
+    if v < 0 || v > 0x7f {
+      raise InvalidEncoding("SSHSIG namespace must be ASCII")
+    }
   }
 }
 

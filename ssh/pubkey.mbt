@@ -50,8 +50,13 @@ fn mpint_magnitude(b : Bytes) -> Bytes raise SshError {
     raise InvalidEncoding("negative mpint")
   }
   if b.length() > 1 && b[0] == b'\x00' {
+    if (b[1].to_int() & 0x80) == 0 {
+      raise InvalidEncoding("non-minimal mpint")
+    }
     // Strip the 0x00 sign byte.
     Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  } else if b.length() == 1 && b[0] == b'\x00' {
+    raise InvalidEncoding("non-minimal zero mpint")
   } else {
     b
   }
@@ -196,6 +201,12 @@ pub fn parse_rsa_pubkey(blob : Bytes) -> @rsa.RsaPublicKey raise SshError {
   let n_mag = mpint_magnitude(n_bytes)
   let e = BigInt::from_octets(e_mag[:])
   let n = BigInt::from_octets(n_mag[:])
+  if e.compare_int(0) <= 0 {
+    raise InvalidEncoding("RSA exponent must be positive")
+  }
+  if n.compare_int(0) <= 0 {
+    raise InvalidEncoding("RSA modulus must be positive")
+  }
   { n, e, n_bytes_len: n_mag.length() }
 }
 

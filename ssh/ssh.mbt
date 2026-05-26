@@ -1,5 +1,5 @@
-// mizchi/ssh — SSH signing / verification compatible with OpenSSH's
-// `ssh-keygen -Y sign / -Y verify` flow. Ed25519-only.
+// mizchi/ssh — SSHSIG-style signing / verification for Git signing flows.
+// This package is not a full OpenSSH verifier.
 //
 // References:
 //   - PROTOCOL.sshsig (openssh-portable)
@@ -21,6 +21,7 @@ pub fn verify_armor_anonymous(
   message : Bytes,
   namespace? : String = "git",
 ) -> (SshPublicKey, String) raise SshError {
+  validate_namespace(namespace)
   let blob = decode_sshsig_armor(armor)
   let sig = decode_sshsig_blob(blob)
   if sig.namespace != namespace {
@@ -48,6 +49,7 @@ pub fn verify_armor(
   expected_pubkey : @ed25519.PublicKey,
   namespace? : String = "git",
 ) -> Bool raise SshError {
+  validate_namespace(namespace)
   let blob = decode_sshsig_armor(armor)
   let sig = decode_sshsig_blob(blob)
   if sig.namespace != namespace {
@@ -78,6 +80,7 @@ pub fn verify_armor_with(
   expected_pubkey : SshPublicKey,
   namespace? : String = "git",
 ) -> Bool raise SshError {
+  validate_namespace(namespace)
   let blob = decode_sshsig_armor(armor)
   let sig = decode_sshsig_blob(blob)
   if sig.namespace != namespace {
@@ -197,9 +200,7 @@ fn ecdsa_inner_to_raw(inner : Bytes, half_len : Int) -> Bytes raise SshError {
 ///|
 /// Produce an armored SSHSIG over `message` using an Ed25519 private key.
 /// `namespace` defaults to "git" (what `ssh-keygen -Y sign -n git` uses).
-/// `hash_algorithm` defaults to "sha512", matching ssh-keygen's choice
-/// for Ed25519 (PROTOCOL.sshsig: "sha512 is suggested when the signature
-/// is over a hash of large content").
+/// `hash_algorithm` defaults to "sha512".
 pub fn sign_armor(
   privkey : @ed25519.PrivateKey,
   message : Bytes,
@@ -265,7 +266,7 @@ pub(all) enum SshPrivateKey {
 ///|
 /// Produce an armored SSHSIG using any supported private-key kind.
 /// `namespace` defaults to "git". `hash_algorithm` picks SHA-256 /
-/// SHA-384 / SHA-512; the canonical pairing is:
+/// SHA-384 / SHA-512; this package's default pairing is:
 ///   Ed25519 → sha512
 ///   P-256   → sha256
 ///   P-384   → sha384

@@ -1,0 +1,52 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/jwk"
+
+import {
+  "mizchi/ed25519",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/rsa",
+  "mizchi/secp256k1",
+}
+
+// Values
+pub fn debug_canonical_form(Jwk) -> String
+
+pub fn parse_private(String) -> Jwk raise JwkError
+
+pub fn parse_public(String) -> Jwk raise JwkError
+
+pub fn serialise_private(Jwk) -> String raise JwkError
+
+pub fn serialise_public(Jwk) -> String
+
+pub fn thumbprint(Jwk) -> Bytes raise JwkError
+
+pub fn thumbprint_base64url(Jwk) -> String raise JwkError
+
+// Errors
+pub suberror JwkError {
+  InvalidJson(String)
+  MissingField(String)
+  InvalidBase64Url(String)
+  UnsupportedKty(String)
+  UnsupportedCurve(String)
+  InvalidFieldLength(String)
+  CryptoError(String)
+  PrivateKeyMissing
+} derive(Show)
+
+// Types and methods
+pub(all) enum Jwk {
+  Rsa(pubkey~ : @rsa.RsaPublicKey, privkey~ : @rsa.RsaPrivateKey?)
+  EcP256(pubkey~ : @p256.PublicKey, privkey~ : @p256.PrivateKey?)
+  EcP384(pubkey~ : @p384.PublicKey, privkey~ : @p384.PrivateKey?)
+  EcSecp256k1(pubkey~ : @secp256k1.PublicKey, privkey~ : @secp256k1.PrivateKey?)
+  OkpEd25519(pubkey~ : @ed25519.PublicKey, privkey~ : @ed25519.PrivateKey?)
+  Hmac(secret~ : Bytes)
+}
+
+// Type aliases
+
+// Traits
+

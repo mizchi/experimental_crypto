@@ -253,3 +253,386 @@ test "hash160: empty" {
   let h = @hash.hash160(b"")
   assert_eq(h, hex_to_bytes("b472a266d0bd89c13706a4132ccfb16f7c3b9fcb"))
 }
+
+///|
+test "blake2b: RFC 7693 §A.1 abc (64-byte digest)" {
+  // BLAKE2b("abc", 64) =
+  //   BA80A53F981C4D0D6A2797B69F12F6E9 4C212F14685AC4B74B12BB6FDBFFA2D1
+  //   7D87C5392AAB792DC252D5DE4533CC95 18D38AA8DBF1925AB92386EDD4009923
+  let h = @hash.blake2b(b"abc", 64)
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923",
+    ),
+  )
+}
+
+///|
+test "blake2b: empty input (BLAKE2b-512)" {
+  // Reference vector from the BLAKE2 spec / OpenSSL EVP_blake2b512 of "":
+  //   786A02F742015903C6C6FD852552D272 912F4740E15847618A86E217F71F5419
+  //   D25E1031AFEE585313896444934EB04B 903A685B1448B755D56F701AFE9BE2CE
+  let h = @hash.blake2b(b"", 64)
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce",
+    ),
+  )
+}
+
+///|
+test "blake2b_256: abc matches truncated 64-byte digest" {
+  // BLAKE2b is a single algorithm — varying out_len just truncates / shrinks
+  // the parameter block. Importantly, BLAKE2b(abc, 32) is NOT the same as the
+  // first 32 bytes of BLAKE2b(abc, 64): the parameter block embeds out_len, so
+  // out_len = 32 produces a different digest entirely. This test fixes the
+  // 32-byte canonical value.
+  let h = @hash.blake2b_256(b"abc")
+  // Verified against Python hashlib.blake2b(b"abc", digest_size=32):
+  //   bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+    ),
+  )
+}
+
+///|
+test "blake2b_512: matches blake2b(_, 64)" {
+  let a = @hash.blake2b_512(b"abc")
+  let b = @hash.blake2b(b"abc", 64)
+  assert_eq(a, b)
+}
+
+///|
+test "blake2b: output length 1 (smallest)" {
+  let h = @hash.blake2b(b"abc", 1)
+  assert_eq(h.length(), 1)
+}
+
+///|
+test "blake2b: out_len = 0 raises" {
+  let result = try? @hash.blake2b(b"abc", 0)
+  match result {
+    Ok(_) => abort("expected error")
+    Err(_) => ()
+  }
+}
+
+///|
+test "blake2b: out_len = 65 raises" {
+  let result = try? @hash.blake2b(b"abc", 65)
+  match result {
+    Ok(_) => abort("expected error")
+    Err(_) => ()
+  }
+}
+
+///|
+test "blake2b_keyed: key length 65 raises" {
+  let key = Bytes::makei(65, fn(_) { b'\x00' })
+  let result = try? @hash.blake2b_keyed(b"abc", key, 32)
+  match result {
+    Ok(_) => abort("expected error")
+    Err(_) => ()
+  }
+}
+
+///|
+test "blake2b_keyed: empty key == unkeyed" {
+  let a = @hash.blake2b_keyed(b"abc", b"", 32) catch {
+    _ => abort("unexpected error")
+  }
+  let b = @hash.blake2b_256(b"abc")
+  assert_eq(a, b)
+}
+
+///|
+test "blake2b_keyed: different keys produce different outputs" {
+  let k1 = b"key1"
+  let k2 = b"key2"
+  let a = @hash.blake2b_keyed(b"abc", k1, 32) catch {
+    _ => abort("unexpected error")
+  }
+  let b = @hash.blake2b_keyed(b"abc", k2, 32) catch {
+    _ => abort("unexpected error")
+  }
+  assert_false(a == b)
+}
+
+///|
+test "blake2b_keyed: RFC 7693 §A.2 single-block keyed reference" {
+  // Vector from the BLAKE2 reference suite (libsodium / openssl test):
+  //   key = 64 bytes 0x00,0x01,...,0x3f
+  //   input = empty
+  //   BLAKE2b(in=empty, key, out_len=64) =
+  //     10ebb67700b1868efb4417987acf4690ae9d972fb7a590c2f02871799aaa4786
+  //     b5e996e8f0f4eb981fc214b005f42d2ff4233499391653df7aefcbc13fc51568
+  let key = Bytes::makei(64, fn(i) { i.to_byte() })
+  let h = @hash.blake2b_keyed(b"", key, 64) catch {
+    _ => abort("unexpected error")
+  }
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "10ebb67700b1868efb4417987acf4690ae9d972fb7a590c2f02871799aaa4786b5e996e8f0f4eb981fc214b005f42d2ff4233499391653df7aefcbc13fc51568",
+    ),
+  )
+}
+
+// ─── BLAKE3 ────────────────────────────────────────────────────────────────
+//
+// Vectors come from the official BLAKE3 reference test_vectors.json
+// (https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json).
+// Input convention: the i-th byte is `i mod 251` (so input[0]=0, input[1]=1,
+// ..., input[250]=250, input[251]=0, ...).
+
+///|
+fn blake3_canonical_input(n : Int) -> Bytes {
+  Bytes::makei(n, fn(i) { (i % 251).to_byte() })
+}
+
+///|
+test "blake3: empty input → 32-byte digest" {
+  // Official: input_len=0, hash[0..32] =
+  //   af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262
+  let h = @hash.blake3(b"")
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+    ),
+  )
+}
+
+///|
+test "blake3: 1-byte input" {
+  // Official: input_len=1, hash[0..32] =
+  //   2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213
+  let h = @hash.blake3(blake3_canonical_input(1))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213",
+    ),
+  )
+}
+
+///|
+test "blake3: 63-byte input (single block - 1)" {
+  // Official: input_len=63, hash[0..32] =
+  //   e9bc37a594daad83be9470df7f7b3798297c3d834ce80ba85d6e207627b7db7b
+  let h = @hash.blake3(blake3_canonical_input(63))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "e9bc37a594daad83be9470df7f7b3798297c3d834ce80ba85d6e207627b7db7b",
+    ),
+  )
+}
+
+///|
+test "blake3: 64-byte input (exactly one block)" {
+  // Official: input_len=64, hash[0..32] =
+  //   4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98
+  let h = @hash.blake3(blake3_canonical_input(64))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98",
+    ),
+  )
+}
+
+///|
+test "blake3: 1023-byte input (chunk boundary - 1)" {
+  // Official: input_len=1023, hash[0..32] =
+  //   10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11
+  let h = @hash.blake3(blake3_canonical_input(1023))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11",
+    ),
+  )
+}
+
+///|
+test "blake3: 1024-byte input (exactly one chunk)" {
+  // Official: input_len=1024, hash[0..32] =
+  //   42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7
+  let h = @hash.blake3(blake3_canonical_input(1024))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7",
+    ),
+  )
+}
+
+///|
+test "blake3: 1025-byte input (chunk boundary + 1)" {
+  // Official: input_len=1025, hash[0..32] =
+  //   d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444
+  let h = @hash.blake3(blake3_canonical_input(1025))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444",
+    ),
+  )
+}
+
+///|
+test "blake3: 2048-byte input (two chunks)" {
+  // Official: input_len=2048, hash[0..32] =
+  //   e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a
+  let h = @hash.blake3(blake3_canonical_input(2048))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a",
+    ),
+  )
+}
+
+///|
+test "blake3: 3072-byte input (three chunks, exercises cv_stack merging)" {
+  // Official: input_len=3072, hash[0..32] =
+  //   b98cb0ff3623be03326b373de6b9095218513e64f1ee2edd2525c7ad1e5cffd2
+  let h = @hash.blake3(blake3_canonical_input(3072))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "b98cb0ff3623be03326b373de6b9095218513e64f1ee2edd2525c7ad1e5cffd2",
+    ),
+  )
+}
+
+///|
+test "blake3: 5120-byte input (five chunks)" {
+  // Official: input_len=5120, hash[0..32] =
+  //   9cadc15fed8b5d854562b26a9536d9707cadeda9b143978f319ab34230535833
+  let h = @hash.blake3(blake3_canonical_input(5120))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "9cadc15fed8b5d854562b26a9536d9707cadeda9b143978f319ab34230535833",
+    ),
+  )
+}
+
+///|
+test "blake3: 31744-byte input (31 chunks, deep cv_stack)" {
+  // Official: input_len=31744, hash[0..32] =
+  //   62b6960e1a44bcc1eb1a611a8d6235b6b4b78f32e7abc4fb4c6cdcce94895c47
+  let h = @hash.blake3(blake3_canonical_input(31744))
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "62b6960e1a44bcc1eb1a611a8d6235b6b4b78f32e7abc4fb4c6cdcce94895c47",
+    ),
+  )
+}
+
+///|
+test "blake3_xof: empty input, 131-byte output (exercises XOF counter)" {
+  // The default 32-byte hash MUST equal the XOF output truncated to 32 bytes.
+  let h_default = @hash.blake3(b"")
+  let h_long = @hash.blake3_xof(b"", 131)
+  assert_eq(h_long.length(), 131)
+  let h_long_prefix = Bytes::makei(32, fn(i) { h_long[i] })
+  assert_eq(h_long_prefix, h_default)
+}
+
+///|
+test "blake3_xof: 0-byte output" {
+  let h = @hash.blake3_xof(b"abc", 0)
+  assert_eq(h.length(), 0)
+}
+
+///|
+test "blake3_xof: agrees with blake3() at 32 bytes" {
+  // For any input, blake3_xof(data, 32) MUST equal blake3(data).
+  let data = blake3_canonical_input(100)
+  let a = @hash.blake3(data)
+  let b = @hash.blake3_xof(data, 32)
+  assert_eq(a, b)
+}
+
+///|
+test "blake3_keyed: 32-byte key, empty input" {
+  // Official keyed vector: key = ASCII "whats the Elvish word for friend"
+  //                       (exactly 32 bytes),  input_len = 0
+  //   hash[0..32] =
+  //   92b2b75604ed3c761f9d6f62392c8a9227ad0ea3f09573e783f1498a4ed60d26
+  let key = b"whats the Elvish word for friend"
+  let h = @hash.blake3_keyed(key, b"", 32) catch {
+    _ => abort("unexpected error")
+  }
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "92b2b75604ed3c761f9d6f62392c8a9227ad0ea3f09573e783f1498a4ed60d26",
+    ),
+  )
+}
+
+///|
+test "blake3_keyed: 32-byte key, 1-byte input" {
+  // Official keyed: key = "whats the Elvish word for friend", input_len = 1
+  //   hash[0..32] =
+  //   6d7878dfff2f485635d39013278ae14f1454b8c0a3a2d34bc1ab38228a80c95b
+  let key = b"whats the Elvish word for friend"
+  let h = @hash.blake3_keyed(key, blake3_canonical_input(1), 32) catch {
+    _ => abort("unexpected error")
+  }
+  assert_eq(
+    h,
+    hex_to_bytes(
+      "6d7878dfff2f485635d39013278ae14f1454b8c0a3a2d34bc1ab38228a80c95b",
+    ),
+  )
+}
+
+///|
+test "blake3_keyed: wrong key length raises" {
+  let result = try? @hash.blake3_keyed(b"short", b"abc", 32)
+  match result {
+    Ok(_) => abort("expected error")
+    Err(_) => ()
+  }
+}
+
+///|
+test "blake3_derive_key: official KDF vector, empty material" {
+  // Official KDF context: "BLAKE3 2019-12-27 16:29:52 test vectors context"
+  //   key_material_len = 0
+  //   derive_key[0..32] =
+  //   2cc39783c223154fea8dfb7c1b1660f2ac2dcbd1c1de8277b0b0dd39b7e50d7d
+  let ctx = "BLAKE3 2019-12-27 16:29:52 test vectors context"
+  let dk = @hash.blake3_derive_key(ctx, b"")
+  assert_eq(
+    dk,
+    hex_to_bytes(
+      "2cc39783c223154fea8dfb7c1b1660f2ac2dcbd1c1de8277b0b0dd39b7e50d7d",
+    ),
+  )
+}
+
+///|
+test "blake3_derive_key: official KDF, 1-byte material" {
+  // derive_key[0..32] for input_len=1:
+  //   b3e2e340a117a499c6cf2398a19ee0d29cca2bb7404c73063382693bf66cb06c
+  let ctx = "BLAKE3 2019-12-27 16:29:52 test vectors context"
+  let dk = @hash.blake3_derive_key(ctx, blake3_canonical_input(1))
+  assert_eq(
+    dk,
+    hex_to_bytes(
+      "b3e2e340a117a499c6cf2398a19ee0d29cca2bb7404c73063382693bf66cb06c",
+    ),
+  )
+}

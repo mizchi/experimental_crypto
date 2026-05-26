@@ -1,13 +1,14 @@
-// OpenSSH allowed_signers(5) file parser. The format (see ssh-keygen man
-// page, "ALLOWED SIGNERS"):
+// Conservative allowed_signers-style file parser. The format mirrors the
+// common SSH signing layout:
 //
 //   principals [options] keytype base64-key [comment]
 //
 // where:
 //   - `principals` is a comma-separated list. May contain `*`/`?` glob
 //     patterns. A standalone `*` matches any principal.
-//   - `options` are optional and may include cert-authority,
-//     namespaces="git,file", valid-after="...", valid-before="...".
+//   - `options` may include namespaces="git,file".
+//   - cert-authority / valid-after / valid-before are deliberately rejected
+//     until this package has SSH certificate and time-aware verification.
 //   - `keytype` + `base64-key` is exactly what's emitted by ssh-keygen.
 //
 // Lines starting with `#` and blank lines are ignored.
@@ -16,7 +17,7 @@
 pub(all) struct AllowedSigner {
   principals : Array[String]
   // Optional namespace filter, derived from a namespaces="..." option.
-  // None means the signer is unconstrained (the OpenSSH default).
+  // None means the signer is unconstrained.
   namespaces : Array[String]?
   pubkey : SshPublicKey
 }
@@ -77,9 +78,12 @@ fn try_parse_allowed_signer_line(
   if pcount > 0 {
     principals.push(pbuf.to_string())
   }
-  // Walk remaining tokens. Anything looking like `key=...` (or a bareword
-  // we know is an option such as cert-authority) goes into options. As
-  // soon as we hit a recognised keytype, the next token is the base64 key.
+  if principals.length() == 0 {
+    return None
+  }
+  // Walk remaining tokens. As soon as we hit a recognised keytype, the next
+  // token is the base64 key. Security-sensitive options that this module
+  // cannot enforce make the line invalid rather than silently widening trust.
   let mut namespaces : Array[String]? = None
   let mut idx = 1
   while idx < tokens.length() {
@@ -87,16 +91,13 @@ fn try_parse_allowed_signer_line(
     if is_known_keytype(t) {
       break
     }
-    // Option: key=value or bareword.
-    let eq = index_of(t, '=')
-    if eq >= 0 {
-      let k = substr(t, 0, eq)
-      let v = strip_quotes(substr(t, eq + 1, t.length()))
-      if k == "namespaces" {
-        namespaces = Some(split_on(v, ','))
-      }
-      // Other options (valid-after / valid-before / cert-authority) are
-      // currently not enforced; record-only here.
+    let (ok, parsed_namespaces) = parse_options_token(t)
+    if !ok {
+      return None
+    }
+    match parsed_namespaces {
+      Some(ns) => namespaces = Some(ns)
+      None => ()
     }
     idx = idx + 1
   }
@@ -116,6 +117,35 @@ fn try_parse_allowed_signer_line(
     return None
   }
   Some({ principals, namespaces, pubkey })
+}
+
+///|
+fn parse_options_token(token : String) -> (Bool, Array[String]?) {
+  let opts = split_options(token)
+  let mut namespaces : Array[String]? = None
+  for opt in opts {
+    if opt == "" {
+      return (false, None)
+    }
+    let eq = index_of(opt, '=')
+    if eq < 0 {
+      return (false, None)
+    }
+    let k = substr(opt, 0, eq)
+    let v = strip_quotes(substr(opt, eq + 1, opt.length()))
+    if k == "namespaces" {
+      let ns = split_on(v, ',')
+      for n in ns {
+        if n == "" {
+          return (false, None)
+        }
+      }
+      namespaces = Some(ns)
+    } else {
+      return (false, None)
+    }
+  }
+  (true, namespaces)
 }
 
 ///|
@@ -150,6 +180,7 @@ pub fn verify_with_allowed_signers(
   message : Bytes,
   namespace? : String = "git",
 ) -> Bool raise SshError {
+  validate_namespace(namespace)
   let signers = parse_allowed_signers(allowed_signers_text)
   let matched = find_signers(signers, principal)
   if matched.length() == 0 {
@@ -165,7 +196,7 @@ pub fn verify_with_allowed_signers(
             break
           }
         }
-        if not(ok) {
+        if !ok {
           continue
         }
       }
@@ -264,6 +295,26 @@ fn tokenise_quoted(s : String) -> Array[String] {
   if count > 0 {
     out.push(buf.to_string())
   }
+  out
+}
+
+///|
+fn split_options(s : String) -> Array[String] {
+  let out : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut in_quote = false
+  for c in s {
+    if c == '"' {
+      in_quote = !in_quote
+      buf.write_char(c)
+    } else if c == ',' && !in_quote {
+      out.push(buf.to_string())
+      buf.reset()
+    } else {
+      buf.write_char(c)
+    }
+  }
+  out.push(buf.to_string())
   out
 }
 

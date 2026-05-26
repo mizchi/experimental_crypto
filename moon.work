@@ -31,4 +31,7 @@ members = [
   "./bip32",
   "./ocsp",
   "./crl",
+  "./jwk",
+  "./hpke",
+  "./totp",
 ]

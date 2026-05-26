@@ -226,6 +226,24 @@ test "pem: decode rejects invalid base64" {
 }
 
 ///|
+test "pem: decode rejects non-canonical labels" {
+  for
+    input in [
+      (
+        #|-----BEGIN certificate-----
+        #|AAEC
+        #|-----END certificate-----
+      ),
+      "-----BEGIN CERT\tIFICATE-----\nAAEC\n-----END CERT\tIFICATE-----\n",
+    ] {
+    match (try? @pem.decode(input)) {
+      Err(@pem.InvalidFormat(_)) => ()
+      other => abort("expected InvalidFormat for bad label, got \{other}")
+    }
+  }
+}
+
+///|
 test "pem: encode then decode roundtrip" {
   let data = Bytes::makei(200, fn(i) { (i * 7 % 256).to_byte() })
   let original : @pem.PemBlock = { label: "DATA", data, headers: [] }

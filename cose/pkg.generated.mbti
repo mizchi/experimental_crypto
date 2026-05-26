@@ -3,7 +3,7 @@ package "mizchi/cose"
 
 import {
   "mizchi/asn1",
-  "mizchi/cbor",
+  "mizchi/cose_cbor",
   "mizchi/ed25519",
   "mizchi/p256",
   "mizchi/p384",
@@ -15,13 +15,13 @@ pub fn parse_attestation_object(Bytes) -> AttestationObject raise CoseError
 
 pub fn parse_cose_key(Bytes) -> CoseKey raise CoseError
 
-pub fn parse_cose_key_value(@cbor.CborValue) -> CoseKey raise CoseError
+pub fn parse_cose_key_value(@cose_cbor.CborValue) -> CoseKey raise CoseError
 
 pub fn verify_sign1(Bytes, Bytes, CoseKey, external_aad? : Bytes) -> Bool raise CoseError
 
 // Errors
 pub suberror CoseError {
-  CborDecode(@cbor.CborError)
+  CborDecode(@cose_cbor.CborError)
   InvalidStructure(String)
   UnsupportedAlgorithm(Int64)
   AlgorithmKeyMismatch
@@ -35,7 +35,7 @@ pub suberror CoseError {
 pub(all) struct AttestationObject {
   fmt : String
   auth_data : Bytes
-  att_stmt : @cbor.CborValue
+  att_stmt : @cose_cbor.CborValue
 }
 
 pub(all) enum CoseAlg {

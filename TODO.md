@@ -30,6 +30,44 @@ Status of `mizchi/moonbit-crypto` after the T1+T2 sweep
 
 ## Still open
 
+### ASN.1 / PEM security review follow-up
+
+- [x] Reject non-canonical ASN.1 high-tag-number forms, including low tag
+  numbers encoded in high-tag form and leading-zero base-128 tag encodings.
+- [x] Reject DER universal tag form mismatches such as constructed INTEGER and
+  primitive SEQUENCE / SET.
+- [x] Decode multi-byte OID first subidentifiers correctly and reject
+  non-minimal OID base-128 encodings.
+- [x] Reject BIT STRING encodings whose unused tail bits are not zero.
+- [x] Validate PEM labels on decode and encode so control characters,
+  lowercase labels, or newline-bearing labels cannot create ambiguous armor.
+- [ ] Enforce DER SET / SET OF canonical ordering once callers that need
+  schema-preserving SET order have been audited.
+- [ ] Tighten ASN.1 string/time types beyond ASCII: PrintableString alphabet,
+  UTCTime / GeneralizedTime syntax, and canonical timezone forms.
+- [ ] Add integration fuzzing across PEM -> ASN.1 -> PKCS#8 / PKIX parser
+  boundaries.
+
+### SSH security review follow-up
+
+- [x] Stop describing `ssh` as an OpenSSH verifier; document it as a
+  conservative SSHSIG-style subset.
+- [x] Fail closed on `allowed_signers` entries with `cert-authority`,
+  `valid-after`, or `valid-before` until SSH certificates and time-aware
+  verification are implemented.
+- [x] Parse comma-separated `allowed_signers` options without dropping
+  `namespaces="..."` constraints.
+- [x] Reject empty SSHSIG namespaces at sign/verify boundaries.
+- [x] Reject non-minimal SSH `mpint` encodings in parsed SSH keys/signatures.
+- [x] Add structured fuzz / mutation tests for `allowed_signers` options,
+  SSHSIG envelope fields, inner signature algorithms, and SSH `mpint`
+  canonicality.
+- [ ] Add a strict SSHSIG armor decoder for trust decisions. Current decoder is
+  intentionally lax about surrounding whitespace.
+- [ ] Add explicit SSH certificate support before accepting `cert-authority`.
+- [ ] Add a time-aware allowed_signers API before accepting
+  `valid-after` / `valid-before`.
+
 ### Security gaps (no exploit, documented in source)
 
 - **ECDSA / RSA sign side-channel**: `scalar_mult` and `@bigint.pow` are

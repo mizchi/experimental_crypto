@@ -57,20 +57,16 @@ test "fuzz pem: encode_simple → decode preserves data" {
   let pairs : Array[(String, Bytes)] = @quickcheck.samples(n)
   for pair in pairs {
     let (raw_label, data) = pair
-    // Sanitise label: encode_simple expects a single-line label.
-    // Replace anything outside printable ASCII (excluding '-') with 'X', and
-    // fall back to a default if the cleaned label is empty.
+    // Sanitise label: encode_simple expects an uppercase RFC 7468-style label.
+    // Keep A-Z / 0-9 only and fall back to a default if the cleaned label is
+    // empty.
     let buf = StringBuilder::new()
     for ch in raw_label {
       let c = ch.to_int()
       if c >= 0x41 && c <= 0x5A {
         buf.write_char(ch) // A-Z
-      } else if c >= 0x61 && c <= 0x7A {
-        buf.write_char(ch) // a-z
       } else if c >= 0x30 && c <= 0x39 {
         buf.write_char(ch) // 0-9
-      } else if c == 0x20 {
-        buf.write_char(ch) // space
       }
     }
     let cleaned = buf.to_string()

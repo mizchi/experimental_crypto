@@ -76,14 +76,9 @@ pub struct ObjectIdentifier {
 /// while `derive(Eq)` would say the two values differ — yielding two
 /// distinct OIDs in MoonBit that round-trip to the same DER on the wire.
 pub fn ObjectIdentifier::from_arcs(arcs : Array[UInt]) -> ObjectIdentifier {
-  if arcs.length() < 2 {
-    abort("OID must have at least 2 arcs")
-  }
-  if arcs[0] > 2U {
-    abort("OID arcs[0] must be 0, 1, or 2")
-  }
-  if arcs[0] < 2U && arcs[1] >= 40U {
-    abort("OID arcs[1] must be < 40 when arcs[0] is 0 or 1")
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => abort(msg)
+    None => ()
   }
   { arcs, }
 }
@@ -95,14 +90,9 @@ pub fn ObjectIdentifier::from_arcs(arcs : Array[UInt]) -> ObjectIdentifier {
 pub fn ObjectIdentifier::from_arcs_checked(
   arcs : Array[UInt],
 ) -> ObjectIdentifier raise Asn1Error {
-  if arcs.length() < 2 {
-    raise InvalidEncoding("OID must have at least 2 arcs")
-  }
-  if arcs[0] > 2U {
-    raise InvalidEncoding("OID arcs[0] must be 0, 1, or 2")
-  }
-  if arcs[0] < 2U && arcs[1] >= 40U {
-    raise InvalidEncoding("OID arcs[1] must be < 40 when arcs[0] is 0 or 1")
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => raise InvalidEncoding(msg)
+    None => ()
   }
   { arcs, }
 }
@@ -127,6 +117,9 @@ pub fn ObjectIdentifier::from_string(
       has_digit = false
     } else if c >= '0' && c <= '9' {
       let d = (c.to_int() - '0'.to_int()).reinterpret_as_uint()
+      if current > (0xFFFFFFFFU - d) / 10U {
+        raise InvalidEncoding("OID arc overflows UInt")
+      }
       current = current * 10U + d
       has_digit = true
     } else {
@@ -137,16 +130,28 @@ pub fn ObjectIdentifier::from_string(
     raise InvalidEncoding("trailing dot in OID")
   }
   arcs.push(current)
-  if arcs.length() < 2 {
-    raise InvalidEncoding("OID must have at least two arcs")
-  }
-  if arcs[0] > 2U {
-    raise InvalidEncoding("first arc must be 0, 1, or 2")
-  }
-  if arcs[0] < 2U && arcs[1] >= 40U {
-    raise InvalidEncoding("second arc must be < 40 when first arc is 0 or 1")
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => raise InvalidEncoding(msg)
+    None => ()
   }
   { arcs, }
+}
+
+///|
+fn oid_arc_validation_error(arcs : Array[UInt]) -> String? {
+  if arcs.length() < 2 {
+    return Some("OID must have at least 2 arcs")
+  }
+  if arcs[0] > 2U {
+    return Some("OID arcs[0] must be 0, 1, or 2")
+  }
+  if arcs[0] < 2U && arcs[1] >= 40U {
+    return Some("OID arcs[1] must be < 40 when arcs[0] is 0 or 1")
+  }
+  if arcs[0] == 2U && arcs[1] > 0xFFFFFFFFU - 80U {
+    return Some("OID arcs[1] too large for DER first subidentifier")
+  }
+  None
 }
 
 ///|
@@ -166,13 +171,23 @@ pub fn ObjectIdentifier::to_string(self : ObjectIdentifier) -> String {
 ///|
 fn encode_oid(enc : Encoder, oid : ObjectIdentifier) -> Unit {
   // Caller is expected to provide a validated OID; we still guard a bit.
-  if oid.arcs.length() < 2 {
-    abort("encode_oid: OID has fewer than 2 arcs")
+  match oid_arc_validation_error(oid.arcs) {
+    Some(msg) => abort("encode_oid: " + msg)
+    None => ()
   }
-  let first = oid.arcs[0] * 40U + oid.arcs[1]
+  let first = oid_first_subidentifier(oid)
   write_base128(enc, first)
   for i in 2..<oid.arcs.length() {
     write_base128(enc, oid.arcs[i])
+  }
+}
+
+///|
+fn oid_first_subidentifier(oid : ObjectIdentifier) -> UInt {
+  if oid.arcs[0] < 2U {
+    oid.arcs[0] * 40U + oid.arcs[1]
+  } else {
+    80U + oid.arcs[1]
   }
 }
 
@@ -201,7 +216,7 @@ fn decode_oid(bytes : Bytes) -> ObjectIdentifier raise Asn1Error {
     raise InvalidEncoding("OID payload empty")
   }
   let arcs : Array[UInt] = []
-  let first = bytes[0].to_int().reinterpret_as_uint()
+  let (first, next) = read_base128_from_bytes(bytes, 0)
   if first < 40U {
     arcs.push(0U)
     arcs.push(first)
@@ -212,38 +227,52 @@ fn decode_oid(bytes : Bytes) -> ObjectIdentifier raise Asn1Error {
     arcs.push(2U)
     arcs.push(first - 80U)
   }
-  let mut i = 1
+  let mut i = next
+  while i < bytes.length() {
+    let (value, j) = read_base128_from_bytes(bytes, i)
+    arcs.push(value)
+    i = j
+  }
+  match oid_arc_validation_error(arcs) {
+    Some(msg) => raise InvalidEncoding(msg)
+    None => ()
+  }
+  { arcs, }
+}
+
+///|
+fn read_base128_from_bytes(
+  bytes : Bytes,
+  start : Int,
+) -> (UInt, Int) raise Asn1Error {
+  let mut i = start
+  let mut value : UInt = 0U
+  let mut first_in_arc = true
   // UInt overflow guard: if value already exceeds this, shifting left by 7
   // would lose high bits. UInt::max_value >> 7 == 0x01FFFFFF on 32-bit UInt.
   let shift_overflow_threshold : UInt = 0xFFFFFFFFU >> 7
-  while i < bytes.length() {
-    let mut value : UInt = 0U
-    let mut first_in_arc = true
-    while true {
-      if i >= bytes.length() {
-        raise InvalidEncoding("truncated OID arc")
-      }
-      let b = bytes[i].to_int()
-      // X.690 §8.19.2: each base-128 sub-identifier must be minimally encoded.
-      // The first continuation byte of an arc cannot be 0x80 because that
-      // would mean a leading zero (continuation set but value bits all zero).
-      if first_in_arc && b == 0x80 {
-        raise InvalidEncoding("non-minimal OID base-128 encoding")
-      }
-      // Reject any byte that would shift the accumulator past UInt range.
-      if value > shift_overflow_threshold {
-        raise InvalidEncoding("OID arc overflows UInt")
-      }
-      value = (value << 7) | (b & 0x7F).reinterpret_as_uint()
-      i = i + 1
-      first_in_arc = false
-      if (b & 0x80) == 0 {
-        break
-      }
+  while true {
+    if i >= bytes.length() {
+      raise InvalidEncoding("truncated OID arc")
     }
-    arcs.push(value)
+    let b = bytes[i].to_int()
+    // X.690 §8.19.2: each base-128 sub-identifier must be minimally encoded.
+    // The first continuation byte of an arc cannot be 0x80 because that
+    // would mean a leading zero (continuation set but value bits all zero).
+    if first_in_arc && b == 0x80 {
+      raise InvalidEncoding("non-minimal OID base-128 encoding")
+    }
+    if value > shift_overflow_threshold {
+      raise InvalidEncoding("OID arc overflows UInt")
+    }
+    value = (value << 7) | (b & 0x7F).reinterpret_as_uint()
+    i = i + 1
+    first_in_arc = false
+    if (b & 0x80) == 0 {
+      break
+    }
   }
-  { arcs, }
+  (value, i)
 }
 
 ///|
@@ -378,16 +407,28 @@ pub fn read_tag(dec : Decoder) -> Tag raise Asn1Error {
   } else {
     let mut n : UInt = 0U
     let mut done = false
+    let mut first_in_number = true
+    let shift_overflow_threshold : UInt = 0xFFFFFFFFU >> 7
     while not(done) {
       if dec.remaining() < 1 {
         raise TruncatedInput
       }
       let b = dec.input[dec.pos].to_int()
       dec.pos = dec.pos + 1
+      if first_in_number && b == 0x80 {
+        raise InvalidEncoding("non-minimal high-tag-number encoding")
+      }
+      if n > shift_overflow_threshold {
+        raise InvalidEncoding("tag number overflows UInt")
+      }
       n = (n << 7) | (b & 0x7F).reinterpret_as_uint()
+      first_in_number = false
       if (b & 0x80) == 0 {
         done = true
       }
+    }
+    if n < 31U {
+      raise InvalidEncoding("high-tag-number form used for tag < 31")
     }
     n
   }
@@ -503,12 +544,31 @@ fn read_bytes(dec : Decoder, n : Int) -> Bytes raise Asn1Error {
 ///|
 pub fn Decoder::read_element(self : Decoder) -> Element raise Asn1Error {
   let tag = read_tag(self)
+  validate_der_tag_form(tag)
   let length = read_length(self)
   if self.remaining() < length {
     raise TruncatedInput
   }
   let value = decode_value(self, tag, length)
   { tag, value }
+}
+
+///|
+fn validate_der_tag_form(tag : Tag) -> Unit raise Asn1Error {
+  if tag.class_ != Universal {
+    return
+  }
+  match tag.number {
+    16U | 17U =>
+      if !tag.constructed {
+        raise InvalidEncoding("constructed universal type encoded as primitive")
+      }
+    1U | 2U | 3U | 4U | 5U | 6U | 12U | 19U | 22U | 23U | 24U =>
+      if tag.constructed {
+        raise InvalidEncoding("primitive universal type encoded as constructed")
+      }
+    _ => ()
+  }
 }
 
 ///|
@@ -643,7 +703,33 @@ fn decode_bit_string(b : Bytes) -> BitString raise Asn1Error {
     raise InvalidEncoding("BitString unused_bits non-zero with empty data")
   }
   let bytes = Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  validate_bit_string_tail(bytes, unused_bits) catch {
+    _ => raise InvalidEncoding("BitString unused tail bits must be zero")
+  }
   { bytes, unused_bits }
+}
+
+///|
+fn validate_bit_string_tail(
+  bytes : Bytes,
+  unused_bits : Int,
+) -> Unit raise Asn1Error {
+  if unused_bits < 0 || unused_bits > 7 {
+    raise InvalidEncoding("BitString unused_bits out of range")
+  }
+  if bytes.length() == 0 {
+    if unused_bits != 0 {
+      raise InvalidEncoding("BitString unused_bits non-zero with empty data")
+    }
+    return
+  }
+  if unused_bits > 0 {
+    let mask = (1 << unused_bits) - 1
+    let last = bytes[bytes.length() - 1].to_int()
+    if (last & mask) != 0 {
+      raise InvalidEncoding("BitString unused tail bits must be zero")
+    }
+  }
 }
 
 ///|
@@ -710,7 +796,10 @@ fn value_encoded_size_at(value : Value, depth : Int) -> Int {
     Ia5String(s) => utf8_byte_count(s)
     UtcTime(s) => utf8_byte_count(s)
     GeneralizedTime(s) => utf8_byte_count(s)
-    BitString(bs) => 1 + bs.bytes.length()
+    BitString(bs) => {
+      validate_bit_string_for_encode(bs)
+      1 + bs.bytes.length()
+    }
     Oid(oid) => oid_encoded_size(oid)
     Sequence(items) | Set(items) => {
       let mut total = 0
@@ -766,10 +855,11 @@ fn length_encoded_size(length : Int) -> Int {
 
 ///|
 fn oid_encoded_size(oid : ObjectIdentifier) -> Int {
-  if oid.arcs.length() < 2 {
-    abort("oid_encoded_size: OID has fewer than 2 arcs")
+  match oid_arc_validation_error(oid.arcs) {
+    Some(msg) => abort("oid_encoded_size: " + msg)
+    None => ()
   }
-  let first = oid.arcs[0] * 40U + oid.arcs[1]
+  let first = oid_first_subidentifier(oid)
   let mut size = base128_size(first)
   for i in 2..<oid.arcs.length() {
     size = size + base128_size(oid.arcs[i])
@@ -808,6 +898,13 @@ fn utf8_byte_count(s : String) -> Int {
       })
   }
   count
+}
+
+///|
+fn validate_bit_string_for_encode(bs : BitString) -> Unit {
+  validate_bit_string_tail(bs.bytes, bs.unused_bits) catch {
+    e => abort("encode BIT STRING: \{e}")
+  }
 }
 
 ///|

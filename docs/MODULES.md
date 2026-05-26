@@ -7,7 +7,7 @@ See per-module source for full details.
 ## Encoding / foundations
 
 ### `mizchi/asn1`
-**RFC**: X.690 DER + X.680 ASN.1. **Tests**: ~80.
+**RFC**: X.690 DER + X.680 ASN.1. **Tests**: 87.
 
 ```moonbit
 @asn1.decode_der(bytes : Bytes) -> Element raise Asn1Error
@@ -17,8 +17,9 @@ See per-module source for full details.
 ```
 
 Strict canonical DER. MAX_DEPTH=32 on decoder AND encoder. Rejects
-non-canonical INTEGER, BIT STRING `unused_bits > 7`, trailing bytes
-after the outer element, OID arc-overflow.
+non-canonical INTEGER, high-tag-number aliases, constructed/primitive universal
+tag mismatches, non-zero BIT STRING tail padding, trailing bytes after the
+outer element, and OID base-128 / arc-overflow issues.
 
 ### `mizchi/cose_cbor`
 **RFC**: 8949 minimum-viable for COSE. **Tests**: 41.
@@ -100,8 +101,11 @@ HMAC-SHA-1/384/512 and AES-192 currently rejected (`UnsupportedKdf` /
 `UnsupportedCipher`).
 
 ### `mizchi/pem`
+**RFC**: 7468. **Tests**: 25.
+
 RFC 7468 strict + lax. Lax decode enforces a 8 KiB per-line cap on top
-of the existing 16 MiB total cap.
+of the existing 16 MiB total cap. Labels are validated on decode and encode to
+avoid ambiguous or injection-shaped armor.
 
 ## Signature primitives
 
@@ -229,7 +233,7 @@ validation failures).
 v4 + v6 packets. Ed25519 (algo 22 v4 + algo 27 v6), RSA, ECDSA P-256/384.
 
 ### `mizchi/ssh`
-**Spec**: OpenSSH PROTOCOL.sshsig. **Tests**: 23.
+**Format**: SSHSIG-style subset. **Tests**: 34.
 
 ```moonbit
 @ssh.parse_ssh_pubkey_text(line)
@@ -240,7 +244,8 @@ v4 + v6 packets. Ed25519 (algo 22 v4 + algo 27 v6), RSA, ECDSA P-256/384.
 ```
 
 Ed25519, ECDSA P-256/384, RSA (rsa-sha2-256/512). Plain `ssh-rsa` (SHA-1)
-deliberately rejected.
+deliberately rejected. This module is a conservative SSHSIG-style verifier, not
+a full OpenSSH verifier.
 
 ### `mizchi/cms`
 **RFC**: 5652. **Tests**: 7.
