@@ -85,17 +85,21 @@ fn bytes_to_words(
 
 ///|
 fn validate_params(params : Params) -> Unit raise ScryptError {
-  if params.log_n < 1 || params.log_n > 30 {
-    raise InvalidParams("log_n out of range")
+  if params.log_n < 1 || params.log_n > 24 {
+    // Default safety cap at log_n = 24 -> N = 2^24, which with r=8 needs
+    // 16 GiB of scratch. Anything larger is almost certainly attacker-
+    // supplied via verify_encoded. Loosen explicitly per-call if you
+    // actually need it.
+    raise InvalidParams("log_n out of range (1..24)")
   }
-  if params.r < 1 {
-    raise InvalidParams("r must be >= 1")
+  if params.r < 1 || params.r > 32 {
+    raise InvalidParams("r out of range (1..32)")
   }
-  if params.p < 1 {
-    raise InvalidParams("p must be >= 1")
+  if params.p < 1 || params.p > 16 {
+    raise InvalidParams("p out of range (1..16)")
   }
-  if params.dk_len < 1 {
-    raise InvalidParams("dk_len must be >= 1")
+  if params.dk_len < 1 || params.dk_len > 1024 {
+    raise InvalidParams("dk_len out of range (1..1024)")
   }
   // RFC 7914 §6 constraint: p <= ((2^32 - 1) * 32) / (128 * r) but on 32-bit
   // Int we cannot even represent that.

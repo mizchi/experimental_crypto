@@ -311,6 +311,12 @@ pub fn pbkdf2(
   if dk_len < 0 {
     raise InvalidLength
   }
+  // Cap dk_len well below the RFC 8018 bound of (2^32 - 1) * h_len to
+  // avoid integer overflow on the `(dk_len + h_len - 1) / h_len * h_len`
+  // allocation. 64 MiB is already absurd for a derived key.
+  if dk_len > 64 * 1024 * 1024 {
+    raise OutputTooLong
+  }
   match hash {
     Sha256 => pbkdf2_sha256(password, salt, iterations, dk_len)
     _ => raise UnsupportedHash(hash)

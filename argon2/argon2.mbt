@@ -239,17 +239,24 @@ fn ct_eq_bytes(a : Bytes, b : Bytes) -> Bool {
 
 ///|
 fn validate_params(params : Params) -> Unit raise Argon2Error {
-  if params.parallelism < 1 || params.parallelism > 0xFFFFFF {
-    raise InvalidParams("parallelism out of range")
+  if params.parallelism < 1 || params.parallelism > 16 {
+    // RFC 9106 allows up to 2^24 - 1, but anything above 16 is almost
+    // certainly attacker-supplied via verify_encoded.
+    raise InvalidParams("parallelism out of range (1..16)")
   }
-  if params.t_cost < 1 {
-    raise InvalidParams("t_cost must be >= 1")
+  if params.t_cost < 1 || params.t_cost > 256 {
+    raise InvalidParams("t_cost out of range (1..256)")
   }
   if params.m_cost < 8 * params.parallelism {
     raise InvalidParams("m_cost must be >= 8 * parallelism")
   }
-  if params.output_len < 4 {
-    raise InvalidParams("output_len must be >= 4")
+  // Cap m_cost at 4 GiB (= 4 * 1024 * 1024 KiB). Above this, allocation
+  // overflows or simply OOMs on most hosts.
+  if params.m_cost > 4 * 1024 * 1024 {
+    raise InvalidParams("m_cost out of range (max 4 GiB)")
+  }
+  if params.output_len < 4 || params.output_len > 1024 {
+    raise InvalidParams("output_len out of range (4..1024)")
   }
 }
 
