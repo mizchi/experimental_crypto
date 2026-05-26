@@ -30,4 +30,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = ""
+description = "EXPERIMENTAL — cose_cbor: not production-grade. Audit before use. No warranty."

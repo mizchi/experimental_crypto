@@ -25,4 +25,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = ""
+description = "EXPERIMENTAL — pem: not production-grade. Audit before use. No warranty."

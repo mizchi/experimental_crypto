@@ -20,4 +20,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "RFC 5280 §5 CRL (CertificateList) parser and verifier. Parse-and-verify only."
+description = "EXPERIMENTAL — RFC 5280 §5 CRL (CertificateList) parser and verifier. Parse-and-verify only."

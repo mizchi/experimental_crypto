@@ -21,4 +21,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "RSA PKCS#1 v1.5 signature verification (verify-only)."
+description = "EXPERIMENTAL — RSA PKCS#1 v1.5 signature verification (verify-only)."

@@ -1,5 +1,11 @@
 # mizchi/pbkdf2
 
+> **Status: experimental.** Built to fill a gap in the MoonBit ecosystem;
+> not production-grade. The implementation has not been independently
+> audited. If you use it, review the source yourself — the author
+> disclaims all liability. Prefer a vetted library where one exists.
+
+
 RFC 8018 PBKDF2 with PRF = HMAC-SHA-256. Other hashes are stubbed
 out and raise `UnsupportedHash`.
 

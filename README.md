@@ -1,14 +1,26 @@
 # moonbit-crypto
 
-Pure MoonBit building blocks for crypto and PKI. A `moon.work` workspace of 13
-self-contained modules, each one focused on a single RFC-level concern. The
-implementations stay on top of `moonbitlang/core` and the small `moonbitlang/x/crypto`
-extension; nothing else.
+> **Status: experimental — not for production.** This workspace exists to
+> fill gaps in the MoonBit ecosystem so other people writing MoonBit code
+> have something to read and reuse. **None of the modules have been
+> independently audited.** Constant-time discipline, side-channel
+> resistance, and on-wire format edge cases are documented but not
+> certified.
+>
+> If you use any of this code in a real system, you are responsible for
+> reviewing the source first and confirming it meets your security
+> requirements. The author disclaims all liability for use. Prefer a
+> vetted library (`RustCrypto`, `dalek`, `BoringSSL`, etc.) wherever one
+> exists for your protocol.
 
-This is a working environment, not a polished library. It is published so that
-others can read the code and reuse fragments. The constant-time properties of
-the field arithmetic are not yet up to the bar of `dalek` or `RustCrypto`; the
-file headers call out exactly where the gaps are.
+Pure MoonBit building blocks for crypto and PKI. A `moon.work` workspace of
+35 self-contained modules, each one focused on a single RFC-level concern.
+The implementations stay on top of `moonbitlang/core` and the small
+`moonbitlang/x/crypto` extension; nothing else.
+
+The constant-time properties of the field arithmetic are not yet up to
+the bar of `dalek` or `RustCrypto`; the file headers call out exactly
+where the gaps are.
 
 ## Module map
 

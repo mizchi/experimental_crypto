@@ -23,4 +23,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "Minimum-viable COSE_Sign1 verify + COSE_Key parsing (RFC 9052)."
+description = "EXPERIMENTAL — Minimum-viable COSE_Sign1 verify + COSE_Key parsing (RFC 9052)."

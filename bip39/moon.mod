@@ -10,7 +10,7 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "BIP-39 mnemonic phrase encoding/decoding and seed derivation."
+description = "EXPERIMENTAL — BIP-39 mnemonic phrase encoding/decoding and seed derivation."
 
 import {
   "mizchi/hash@0.1.0",

@@ -22,4 +22,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "JSON Web Key (RFC 7517) parse + serialise, bridging JOSE JSON to workspace key types."
+description = "EXPERIMENTAL — JSON Web Key (RFC 7517) parse + serialise, bridging JOSE JSON to workspace key types."

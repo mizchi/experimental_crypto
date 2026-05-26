@@ -19,4 +19,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "JWE (RFC 7516) Compact Serialization — RSA-OAEP-256 / A256KW / dir + A128GCM / A256GCM."
+description = "EXPERIMENTAL — JWE (RFC 7516) Compact Serialization — RSA-OAEP-256 / A256KW / dir + A128GCM / A256GCM."

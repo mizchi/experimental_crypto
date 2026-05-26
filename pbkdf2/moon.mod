@@ -21,7 +21,7 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = ""
+description = "EXPERIMENTAL — pbkdf2: not production-grade. Audit before use. No warranty."
 
 import {
   "moonbitlang/x@0.4.43",

@@ -1,5 +1,11 @@
 # mizchi/ed25519
 
+> **Status: experimental.** Built to fill a gap in the MoonBit ecosystem;
+> not production-grade. The implementation has not been independently
+> audited. If you use it, review the source yourself — the author
+> disclaims all liability. Prefer a vetted library where one exists.
+
+
 Ed25519 (RFC 8032 §5.1) signature scheme over Edwards Curve25519.
 
 ## Memory hygiene

@@ -21,4 +21,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = ""
+description = "EXPERIMENTAL — crypto_bigint: not production-grade. Audit before use. No warranty."

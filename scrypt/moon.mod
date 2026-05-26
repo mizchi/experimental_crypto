@@ -21,7 +21,7 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = ""
+description = "EXPERIMENTAL — scrypt: not production-grade. Audit before use. No warranty."
 
 import {
   "mizchi/pbkdf2@0.1.0",

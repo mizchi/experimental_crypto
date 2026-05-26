@@ -10,7 +10,7 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "HPKE (RFC 9180) — Hybrid Public Key Encryption."
+description = "EXPERIMENTAL — HPKE (RFC 9180) — Hybrid Public Key Encryption."
 
 import {
   "mizchi/aead@0.1.0",
