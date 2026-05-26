@@ -1058,6 +1058,103 @@ fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
 let ed_base_table : FixedArray[EdPoint] = ed_make_window_table(ed_base)
 
 ///|
+// Niels-form point: (Y+X, Y-X, 2*d*T) with implicit Z = 1.
+// Storing precomputed base-point multiples in Niels form lets the
+// scalar-base-mult inner loop call a 7-multiplication mixed-add
+// formula instead of the 9-multiplication full Edwards add.
+priv struct NielsPoint {
+  y_plus_x : Fe
+  y_minus_x : Fe
+  k : Fe
+}
+
+///|
+fn ed_identity_niels() -> NielsPoint {
+  // Identity = (0, 1, 1, 0) ∈ extended.
+  // Niels: y+x = 1, y-x = 1, 2dT = 0.
+  { y_plus_x: fe_one(), y_minus_x: fe_one(), k: fe_zero() }
+}
+
+///|
+// Convert an extended-coord point with arbitrary Z to Niels form.
+// Requires one field inversion (~265 fe_mul), so we only do this once
+// per static-table entry at module load.
+fn ed_to_niels(p : EdPoint) -> NielsPoint {
+  let z_inv = fe_inv(p.z)
+  let xn = fe_mul(p.x, z_inv)
+  let yn = fe_mul(p.y, z_inv)
+  let tn = fe_mul(p.t, z_inv)
+  {
+    y_plus_x: fe_add(yn, xn),
+    y_minus_x: fe_sub(yn, xn),
+    k: fe_mul(tn, ed_d2),
+  }
+}
+
+///|
+// Niels form of {0, 1, 2, …, 15} * B. Initialised once at module load
+// from the extended-coord ed_base_table.
+let ed_base_niels_table : FixedArray[NielsPoint] = make_niels_base_table()
+
+///|
+fn make_niels_base_table() -> FixedArray[NielsPoint] {
+  let t = FixedArray::make(16, ed_identity_niels())
+  // Index 0 stays as identity-Niels (1, 1, 0).
+  for i = 1; i < 16; i = i + 1 {
+    t[i] = ed_to_niels(ed_base_table[i])
+  }
+  t
+}
+
+///|
+fn niels_cmov(
+  a : NielsPoint,
+  b : NielsPoint,
+  bit : UInt64,
+) -> NielsPoint {
+  {
+    y_plus_x: fe_cmov(a.y_plus_x, b.y_plus_x, bit),
+    y_minus_x: fe_cmov(a.y_minus_x, b.y_minus_x, bit),
+    k: fe_cmov(a.k, b.k, bit),
+  }
+}
+
+///|
+// Constant-time lookup over the 16-entry Niels base table.
+fn ed_niels_base_lookup(idx : Int) -> NielsPoint {
+  let mut result = ed_identity_niels()
+  for i = 0; i < 16; i = i + 1 {
+    let eq = if i == idx { 1UL } else { 0UL }
+    result = niels_cmov(result, ed_base_niels_table[i], eq)
+  }
+  result
+}
+
+///|
+// Mixed addition: extended-coord P + Niels Q -> extended-coord.
+// Saves 2 fe_mul vs the general ed_point_add by relying on Q's
+// implicit Z = 1 and the pre-folded 2*d*T inside Q.k.
+//
+// Formula (RFC 8032 / ref10 ge_madd):
+//   A = (Y1 - X1) * (Y2 - X2)       = (Y1 - X1) * q.y_minus_x
+//   B = (Y1 + X1) * (Y2 + X2)       = (Y1 + X1) * q.y_plus_x
+//   C = T1 * 2dT2                    = T1 * q.k
+//   D = 2 * Z1                       (Z2 = 1)
+//   E = B - A, F = D - C, G = D + C, H = B + A
+//   X3 = E*F, Y3 = G*H, T3 = E*H, Z3 = F*G
+fn ed_madd_niels(p : EdPoint, q : NielsPoint) -> EdPoint {
+  let a = fe_mul(fe_sub(p.y, p.x), q.y_minus_x)
+  let b = fe_mul(fe_add(p.y, p.x), q.y_plus_x)
+  let c = fe_mul(p.t, q.k)
+  let d = fe_add(p.z, p.z)
+  let e = fe_sub(b, a)
+  let f = fe_sub(d, c)
+  let g = fe_add(d, c)
+  let h = fe_add(b, a)
+  { x: fe_mul(e, f), y: fe_mul(g, h), z: fe_mul(f, g), t: fe_mul(e, h) }
+}
+
+///|
 // Build a 16-entry table of {0, 1, 2, …, 15} * base for the windowed
 // scalar-mult below. Caller side: 15 ed_point_add — paid once per
 // verify call.
@@ -1118,12 +1215,29 @@ fn ed_scalar_mult_table(
 }
 
 ///|
-// Fixed-base scalar mult — uses the static `ed_base_table` so the 15
-// table additions are amortised across the module's lifetime.
+// Fixed-base scalar mult — uses the Niels-form static base table and a
+// 7-multiplication mixed-add formula. Saves ~2 fe_mul per windowed
+// add (64 adds × 2 mul = 128 fe_mul saved per scalar mult).
 fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
   let s = (scalar % ed_l + ed_l) % ed_l
   let s_bytes = scalar_to_le_bytes(s)
-  ed_scalar_mult_table(s_bytes, ed_base_table)
+  let mut q = ed_identity()
+  for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
+    let byte = s_bytes[byte_idx].to_int()
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    let high = (byte >> 4) & 0xF
+    q = ed_madd_niels(q, ed_niels_base_lookup(high))
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    let low = byte & 0xF
+    q = ed_madd_niels(q, ed_niels_base_lookup(low))
+  }
+  q
 }
 
 ///|
