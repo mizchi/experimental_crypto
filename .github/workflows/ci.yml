@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs on the same ref when a new push arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: test + prove (ubuntu-latest, nix devShell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Preflight (provers visible)
+        run: |
+          nix develop --impure --command bash -c '
+            why3 --version | head -1
+            z3 --version | head -1
+            cvc5 --version | head -1
+            alt-ergo --version | head -1
+            moon version | head -1
+          '
+
+      - name: moon test
+        run: |
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            moon update >/dev/null
+            moon test
+          '
+
+      - name: moon prove
+        run: |
+          nix develop --impure --command bash proofs/setup.sh
+          nix develop --impure --command bash proofs/prove.sh
