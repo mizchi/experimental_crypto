@@ -1030,18 +1030,15 @@ fn ed_point_cmov(a : EdPoint, b : EdPoint, bit : UInt64) -> EdPoint {
 // the (projective) identity -- this depended on ed_point_double being
 // safe for inputs whose coordinates encode 0 with all-max ("p"-form)
 // limbs; see the regression comment on ed_point_double.
+///|
+// Thin shim kept for the whitebox test suite that exercised the old
+// generic scalar mult directly. Internally routes through the windowed
+// fast path so behaviour stays identical.
 fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
   let s = (scalar % ed_l + ed_l) % ed_l
   let s_bytes = scalar_to_le_bytes(s)
-  let mut q = ed_identity()
-  for i = 255; i >= 0; i = i - 1 {
-    q = ed_point_double(q)
-    let byte = s_bytes[i / 8].to_uint64()
-    let bit = (byte >> (i % 8)) & 1UL
-    let added = ed_point_add(q, base)
-    q = ed_point_cmov(q, added, bit)
-  }
-  q
+  let table = ed_make_window_table(base)
+  ed_scalar_mult_table(s_bytes, table)
 }
 
 ///|
@@ -1051,41 +1048,46 @@ fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
 // the 256 conditional adds that bit-by-bit double-and-add does. Stored
 // as Edwards extended (X, Y, Z, T) so we can plug entries straight into
 // `ed_point_add`.
-let ed_base_table : FixedArray[EdPoint] = make_ed_base_table()
+let ed_base_table : FixedArray[EdPoint] = ed_make_window_table(ed_base)
 
 ///|
-fn make_ed_base_table() -> FixedArray[EdPoint] {
+// Build a 16-entry table of {0, 1, 2, …, 15} * base for the windowed
+// scalar-mult below. Caller side: 15 ed_point_add — paid once per
+// verify call.
+fn ed_make_window_table(base : EdPoint) -> FixedArray[EdPoint] {
   let t = FixedArray::make(16, ed_identity())
-  t[1] = ed_base
+  t[1] = base
   for i = 2; i < 16; i = i + 1 {
-    t[i] = ed_point_add(t[i - 1], ed_base)
+    t[i] = ed_point_add(t[i - 1], base)
   }
   t
 }
 
 ///|
-// Constant-time table mux: returns t[idx] for idx ∈ 0..15 without
-// branching on idx. Used by the windowed base-mult so the secret scalar
-// nibble never directly selects a memory address.
-fn ed_base_table_lookup(idx : Int) -> EdPoint {
+// Constant-time table mux: returns table[idx] for idx ∈ 0..15 without
+// branching on the secret idx. The for-loop iterates over a constant
+// range, so the only data-dependent operations are the cmov bit
+// computation (`i == idx` is i-known) and the cmov merge itself.
+fn ed_window_table_lookup(
+  table : FixedArray[EdPoint],
+  idx : Int,
+) -> EdPoint {
   let mut result = ed_identity()
   for i = 0; i < 16; i = i + 1 {
-    // bit is 1 when i == idx, 0 otherwise — produced by `subtraction +
-    // compare with zero` so the branch is on a constant relative to the
-    // loop, not on idx itself.
     let eq = if i == idx { 1UL } else { 0UL }
-    result = ed_point_cmov(result, ed_base_table[i], eq)
+    result = ed_point_cmov(result, table[i], eq)
   }
   result
 }
 
 ///|
-// Windowed base-point scalar multiplication, 4 bits at a time. 256
-// doublings + 64 table-lookup-adds, vs the naïve 256 doublings + 256
-// adds. Constant-time over the scalar via `ed_base_table_lookup`.
-fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
-  let s = (scalar % ed_l + ed_l) % ed_l
-  let s_bytes = scalar_to_le_bytes(s)
+// 4-bit windowed scalar mult over a precomputed table. Caller supplies
+// `s_bytes` (the scalar reduced mod L, little-endian 32 bytes) and
+// `table[i] = i * base`. Cost: 256 doublings + 64 lookup-adds.
+fn ed_scalar_mult_table(
+  s_bytes : FixedArray[Byte],
+  table : FixedArray[EdPoint],
+) -> EdPoint {
   let mut q = ed_identity()
   // High-to-low byte-by-byte, two 4-bit windows per byte.
   for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
@@ -1096,21 +1098,37 @@ fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
     q = ed_point_double(q)
     q = ed_point_double(q)
     let high = (byte >> 4) & 0xF
-    q = ed_point_add(q, ed_base_table_lookup(high))
+    q = ed_point_add(q, ed_window_table_lookup(table, high))
     // Low nibble
     q = ed_point_double(q)
     q = ed_point_double(q)
     q = ed_point_double(q)
     q = ed_point_double(q)
     let low = byte & 0xF
-    q = ed_point_add(q, ed_base_table_lookup(low))
+    q = ed_point_add(q, ed_window_table_lookup(table, low))
   }
   q
 }
 
 ///|
+// Fixed-base scalar mult — uses the static `ed_base_table` so the 15
+// table additions are amortised across the module's lifetime.
+fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
+  let s = (scalar % ed_l + ed_l) % ed_l
+  let s_bytes = scalar_to_le_bytes(s)
+  ed_scalar_mult_table(s_bytes, ed_base_table)
+}
+
+///|
+// Variable-base scalar mult — builds a per-call 16-entry table (15
+// extra Edwards adds, ~135 fe_mul) and then runs the same windowed
+// loop. Net win vs naïve double-and-add: ~177 saved adds × 9 fe_mul
+// per add ≈ 1.6k fe_mul saved per scalar mult.
 fn ed25519_scalar_mult(scalar : BigInt, p : EdPoint) -> EdPoint {
-  ed_scalar_mult_point(scalar, p)
+  let s = (scalar % ed_l + ed_l) % ed_l
+  let s_bytes = scalar_to_le_bytes(s)
+  let table = ed_make_window_table(p)
+  ed_scalar_mult_table(s_bytes, table)
 }
 
 ///|
