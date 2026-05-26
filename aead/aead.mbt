@@ -158,6 +158,26 @@ fn validate_key_nonce(key : Bytes, nonce : Bytes) -> Unit raise AeadError {
 }
 
 ///|
+// ChaCha20 counter must not wrap. RFC 8439 §2.8 caps at 2^32 blocks per
+// (key, nonce); with counter starting at 1 the usable cap is (2^32 - 2) * 64
+// = ~274 GiB of plaintext. Past that, the counter wraps back through values
+// already used for either Poly1305 key generation or earlier blocks, breaking
+// confidentiality without nonce reuse being visible to the caller. MoonBit's
+// Bytes is Int-indexed (~2 GiB max) so this is unreachable on current
+// platforms, but we surface it as PlaintextTooLong should the platform ever
+// grow or callers ever feed pre-fused streams.
+fn check_chacha20_block_count(plaintext_len : Int) -> Unit raise AeadError {
+  if plaintext_len < 0 {
+    raise PlaintextTooLong
+  }
+  let needed_blocks : UInt64 = (plaintext_len.to_uint64() + 63UL) / 64UL
+  let max_blocks : UInt64 = ((1UL << 32) - 2UL)
+  if needed_blocks > max_blocks {
+    raise PlaintextTooLong
+  }
+}
+
+///|
 fn chacha20_poly1305_seal(
   key : Bytes,
   nonce : Bytes,
@@ -165,6 +185,7 @@ fn chacha20_poly1305_seal(
   plaintext : Bytes,
 ) -> (Bytes, Bytes) raise AeadError {
   validate_key_nonce(key, nonce)
+  check_chacha20_block_count(plaintext.length())
   let otk = poly1305_key_gen(key, nonce)
   let ct = chacha20_xor(key, nonce, 1U, plaintext)
   let tag = poly1305_aead_tag(otk, aad, ct)
@@ -180,6 +201,7 @@ fn chacha20_poly1305_open(
   tag : Bytes,
 ) -> Bytes raise AeadError {
   validate_key_nonce(key, nonce)
+  check_chacha20_block_count(ciphertext.length())
   if tag.length() != 16 {
     raise AuthenticationFailed
   }

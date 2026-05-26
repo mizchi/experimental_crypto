@@ -309,6 +309,18 @@ fn aes_ctr_xor(
 }
 
 ///|
+fn check_aes_gcm_block_count(plaintext_len : Int) -> Unit raise AeadError {
+  if plaintext_len < 0 {
+    raise PlaintextTooLong
+  }
+  // 2^39 - 256 bits = 2^36 - 32 bytes
+  let max_bytes : UInt64 = (1UL << 36) - 32UL
+  if plaintext_len.to_uint64() > max_bytes {
+    raise PlaintextTooLong
+  }
+}
+
+///|
 fn aes_gcm_seal(
   key_len : Int,
   key : Bytes,
@@ -322,6 +334,11 @@ fn aes_gcm_seal(
   if nonce.length() != 12 {
     raise InvalidNonceSize(expected=12, got=nonce.length())
   }
+  // NIST SP 800-38D §5.2.1.1: plaintext is bounded by 2^39 - 256 bits,
+  // i.e. ~64 GiB per (key, IV). Past that, GHASH collision probability
+  // grows beyond the security target. MoonBit Bytes is Int-indexed so
+  // this is unreachable today, but the check future-proofs the API.
+  check_aes_gcm_block_count(plaintext.length())
   let (rk, nr) = aes_key_schedule(key)
 
   // H = AES_E(0^128)
@@ -382,6 +399,8 @@ fn aes_gcm_open(
   if tag.length() != 16 {
     raise AuthenticationFailed
   }
+  // Same NIST SP 800-38D §5.2.1.1 bound on ciphertext as on plaintext.
+  check_aes_gcm_block_count(ciphertext.length())
   let (rk, nr) = aes_key_schedule(key)
   let zero16 = Bytes::makei(16, fn(_) { b'\x00' })
   let h_bytes = aes_encrypt_block(zero16, rk, nr)

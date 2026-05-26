@@ -141,6 +141,12 @@ fn sha256_finalize_with_tail(
   prefix_bits : UInt64,
   out : FixedArray[Byte],
 ) -> Unit {
+  // SHA-256's length field is a 64-bit big-endian *bit* count, so the
+  // total input must fit in 2^64 - 1 bits = 2^61 - 1 bytes (~2 EiB).
+  // We don't enforce that explicitly because MoonBit's Bytes is Int-indexed
+  // (~2 GiB max on current platforms), making it unreachable. If the platform
+  // ever grows, prefix_bits + tail_len*8 above would silently wrap on UInt64
+  // past 2^64 - 1 bits and emit a wrong length, breaking the digest.
   let total_bits = prefix_bits + tail_len.to_uint64() * 8UL
   let buf = FixedArray::make(128, b'\x00')
   // copy tail

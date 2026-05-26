@@ -63,6 +63,12 @@ let aes_sbox : FixedArray[Int] = [
 ///|
 /// Round constants (FIPS 197 §5.2). rcon[i] = (rc(i), 0, 0, 0) where rc is
 /// 2^(i-1) in GF(2^8) reduced by x^8 + x^4 + x^3 + x + 1.
+///
+/// Sized for AES-{128, 192, 256}: the largest index used is
+///   ceil((Nb * (Nr + 1) - Nk) / Nk)
+/// which is 10 for AES-128 (Nk=4, Nr=10), 8 for AES-192 (Nk=6, Nr=12), and
+/// 7 for AES-256 (Nk=8, Nr=14). Adding AES-512 or anything past 14 rounds
+/// would require extending this table.
 let aes_rcon : FixedArray[Int] = [
   0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36,
 ]
@@ -154,12 +160,16 @@ let te3 : FixedArray[Int] = build_te3(te0)
 /// AES key schedule. Returns Nr+1 round keys, each 16 bytes packed as 4 ×
 /// UInt (column-major: column 0 is bytes 0..3 = (a0, a1, a2, a3)). Nr is 10
 /// for AES-128 and 14 for AES-256.
-fn aes_key_schedule(key : Bytes) -> (FixedArray[Int], Int) {
+fn aes_key_schedule(key : Bytes) -> (FixedArray[Int], Int) raise AeadError {
+  // Callers in this module pre-validate key length, so the only way to
+  // hit the InvalidKeySize branch is a bad refactor or a future direct
+  // user of aes_key_schedule. Raise instead of abort so the error is
+  // recoverable.
   let key_len = key.length()
   let (nk, nr) = match key_len {
     16 => (4, 10) // AES-128: 4 words of key, 10 rounds, 44 round-key words
     32 => (8, 14) // AES-256: 8 words of key, 14 rounds, 60 round-key words
-    _ => abort("aes_key_schedule: bad key length")
+    _ => raise InvalidKeySize(expected=16, got=key_len)
   }
   let total_words = 4 * (nr + 1)
   // Each word is a 32-bit value stored as 4 bytes packed into an Int (we use
@@ -328,7 +338,7 @@ fn aes_encrypt_block(
 ///|
 /// Public test hook: encrypt one block under the given key. The key length
 /// must be 16 or 32 bytes; the block must be 16 bytes.
-fn aes_encrypt(key : Bytes, block : Bytes) -> Bytes {
+fn aes_encrypt(key : Bytes, block : Bytes) -> Bytes raise AeadError {
   let (rk, nr) = aes_key_schedule(key)
   aes_encrypt_block(block, rk, nr)
 }

@@ -101,8 +101,16 @@ fn validate_params(params : Params) -> Unit raise ScryptError {
   if params.dk_len < 1 || params.dk_len > 1024 {
     raise InvalidParams("dk_len out of range (1..1024)")
   }
-  // RFC 7914 §6 constraint: p <= ((2^32 - 1) * 32) / (128 * r) but on 32-bit
-  // Int we cannot even represent that.
+  // Even within the per-field caps above, the combined V-buffer size is
+  //   n * (32 * r) words = (1 << log_n) * 32 * r u32
+  // which at the worst legal combination (log_n=24, r=32) is 2^34 u32 =
+  // 64 GiB. That overflows Int (the FixedArray index space) long before
+  // we hit OOM. Reject on UInt64 to avoid the wrap.
+  let n_words : UInt64 = (1UL << params.log_n) * 32UL * params.r.to_uint64()
+  let max_int_words : UInt64 = 0x7FFF_FFFFUL // Int::max_value
+  if n_words > max_int_words {
+    raise InvalidParams("log_n * r combination overflows Int index space")
+  }
 }
 
 ///|
