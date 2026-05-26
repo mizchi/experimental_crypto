@@ -196,6 +196,7 @@ pub suberror P384Error {
   PointNotOnCurve
   InvalidDerSignature(String)
   UnexpectedSpkiOid(String)
+  InvalidPrivateKey(String)
   Asn1(@asn1.Asn1Error)
 } derive(Show)
 
@@ -397,4 +398,289 @@ pub fn verify(
     return false
   }
   sum.x % n == r
+}
+
+// ─── private key + sign (RFC 6979 deterministic ECDSA) ───────────────────
+
+///|
+pub struct PrivateKey {
+  d : BigInt
+}
+
+///|
+/// Construct a private key from a 48-byte big-endian scalar.
+pub fn PrivateKey::from_bytes(b : Bytes) -> PrivateKey raise P384Error {
+  if b.length() != 48 {
+    raise InvalidPrivateKey(
+      "expected 48-byte scalar, got " + b.length().to_string(),
+    )
+  }
+  let mut all_zero = true
+  for i = 0; i < 48; i = i + 1 {
+    if b[i] != b'\x00' {
+      all_zero = false
+      break
+    }
+  }
+  if all_zero {
+    raise InvalidPrivateKey("scalar is zero")
+  }
+  let d = BigInt::from_octets(b[:])
+  let n = p384_n()
+  if d.compare(n) >= 0 {
+    raise InvalidPrivateKey("scalar >= n")
+  }
+  { d, }
+}
+
+///|
+pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
+  let point = scalar_mult(self.d, generator())
+  { point, }
+}
+
+///|
+/// ECDSA-SHA-384 sign with RFC 6979 deterministic nonce.
+pub fn PrivateKey::sign(
+  self : PrivateKey,
+  message : Bytes,
+  format~ : SignatureFormat = Raw,
+) -> Bytes {
+  let n = p384_n()
+  let e_bytes = @hash.sha384(message)
+  let e = BigInt::from_octets(e_bytes[:])
+  let mut k_ctr = 0
+  let mut r = BigInt::from_int(0)
+  let mut s = BigInt::from_int(0)
+  let max_iter = 16
+  let mut found = false
+  let mut nonce_state = rfc6979_init_384(self.d, e_bytes, 48, n)
+  while not(found) && k_ctr < max_iter {
+    let (k, next_state) = rfc6979_next_384(nonce_state, 48, n)
+    nonce_state = next_state
+    let r_point = scalar_mult(k, generator())
+    if not(r_point.inf) {
+      r = r_point.x % n
+      if r.compare(BigInt::from_int(0)) > 0 {
+        let k_inv = mod_inverse(k, n)
+        let s_calc = (k_inv * ((e + r * self.d) % n)) % n
+        if s_calc.compare(BigInt::from_int(0)) > 0 {
+          s = s_calc
+          found = true
+        }
+      }
+    }
+    k_ctr = k_ctr + 1
+  }
+  if not(found) {
+    abort("ECDSA P-384 sign: nonce loop diverged")
+  }
+  encode_signature_p384(r, s, format)
+}
+
+///|
+fn encode_signature_p384(r : BigInt, s : BigInt, format : SignatureFormat) -> Bytes {
+  match format {
+    Raw => {
+      let r_bytes = r.to_octets(length=48)
+      let s_bytes = s.to_octets(length=48)
+      Bytes::makei(96, fn(i) {
+        if i < 48 {
+          r_bytes[i]
+        } else {
+          s_bytes[i - 48]
+        }
+      })
+    }
+    Der => encode_signature_der_p384(r, s)
+  }
+}
+
+///|
+fn encode_signature_der_p384(r : BigInt, s : BigInt) -> Bytes {
+  let r_bytes = encode_der_integer_p384(r)
+  let s_bytes = encode_der_integer_p384(s)
+  let inner_len = r_bytes.length() + s_bytes.length()
+  let len_prefix = encode_der_length_field_p384(inner_len)
+  let total = 1 + len_prefix.length() + inner_len
+  Bytes::makei(total, fn(i) {
+    if i == 0 {
+      b'\x30'
+    } else if i < 1 + len_prefix.length() {
+      len_prefix[i - 1]
+    } else if i - 1 - len_prefix.length() < r_bytes.length() {
+      r_bytes[i - 1 - len_prefix.length()]
+    } else {
+      s_bytes[i - 1 - len_prefix.length() - r_bytes.length()]
+    }
+  })
+}
+
+///|
+fn encode_der_integer_p384(v : BigInt) -> Bytes {
+  let mut mag = v.to_octets()
+  let mut start = 0
+  while start < mag.length() - 1 && mag[start] == b'\x00' {
+    start = start + 1
+  }
+  if start > 0 {
+    mag = Bytes::makei(mag.length() - start, fn(i) { mag[i + start] })
+  }
+  let needs_sign = (mag[0].to_int() & 0x80) != 0
+  let body_len = mag.length() + (if needs_sign { 1 } else { 0 })
+  let len_prefix = encode_der_length_field_p384(body_len)
+  let total = 1 + len_prefix.length() + body_len
+  Bytes::makei(total, fn(i) {
+    if i == 0 {
+      b'\x02'
+    } else if i < 1 + len_prefix.length() {
+      len_prefix[i - 1]
+    } else if needs_sign && i == 1 + len_prefix.length() {
+      b'\x00'
+    } else {
+      let mag_idx = i - 1 - len_prefix.length() - (if needs_sign { 1 } else { 0 })
+      mag[mag_idx]
+    }
+  })
+}
+
+///|
+fn encode_der_length_field_p384(n : Int) -> Bytes {
+  if n < 0x80 {
+    Bytes::makei(1, fn(_) { n.to_byte() })
+  } else if n < 0x100 {
+    Bytes::makei(2, fn(i) { if i == 0 { b'\x81' } else { n.to_byte() } })
+  } else if n < 0x10000 {
+    Bytes::makei(3, fn(i) {
+      if i == 0 {
+        b'\x82'
+      } else if i == 1 {
+        ((n >> 8) & 0xff).to_byte()
+      } else {
+        (n & 0xff).to_byte()
+      }
+    })
+  } else {
+    abort("DER length too big")
+  }
+}
+
+// ─── RFC 6979 (HMAC-SHA-384, 48-byte) ────────────────────────────────────
+
+///|
+priv struct Rfc6979State384 {
+  v : Bytes
+  k : Bytes
+}
+
+///|
+fn rfc6979_init_384(
+  d : BigInt,
+  h1 : Bytes,
+  rlen : Int,
+  q : BigInt,
+) -> Rfc6979State384 {
+  let hlen = h1.length()
+  let v0 = Bytes::makei(hlen, fn(_) { b'\x01' })
+  let k0 = Bytes::makei(hlen, fn(_) { b'\x00' })
+  let x_oct = d.to_octets(length=rlen)
+  let bb_h1 = bits2octets_384(h1, q, rlen)
+  let k1 = @hash.hmac_sha384(k0, concat4_384(v0, b"\x00", x_oct, bb_h1))
+  let v1 = @hash.hmac_sha384(k1, v0)
+  let k2 = @hash.hmac_sha384(k1, concat4_384(v1, b"\x01", x_oct, bb_h1))
+  let v2 = @hash.hmac_sha384(k2, v1)
+  { v: v2, k: k2 }
+}
+
+///|
+fn rfc6979_next_384(
+  state : Rfc6979State384,
+  rlen : Int,
+  q : BigInt,
+) -> (BigInt, Rfc6979State384) {
+  let qlen_bits = bit_length_384(q)
+  let mut v = state.v
+  let mut t : Bytes = b""
+  while t.length() < rlen {
+    v = @hash.hmac_sha384(state.k, v)
+    t = concat2_384(t, v)
+  }
+  let k_int = bits2int_384(t, qlen_bits)
+  if k_int.compare(BigInt::from_int(0)) > 0 && k_int.compare(q) < 0 {
+    let new_k = @hash.hmac_sha384(state.k, concat2_384(v, b"\x00"))
+    let new_v = @hash.hmac_sha384(new_k, v)
+    return (k_int, { v: new_v, k: new_k })
+  }
+  let new_k = @hash.hmac_sha384(state.k, concat2_384(v, b"\x00"))
+  let new_v = @hash.hmac_sha384(new_k, v)
+  rfc6979_next_384({ v: new_v, k: new_k }, rlen, q)
+}
+
+///|
+fn bits2octets_384(b : Bytes, q : BigInt, rlen : Int) -> Bytes {
+  let z1 = bits2int_384(b, bit_length_384(q))
+  let z2 = z1 % q
+  let z3 = if z2.compare(BigInt::from_int(0)) < 0 { z2 + q } else { z2 }
+  z3.to_octets(length=rlen)
+}
+
+///|
+fn bits2int_384(b : Bytes, qlen_bits : Int) -> BigInt {
+  let blen = b.length() * 8
+  let mut v = BigInt::from_octets(b[:])
+  if blen > qlen_bits {
+    let shift = blen - qlen_bits
+    v = v >> shift
+  }
+  v
+}
+
+///|
+fn bit_length_384(x : BigInt) -> Int {
+  let bytes = x.to_octets()
+  let mut start = 0
+  while start < bytes.length() && bytes[start] == b'\x00' {
+    start = start + 1
+  }
+  if start >= bytes.length() {
+    return 0
+  }
+  let leading = bytes[start].to_int()
+  let mut bits = (bytes.length() - start - 1) * 8
+  let mut b = leading
+  while b > 0 {
+    bits = bits + 1
+    b = b >> 1
+  }
+  bits
+}
+
+///|
+fn concat2_384(a : Bytes, b : Bytes) -> Bytes {
+  Bytes::makei(a.length() + b.length(), fn(i) {
+    if i < a.length() {
+      a[i]
+    } else {
+      b[i - a.length()]
+    }
+  })
+}
+
+///|
+fn concat4_384(a : Bytes, b : Bytes, c : Bytes, d : Bytes) -> Bytes {
+  let na = a.length()
+  let nb = b.length()
+  let nc = c.length()
+  let nd = d.length()
+  Bytes::makei(na + nb + nc + nd, fn(i) {
+    if i < na {
+      a[i]
+    } else if i < na + nb {
+      b[i - na]
+    } else if i < na + nb + nc {
+      c[i - na - nb]
+    } else {
+      d[i - na - nb - nc]
+    }
+  })
 }

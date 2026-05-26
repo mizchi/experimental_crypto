@@ -273,3 +273,29 @@ test "ATTACK CVE-2020-0601 (Curveball)-style on P-384: off-curve pubkey rejected
   }
   assert_true(raised)
 }
+
+///|
+test "p384: sign+verify roundtrip is deterministic" {
+  let scalar = hex(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let msg : Bytes = b"hello p384 sign"
+  let sig1 = sk.sign(msg)
+  let sig2 = sk.sign(msg)
+  assert_eq(sig1, sig2)
+  assert_true(@p384.verify(pk, msg, sig1, Raw))
+}
+
+///|
+test "p384: sign emits DER" {
+  let scalar = hex(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let der = sk.sign(b"hello p384 sign", format=Der)
+  assert_eq(der[0], b'\x30')
+  assert_true(@p384.verify(pk, b"hello p384 sign", der, Der))
+}

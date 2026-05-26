@@ -321,3 +321,85 @@ pub fn verify(
 ) -> Bool raise RsaError {
   pubkey.verify(message, signature, hash)
 }
+
+// ─── private key + PKCS#1 v1.5 sign ──────────────────────────────────────
+
+///|
+/// RSA private key. The CRT parameters (p, q, dP, dQ, qInv) are recommended
+/// for performance but optional — basic `(n, d)` is enough for sign.
+pub(all) struct RsaPrivateKey {
+  n : BigInt
+  e : BigInt
+  d : BigInt
+  n_bytes_len : Int
+}
+
+///|
+/// Parse a PKCS#1 v1.5 RSAPrivateKey DER blob (the inner form, without
+/// the PKCS#8 envelope):
+///   RSAPrivateKey ::= SEQUENCE {
+///     version INTEGER,
+///     modulus INTEGER,
+///     publicExponent INTEGER,
+///     privateExponent INTEGER,
+///     prime1, prime2, exponent1, exponent2, coefficient INTEGER
+///   }
+///
+/// Only the first four fields (version, n, e, d) are read; the CRT
+/// parameters are skipped.
+pub fn RsaPrivateKey::from_pkcs1_der(der : Bytes) -> RsaPrivateKey raise RsaError {
+  let elem = decode_one(der)
+  let items = expect_sequence(elem)
+  if items.length() < 4 {
+    raise InvalidEncoding("RSAPrivateKey arity < 4")
+  }
+  // version must be 0 (two-prime) per RFC 8017 §A.1.2.
+  let v = integer_to_bigint(expect_integer_bytes(items[0]))
+  if v.compare(BigInt::from_int(0)) != 0 {
+    raise InvalidEncoding("RSAPrivateKey: version != 0 (multi-prime)")
+  }
+  let n_bytes = expect_integer_bytes(items[1])
+  let e_bytes = expect_integer_bytes(items[2])
+  let d_bytes = expect_integer_bytes(items[3])
+  let n_b = strip_zero(n_bytes)
+  let n = integer_to_bigint(n_bytes)
+  let e = integer_to_bigint(e_bytes)
+  let d = integer_to_bigint(d_bytes)
+  { n, e, d, n_bytes_len: n_b.length() }
+}
+
+///|
+/// Derive the public key from this private key. No private material leaks
+/// across the boundary.
+pub fn RsaPrivateKey::public_key(self : RsaPrivateKey) -> RsaPublicKey {
+  { n: self.n, e: self.e, n_bytes_len: self.n_bytes_len }
+}
+
+///|
+/// RSASSA-PKCS1-v1_5 sign (RFC 8017 §8.2.1).
+///
+///   s = (EM_to_integer(EMSA_PKCS1_v15(hash, message, k))) ^ d mod n
+///
+/// where k = n_bytes_len. Returns the k-byte signature.
+pub fn RsaPrivateKey::sign(
+  self : RsaPrivateKey,
+  message : Bytes,
+  hash : HashAlg,
+) -> Bytes raise RsaError {
+  let em = emsa_pkcs1_v1_5_encode(hash, message, self.n_bytes_len)
+  // OS2IP — interpret EM as a non-negative integer.
+  let m = BigInt::from_octets(em[:])
+  // s = m^d mod n.
+  let s = m.pow(self.d, modulus=self.n)
+  // I2OSP — encode as fixed-length big-endian.
+  s.to_octets(length=self.n_bytes_len)
+}
+
+///|
+fn strip_zero(b : Bytes) -> Bytes {
+  if b.length() > 1 && b[0] == b'\x00' {
+    Bytes::makei(b.length() - 1, fn(i) { b[i + 1] })
+  } else {
+    b
+  }
+}

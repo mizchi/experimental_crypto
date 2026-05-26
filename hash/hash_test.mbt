@@ -159,3 +159,28 @@ test "hmac_sha256_compute reuses context" {
   assert_eq(a, c)
   assert_false(a == b)
 }
+
+///|
+test "hmac_sha384: RFC 4231 case 1" {
+  // key=0x0b*20, msg="Hi There"
+  let key = Bytes::makei(20, fn(_) { b'\x0b' })
+  let tag = @hash.hmac_sha384(key, b"Hi There")
+  assert_eq(
+    tag,
+    hex_to_bytes(
+      "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6",
+    ),
+  )
+}
+
+///|
+test "hmac_sha512: RFC 4231 case 1" {
+  let key = Bytes::makei(20, fn(_) { b'\x0b' })
+  let tag = @hash.hmac_sha512(key, b"Hi There")
+  assert_eq(
+    tag,
+    hex_to_bytes(
+      "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
+    ),
+  )
+}

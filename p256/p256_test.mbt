@@ -305,3 +305,62 @@ test "ATTACK CVE-2020-0601 (Curveball)-style: off-curve pubkey rejected at parse
   }
   assert_true(raised)
 }
+
+// -----------------------------------------------------------------------------
+// Sign + roundtrip (RFC 6979 deterministic ECDSA)
+// -----------------------------------------------------------------------------
+
+///|
+test "p256: sign+verify roundtrip is deterministic" {
+  let scalar = hex(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let msg : Bytes = b"sample"
+  let sig1 = sk.sign(msg)
+  let sig2 = sk.sign(msg)
+  // Determinism: same input ⇒ same signature.
+  assert_eq(sig1, sig2)
+  // Verify.
+  assert_true(@p256.verify(pk, msg, sig1, Raw))
+}
+
+///|
+test "p256: sign tampered message produces a different signature" {
+  let scalar = hex(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let sig_a = sk.sign(b"sample")
+  let sig_b = sk.sign(b"test")
+  assert_false(sig_a == sig_b)
+  // Cross verification fails.
+  assert_false(@p256.verify(pk, b"sample", sig_b, Raw))
+  assert_false(@p256.verify(pk, b"test", sig_a, Raw))
+}
+
+///|
+test "p256: from_bytes rejects out-of-range scalar" {
+  // All-zero scalar
+  let zero = Bytes::makei(32, fn(_) { b'\x00' })
+  match (try? @p256.PrivateKey::from_bytes(zero)) {
+    Err(InvalidPrivateKey(_)) => ()
+    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
+    Ok(_) => abort("expected raise on zero scalar, got Ok")
+  }
+}
+
+///|
+test "p256: sign emits a DER signature when requested" {
+  let scalar = hex(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = sk.public_key()
+  let der_sig = sk.sign(b"sample", format=Der)
+  // DER SEQUENCE prefix.
+  assert_eq(der_sig[0], b'\x30')
+  assert_true(@p256.verify(pk, b"sample", der_sig, Der))
+}
