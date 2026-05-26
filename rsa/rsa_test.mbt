@@ -339,3 +339,45 @@ test "rsa: tampered message verifies as false" {
   let sig = sk.sign(b"original", Sha256)
   assert_false(pk.verify(b"tampered", sig, Sha256))
 }
+
+// -----------------------------------------------------------------------------
+// PKCS#8 PEM loader
+// -----------------------------------------------------------------------------
+
+///|
+test "rsa: from_pkcs8_pem loads an openssl-generated PEM" {
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC1dxcX+LKQT7dY
+    #|Ijp33/KdG7mMTZlB0NNth734XxngLtK0jIctq058117XCdDgX3wMJ1Sqbs46/iiI
+    #|A9NnTsOcZLL2q/7sPYnWfw5+hIPbwSlEFmq09dO+anrj2cK9/WZBIdZAgxnAR5jH
+    #|6Qizs8fwSpM5GjvRHAlM9I5pXBE1hMtnd2HhFyFUxF+LfEbLg8wVrKDW71iINPZT
+    #|GpW+0vm386LzDBSutHiRu/mw67uYz+9JX9t2H7ZCv5wyQ9x5X/rv3lYz8im4X/uC
+    #|Y6ls2Uf4AX0MfqrjD0K7Xqk4+BYuADHK4mmkv7YZuIVOK+ix4VrR8LXUn0js+1p7
+    #|YuheeHUVAgMBAAECggEAHxVpNUf6flHJXCVw0nvf+R14qRnZuLZmoQpxdgwESKx8
+    #|l0TDGwWPCj9yFW+vAeAZRZOvIwqb9Or4UmQlYDrTswRky3Am2Jyp8b4N44obdBcg
+    #|VHNqj9jUDnf62PDCNP0k+N8s7hwG2zLobsXyIaYYB4cetNdTi7w7s5zokA+fOwVc
+    #|UUPaa0rKrEAKCbrS3p0tCkvFaX4aB5QS+Vld5dMRJc667dTOt56YI9lTHJXonpUl
+    #|nYTwYHr7m5fjK+8ejJBm7s9NwS4NqMTScr6qm8/tVmJW4o/3Y5M+qbDNYbqvgqpN
+    #|ksR2FTf25ZNf+oR/TR+3PzACoPk8nYMQWljR0l41eQKBgQDhIGFUzRGmbNdJdIHy
+    #|oAO9f+lEOS9zHEeXJ94cTpm6xqLrDM+KaT5salsAJ9ylKpR2JfAt5qMGma5/SkjA
+    #|2fmCRInATanv7fR3nT3xYBCBCKOF2brT7CvUJvSqJnYGQ9AfTVrQjYm9fYER140m
+    #|ZSY0akHqNwHExpZRErRfLVtZ6wKBgQDOWd93C8jGrvHqCYygfFE5mxSwMAbfrqZk
+    #|eP2kpeH5jWPbal674i/z7Pd16VxSHuyz9USUlJBuvxty1iQwp8VB0gA+I0+BAyVX
+    #|e34rG+n/2OO0xZrLEjGCFCzm+puTGXE9v5Hi2MWW4cNjRlsI3VUGOwDlCvEUh3Tp
+    #|XBEu3DCs/wKBgBegbFaYBwguWBHPdmveO0ZCDFsqnT45c5H7jyXtYdjmS+bbO1TN
+    #|Ys3CA7bqeA+lfls/9Ar9L5LbwiJ9y1DiD3uKceKKxBD4KjX7fKq+aD0CiRbdGOxw
+    #|1tC3HepViwFxUIBYf/VvRUtrxoX210t2RiIuHKjWCQt7w/7SNbffbLztAoGBAMzn
+    #|5cVbCFZzJnoWXXSHvkiLvLFwH4NC9KvUkVpL9udOBZi+ObAsXR3Fc728qxZI6xeQ
+    #|ODeqhvnR/7m691jxYCmKFP+fJLWhoBUM5i58m5KZlxPNHXcFa/AVhLkgphgeLZr5
+    #|fi5av2qiaNlN5dwZnPKA6NSIVvjhwbBw4gc8U4GVAoGAM4SzRs6vqMWEWuWyjUIC
+    #|RGdwkzsNjHE6Pv4xAeEl0dq5NRwwjBLEf+ydxLyehLNEGhvOgQIO7M7qkftmYxVx
+    #|X48PFWrS5d0SK7jtKFdScwWFD2kCA6+EjGlTeQMyS/xb+bVcFkRItjg2+mtHGmNT
+    #|Rolbhxd8JzI+RynTuqhZL24=
+    #|-----END PRIVATE KEY-----
+  let sk = @rsa.RsaPrivateKey::from_pkcs8_pem(pem_text)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pem-loaded RSA sign test"
+  let sig = sk.sign(msg, Sha256)
+  assert_true(pk.verify(msg, sig, Sha256))
+}

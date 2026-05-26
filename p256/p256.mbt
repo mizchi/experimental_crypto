@@ -776,3 +776,77 @@ fn concat4(a : Bytes, b : Bytes, c : Bytes, d : Bytes) -> Bytes {
     }
   })
 }
+
+// ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
+
+///|
+fn ec_public_key_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 2, 1])
+}
+
+///|
+/// Load a P-256 private key from a PKCS#8 PrivateKeyInfo DER blob.
+/// The private_key field contains a SEC1 ECPrivateKey SEQUENCE:
+///   ECPrivateKey ::= SEQUENCE {
+///     version INTEGER (1),
+///     privateKey OCTET STRING,   -- raw scalar bytes
+///     parameters [0] OPTIONAL,
+///     publicKey [1] OPTIONAL
+///   }
+pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P256Error {
+  let info = @pkcs8.parse_der(der) catch {
+    e => raise InvalidPrivateKey("pkcs8: " + e.to_string())
+  }
+  if info.algorithm.algorithm != ec_public_key_oid_for_pkcs8() {
+    raise InvalidPrivateKey(
+      "expected id-ecPublicKey, got " + info.algorithm.algorithm.to_string(),
+    )
+  }
+  // The inner SEC1 ECPrivateKey is in info.private_key.
+  let inner_elem = @asn1.decode_der(info.private_key) catch {
+    e => raise Asn1(e)
+  }
+  let items = match inner_elem.value {
+    Sequence(xs) => xs
+    _ => raise InvalidPrivateKey("SEC1 ECPrivateKey not a SEQUENCE")
+  }
+  if items.length() < 2 {
+    raise InvalidPrivateKey("SEC1 ECPrivateKey arity < 2")
+  }
+  // items[0] is INTEGER version, items[1] is OCTET STRING privateKey.
+  let scalar_bytes = match items[1].value {
+    OctetString(b) => b
+    _ => raise InvalidPrivateKey("SEC1 privateKey not OCTET STRING")
+  }
+  // Some emitters omit leading zeros; left-pad to 32 bytes.
+  let padded = if scalar_bytes.length() == 32 {
+    scalar_bytes
+  } else if scalar_bytes.length() < 32 {
+    let pad = 32 - scalar_bytes.length()
+    Bytes::makei(32, fn(i) {
+      if i < pad {
+        b'\x00'
+      } else {
+        scalar_bytes[i - pad]
+      }
+    })
+  } else {
+    raise InvalidPrivateKey(
+      "EC scalar wider than 32 bytes: " + scalar_bytes.length().to_string(),
+    )
+  }
+  PrivateKey::from_bytes(padded)
+}
+
+///|
+pub fn PrivateKey::from_pkcs8_pem(pem_str : String) -> PrivateKey raise P256Error {
+  let block = @pem.decode(pem_str) catch {
+    _ => raise InvalidPrivateKey("pem")
+  }
+  if block.label != "PRIVATE KEY" {
+    raise InvalidPrivateKey(
+      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
+    )
+  }
+  PrivateKey::from_pkcs8_der(block.data)
+}

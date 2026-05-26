@@ -69,7 +69,7 @@ pub fn parse_public_key_packet(
     let (e_bytes, _) = read_mpi(body, 6 + n_consumed)
     let n = BigInt::from_octets(n_bytes[:])
     let e = BigInt::from_octets(e_bytes[:])
-    Rsa({ n, e, n_bytes_len: n_bytes.length() })
+    PgpPublicKey::Rsa({ n, e, n_bytes_len: n_bytes.length() })
   } else if algo == algo_eddsa_legacy {
     // RFC 4880bis §13.3: 1-byte OID length || OID bytes || MPI (0x40 || raw_pubkey)
     let oid_len = body[6].to_int()
@@ -87,7 +87,7 @@ pub fn parse_public_key_packet(
     let pk = @ed25519.PublicKey::from_bytes(raw) catch {
       _ => raise InvalidMpi("ed25519 pubkey")
     }
-    Ed25519(pk)
+    PgpPublicKey::Ed25519(pk)
   } else if algo == algo_ecdsa {
     // RFC 4880 §5.5.2: 1-byte OID length || OID bytes || MPI(SEC1 uncompressed point)
     let oid_len = body[6].to_int()
@@ -101,12 +101,12 @@ pub fn parse_public_key_packet(
       let pk = @p256.PublicKey::from_uncompressed(mpi_bytes) catch {
         _ => raise InvalidMpi("p256 ecdsa pubkey")
       }
-      EcdsaP256(pk)
+      PgpPublicKey::EcdsaP256(pk)
     } else if is_p384_oid(oid_bytes) {
       let pk = @p384.PublicKey::from_uncompressed(mpi_bytes) catch {
         _ => raise InvalidMpi("p384 ecdsa pubkey")
       }
-      EcdsaP384(pk)
+      PgpPublicKey::EcdsaP384(pk)
     } else {
       raise UnsupportedPubkeyAlgo(algo)
     }

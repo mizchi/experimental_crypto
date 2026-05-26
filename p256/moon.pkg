@@ -1,4 +1,7 @@
 import {
   "mizchi/asn1" @asn1,
   "mizchi/hash" @hash,
+  "mizchi/pkcs8" @pkcs8,
+  "mizchi/pem" @pem,
+  "mizchi/pkix" @pkix,
 }

@@ -88,6 +88,7 @@ pub fn compute_signed_data(
 fn hash_message(alg : String, message : Bytes) -> Bytes raise SshError {
   match alg {
     "sha256" => @hash.sha256(message)
+    "sha384" => @hash.sha384(message)
     "sha512" => @hash.sha512(message)
     _ => raise HashAlgorithmMismatch(alg)
   }

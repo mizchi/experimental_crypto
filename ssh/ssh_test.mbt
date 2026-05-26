@@ -300,3 +300,39 @@ test "ssh: allowed_signers verifies RSA via verify_with_allowed_signers" {
     ),
   )
 }
+
+// -----------------------------------------------------------------------------
+// Multi-algorithm sign roundtrips
+// -----------------------------------------------------------------------------
+
+///|
+test "ssh: sign_armor_with P-256 roundtrip" {
+  let scalar = Bytes::makei(32, fn(i) { (i + 1).to_byte() })
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk = @ssh.SshPublicKey::P256(sk.public_key())
+  let armor = @ssh.sign_armor_with(@ssh.SshPrivateKey::P256(sk), b"hello p256 ssh")
+  assert_true(@ssh.verify_armor_with(armor, b"hello p256 ssh", pk))
+}
+
+///|
+test "ssh: sign_armor_with P-384 roundtrip" {
+  let scalar = Bytes::makei(48, fn(i) { (i + 1).to_byte() })
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let pk = @ssh.SshPublicKey::P384(sk.public_key())
+  let armor = @ssh.sign_armor_with(@ssh.SshPrivateKey::P384(sk), b"hello p384 ssh")
+  assert_true(@ssh.verify_armor_with(armor, b"hello p384 ssh", pk))
+}
+
+///|
+test "ssh: sign_armor_with Ed25519 (backward compat smoke)" {
+  let seed = Bytes::makei(32, fn(i) { (i + 2).to_byte() })
+  let edk = @ed25519.PrivateKey::from_seed(seed)
+  let armor = @ssh.sign_armor_with(@ssh.SshPrivateKey::Ed25519(edk), b"compat")
+  assert_true(
+    @ssh.verify_armor_with(
+      armor,
+      b"compat",
+      @ssh.SshPublicKey::Ed25519(edk.public_key()),
+    ),
+  )
+}

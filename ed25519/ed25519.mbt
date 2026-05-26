@@ -1207,3 +1207,55 @@ fn fe_pow_p58(z : Fe) -> Fe {
   t = fe_sqr(t)
   fe_mul(t, z)
 }
+
+// ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
+
+///|
+fn ed25519_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
+  // id-Ed25519 from RFC 8410.
+  @asn1.ObjectIdentifier::from_arcs([1U, 3, 101, 112])
+}
+
+///|
+/// Load an Ed25519 private key from a PKCS#8 PrivateKeyInfo DER blob.
+/// RFC 8410 §7: the `private_key` field is itself an OCTET STRING that
+/// wraps the 32-byte seed (CurvePrivateKey ::= OCTET STRING).
+pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error {
+  let info = @pkcs8.parse_der(der) catch {
+    e => raise InvalidEncoding("pkcs8: " + e.to_string())
+  }
+  if info.algorithm.algorithm != ed25519_oid_for_pkcs8() {
+    raise InvalidEncoding(
+      "expected id-Ed25519, got " + info.algorithm.algorithm.to_string(),
+    )
+  }
+  // Inner OCTET STRING wrapping the 32-byte seed.
+  let inner = @asn1.decode_der(info.private_key) catch {
+    e => raise InvalidEncoding("inner OCTET STRING: " + e.to_string())
+  }
+  let seed = match inner.value {
+    OctetString(b) => b
+    _ => raise InvalidEncoding("expected OCTET STRING wrapping ed25519 seed")
+  }
+  if seed.length() != 32 {
+    raise InvalidEncoding(
+      "ed25519 seed must be 32 bytes, got " + seed.length().to_string(),
+    )
+  }
+  PrivateKey::from_seed(seed)
+}
+
+///|
+/// Convenience: parse a `-----BEGIN PRIVATE KEY-----` PEM and return the
+/// contained Ed25519 private key.
+pub fn PrivateKey::from_pkcs8_pem(pem_str : String) -> PrivateKey raise Ed25519Error {
+  let block = @pem.decode(pem_str) catch {
+    e => raise InvalidEncoding("pem: " + e.to_string())
+  }
+  if block.label != "PRIVATE KEY" {
+    raise InvalidEncoding(
+      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
+    )
+  }
+  PrivateKey::from_pkcs8_der(block.data)
+}

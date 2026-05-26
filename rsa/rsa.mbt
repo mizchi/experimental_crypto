@@ -403,3 +403,37 @@ fn strip_zero(b : Bytes) -> Bytes {
     b
   }
 }
+
+// ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
+
+///|
+fn rsa_encryption_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 1, 1])
+}
+
+///|
+/// Load an RSA private key from a PKCS#8 PrivateKeyInfo DER blob (the
+/// `BEGIN PRIVATE KEY` PEM body, post-base64-decode). Verifies the
+/// algorithm OID is rsaEncryption (1.2.840.113549.1.1.1).
+pub fn RsaPrivateKey::from_pkcs8_der(der : Bytes) -> RsaPrivateKey raise RsaError {
+  let info = @pkcs8.parse_der(der) catch {
+    e => raise InvalidEncoding("pkcs8: " + e.to_string())
+  }
+  if info.algorithm.algorithm != rsa_encryption_oid_for_pkcs8() {
+    raise UnsupportedAlgorithm(info.algorithm.algorithm.to_string())
+  }
+  RsaPrivateKey::from_pkcs1_der(info.private_key)
+}
+
+///|
+/// Convenience: parse a `-----BEGIN PRIVATE KEY-----` PEM (unencrypted)
+/// and return the contained RSA private key.
+pub fn RsaPrivateKey::from_pkcs8_pem(pem_str : String) -> RsaPrivateKey raise RsaError {
+  let block = @pem.decode(pem_str) catch {
+    e => raise InvalidEncoding("pem: " + e.to_string())
+  }
+  if block.label != "PRIVATE KEY" {
+    raise InvalidEncoding("expected -----BEGIN PRIVATE KEY----- label, got " + block.label)
+  }
+  RsaPrivateKey::from_pkcs8_der(block.data)
+}

@@ -245,3 +245,159 @@ fn parse_ed25519_sig_blob(blob : Bytes) -> Bytes raise SshError {
   }
   sig
 }
+
+// ─── multi-algorithm sign ────────────────────────────────────────────────
+
+///|
+pub(all) enum SshPrivateKey {
+  Ed25519(@ed25519.PrivateKey)
+  P256(@p256.PrivateKey)
+  P384(@p384.PrivateKey)
+  // RSA SSH signing emits either rsa-sha2-256 or rsa-sha2-512. The
+  // hash choice is encoded in the armor by `sign_armor_with`'s
+  // `hash_algorithm` parameter (default "sha512", matching modern
+  // ssh-keygen).
+  Rsa(@rsa.RsaPrivateKey)
+}
+
+///|
+/// Produce an armored SSHSIG using any supported private-key kind.
+/// `namespace` defaults to "git". `hash_algorithm` picks SHA-256 /
+/// SHA-384 / SHA-512; the canonical pairing is:
+///   Ed25519 → sha512
+///   P-256   → sha256
+///   P-384   → sha384
+///   RSA     → sha256 or sha512 (we default to sha512)
+pub fn sign_armor_with(
+  privkey : SshPrivateKey,
+  message : Bytes,
+  namespace? : String = "git",
+  hash_algorithm? : String = "",
+) -> String raise SshError {
+  // Default hash per algorithm if caller didn't supply one.
+  let actual_hash = if hash_algorithm == "" {
+    match privkey {
+      Ed25519(_) => "sha512"
+      P256(_) => "sha256"
+      P384(_) => "sha384"
+      Rsa(_) => "sha512"
+    }
+  } else {
+    hash_algorithm
+  }
+  let signed_data = compute_signed_data(namespace, actual_hash, message)
+  let (pubkey_blob, inner_blob) = match privkey {
+    Ed25519(sk) => {
+      let raw_sig = sk.sign(signed_data)
+      let inner = WireWriter::new()
+      inner.write_string_ascii(ed25519_algo)
+      inner.write_string(raw_sig)
+      (serialize_ed25519_pubkey(sk.public_key()), inner.to_bytes())
+    }
+    P256(sk) => {
+      // @p256.sign returns r||s (64 bytes Raw form). SSH wants
+      // wire-format mpint(r), mpint(s).
+      let raw_sig = sk.sign(signed_data)
+      let r_bytes = Bytes::makei(32, fn(i) { raw_sig[i] })
+      let s_bytes = Bytes::makei(32, fn(i) { raw_sig[i + 32] })
+      let inner_sig = WireWriter::new()
+      inner_sig.write_string(mpint_encode(r_bytes))
+      inner_sig.write_string(mpint_encode(s_bytes))
+      let inner = WireWriter::new()
+      inner.write_string_ascii(ecdsa_p256_algo)
+      inner.write_string(inner_sig.to_bytes())
+      (serialize_p256_pubkey(sk.public_key()), inner.to_bytes())
+    }
+    P384(sk) => {
+      let raw_sig = sk.sign(signed_data)
+      let r_bytes = Bytes::makei(48, fn(i) { raw_sig[i] })
+      let s_bytes = Bytes::makei(48, fn(i) { raw_sig[i + 48] })
+      let inner_sig = WireWriter::new()
+      inner_sig.write_string(mpint_encode(r_bytes))
+      inner_sig.write_string(mpint_encode(s_bytes))
+      let inner = WireWriter::new()
+      inner.write_string_ascii(ecdsa_p384_algo)
+      inner.write_string(inner_sig.to_bytes())
+      (serialize_p384_pubkey(sk.public_key()), inner.to_bytes())
+    }
+    Rsa(sk) => {
+      let (rsa_hash, rsa_algo_name) = if actual_hash == "sha256" {
+        (@rsa.HashAlg::Sha256, rsa_sha256_algo)
+      } else if actual_hash == "sha512" {
+        (@rsa.HashAlg::Sha512, rsa_sha512_algo)
+      } else {
+        raise UnsupportedAlgorithm("RSA SSH hash " + actual_hash)
+      }
+      let raw_sig = sk.sign(signed_data, rsa_hash) catch {
+        _ => raise InvalidSignature
+      }
+      let inner = WireWriter::new()
+      inner.write_string_ascii(rsa_algo_name)
+      inner.write_string(raw_sig)
+      (serialize_rsa_pubkey(sk.public_key()), inner.to_bytes())
+    }
+  }
+  let w = WireWriter::new()
+  w.write_bytes_raw(sshsig_magic)
+  w.write_uint32(sshsig_version)
+  w.write_string(pubkey_blob)
+  w.write_string_ascii(namespace)
+  w.write_string(b"")
+  w.write_string_ascii(actual_hash)
+  w.write_string(inner_blob)
+  encode_sshsig_armor(w.to_bytes())
+}
+
+///|
+// Encode a non-negative byte string as an SSH mpint (RFC 4251 §5):
+//   - strip leading 0x00 bytes
+//   - if the first byte's high bit is set, prepend a 0x00 sign byte
+//   - zero magnitude → empty bytes
+fn mpint_encode(b : Bytes) -> Bytes {
+  let mut start = 0
+  while start < b.length() && b[start] == b'\x00' {
+    start = start + 1
+  }
+  if start == b.length() {
+    return b""
+  }
+  let needs_sign = (b[start].to_int() & 0x80) != 0
+  let n = b.length() - start
+  let total = n + (if needs_sign { 1 } else { 0 })
+  Bytes::makei(total, fn(i) {
+    if needs_sign && i == 0 {
+      b'\x00'
+    } else {
+      let src = i - (if needs_sign { 1 } else { 0 })
+      b[start + src]
+    }
+  })
+}
+
+///|
+fn serialize_p256_pubkey(pk : @p256.PublicKey) -> Bytes {
+  let w = WireWriter::new()
+  w.write_string_ascii(ecdsa_p256_algo)
+  w.write_string_ascii("nistp256")
+  w.write_string(pk.to_uncompressed())
+  w.to_bytes()
+}
+
+///|
+fn serialize_p384_pubkey(pk : @p384.PublicKey) -> Bytes {
+  let w = WireWriter::new()
+  w.write_string_ascii(ecdsa_p384_algo)
+  w.write_string_ascii("nistp384")
+  w.write_string(pk.to_uncompressed())
+  w.to_bytes()
+}
+
+///|
+fn serialize_rsa_pubkey(pk : @rsa.RsaPublicKey) -> Bytes {
+  let w = WireWriter::new()
+  w.write_string_ascii("ssh-rsa")
+  // SSH ssh-rsa: mpint e, mpint n.
+  w.write_string(mpint_encode(pk.e.to_octets()))
+  w.write_string(mpint_encode(pk.n.to_octets()))
+  w.to_bytes()
+}

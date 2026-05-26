@@ -100,3 +100,36 @@ test "pgp: armor CRC mismatch is detected" {
     Ok(_) => abort("expected ArmorCrcMismatch, got Ok")
   }
 }
+
+// -----------------------------------------------------------------------------
+// Sign roundtrips (verify with our own verifier — gpg-binary
+// interoperability is left as a follow-up since we don't emit a UserID
+// packet, only the detached Signature packet).
+// -----------------------------------------------------------------------------
+
+///|
+test "pgp: sign Ed25519 + verify roundtrip" {
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), b"hello pgp ed25519")
+  assert_true(@pgp.verify_armor(armor, b"hello pgp ed25519", pk_pgp))
+}
+
+///|
+test "pgp: sign ECDSA P-256 + verify roundtrip" {
+  let scalar = Bytes::makei(32, fn(i) { (i + 7).to_byte() })
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk_pgp = @pgp.PgpPublicKey::EcdsaP256(sk.public_key())
+  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::EcdsaP256(sk), b"hello pgp p256")
+  assert_true(@pgp.verify_armor(armor, b"hello pgp p256", pk_pgp))
+}
+
+///|
+test "pgp: sign ECDSA P-384 + verify roundtrip" {
+  let scalar = Bytes::makei(48, fn(i) { (i + 11).to_byte() })
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let pk_pgp = @pgp.PgpPublicKey::EcdsaP384(sk.public_key())
+  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::EcdsaP384(sk), b"hello pgp p384")
+  assert_true(@pgp.verify_armor(armor, b"hello pgp p384", pk_pgp))
+}

@@ -364,3 +364,18 @@ test "p256: sign emits a DER signature when requested" {
   assert_eq(der_sig[0], b'\x30')
   assert_true(@p256.verify(pk, b"sample", der_sig, Der))
 }
+
+///|
+test "p256: from_pkcs8_pem loads an openssl-generated PEM" {
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIKluN20zxOVotJ6D
+    #|u3JIHFhXAiovZC/vYulSsZbP1i+hRANCAASZi/TRHBhjVyUAbwUFd8C7kWyWtNFG
+    #|kjXilOlARkbCYLJgZoJIQoD3SK88mEVVSuVHYi43m3JjkKRbStcft0HJ
+    #|-----END PRIVATE KEY-----
+  let sk = @p256.PrivateKey::from_pkcs8_pem(pem_text)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pem-loaded P-256 sign"
+  let sig = sk.sign(msg)
+  assert_true(@p256.verify(pk, msg, sig, Raw))
+}
