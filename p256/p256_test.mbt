@@ -22,7 +22,7 @@ fn hex(s : String) -> Bytes {
   while i < len {
     let hi = nibble(s.get_char(i * 2).unwrap())
     let lo = nibble(s.get_char(i * 2 + 1).unwrap())
-    out.unsafe_set(i, ((hi * 16) + lo).to_byte())
+    out.unsafe_set(i, (hi * 16 + lo).to_byte())
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out.unsafe_get(j) })
@@ -34,8 +34,12 @@ fn hex(s : String) -> Bytes {
 // signing input from §A.3.4. base64url-decoded to hex once and embedded here
 // so this test stays self-contained.
 fn rfc7515_a3_pubkey() -> @p256.PublicKey raise {
-  let x = hex("7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445")
-  let y = hex("c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad")
+  let x = hex(
+    "7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445",
+  )
+  let y = hex(
+    "c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad",
+  )
   let bytes = Bytes::makei(65, fn(i) {
     if i == 0 {
       b'\x04'
@@ -144,7 +148,9 @@ test "p256: roundtrip uncompressed" {
   assert_eq(bytes.length(), 65)
   assert_eq(bytes[0], b'\x04')
   let pk2 = @p256.PublicKey::from_uncompressed(bytes)
-  assert_true(@p256.verify(pk2, rfc7515_a3_signing_input(), rfc7515_a3_signature(), Raw))
+  assert_true(
+    @p256.verify(pk2, rfc7515_a3_signing_input(), rfc7515_a3_signature(), Raw),
+  )
 }
 
 ///|
@@ -175,9 +181,11 @@ test "p256: from_uncompressed rejects bad tag byte" {
     if i == 0 {
       b'\x02'
     } else if i < 33 {
-      hex("7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445")[i - 1]
+      hex("7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445")[i -
+      1]
     } else {
-      hex("c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad")[i - 33]
+      hex("c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad")[i -
+      33]
     }
   })
   let raised = try {
@@ -195,12 +203,22 @@ test "p256: DER signature round (re-encode A.3 r/s as SEQUENCE)" {
   // Manually wrap the A.3 r,s into ASN.1 DER SEQUENCE { INTEGER r, INTEGER s }
   // and verify the Der format path. r and s both have high bit set in some
   // bytes — we add a 0x00 sign byte when the top bit of the first byte is 1.
-  let r = hex("0ed1215379636c483c2f7f155807d402a3b228033af97c7e17819ac3169ea665")
-  let s = hex("c50a07d38c3c70e5d8f12daf084a5480a66590c5f293509a8f3f7f8a83a354d5")
+  let r = hex(
+    "0ed1215379636c483c2f7f155807d402a3b228033af97c7e17819ac3169ea665",
+  )
+  let s = hex(
+    "c50a07d38c3c70e5d8f12daf084a5480a66590c5f293509a8f3f7f8a83a354d5",
+  )
   fn der_int(b : Bytes) -> Bytes {
     let needs_pad = (b[0].to_int() & 0x80) != 0
     let body_len = b.length() + (if needs_pad { 1 } else { 0 })
-    let head = Bytes::makei(2, fn(i) { if i == 0 { b'\x02' } else { body_len.to_byte() } })
+    let head = Bytes::makei(2, fn(i) {
+      if i == 0 {
+        b'\x02'
+      } else {
+        body_len.to_byte()
+      }
+    })
     let body = if needs_pad {
       Bytes::makei(body_len, fn(i) { if i == 0 { b'\x00' } else { b[i - 1] } })
     } else {
@@ -245,13 +263,7 @@ test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
   // r = original r, s = 0. The Java vulnerability accepted this because the
   // verifier skipped the `1 <= s < n` range check.
   let sig = rfc7515_a3_signature()
-  let bad = Bytes::makei(64, fn(i) {
-    if i < 32 {
-      sig[i]
-    } else {
-      b'\x00'
-    }
-  })
+  let bad = Bytes::makei(64, fn(i) { if i < 32 { sig[i] } else { b'\x00' } })
   assert_false(@p256.verify(pk, msg, bad, Raw))
 }
 

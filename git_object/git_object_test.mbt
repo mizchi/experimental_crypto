@@ -22,7 +22,7 @@ fn hex_to_bytes(s : String) -> Bytes {
   while i < len {
     let hi = nib(s.get_char(i * 2).unwrap())
     let lo = nib(s.get_char(i * 2 + 1).unwrap())
-    out[i] = ((hi * 16) + lo).to_byte()
+    out[i] = (hi * 16 + lo).to_byte()
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out[j] })

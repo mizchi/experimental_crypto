@@ -35,15 +35,26 @@ pub fn verify_armor(
   }
   let digest = compute_signature_digest(sig, message)
   // Quick check: leftmost 16 bits of digest must match sig.left16.
-  let left =
-    (digest[0].to_uint() << 8) | digest[1].to_uint()
+  let left = (digest[0].to_uint() << 8) | digest[1].to_uint()
   if left != sig.left16 {
     return false
   }
   // Dispatch on (pubkey, pubkey_algo).
   match pubkey {
     Ed25519(pk) =>
-      if sig.pubkey_algo != algo_eddsa_legacy {
+      // v4 uses algo 22 (EdDSA legacy, MPI-wrapped r||s); v6 uses algo 27
+      // (raw 64-byte signature, no MPI). Reject mismatched pairings to
+      // keep representation strict.
+      if sig.version == 6 {
+        if sig.pubkey_algo != algo_ed25519 {
+          raise UnsupportedPubkeyAlgo(sig.pubkey_algo)
+        }
+        // RFC 9580 §5.2.3.3.4: Ed25519 v6 signature is 64 raw bytes.
+        if sig.signature_material.length() != 64 {
+          raise InvalidMpi("v6 ed25519 signature must be 64 bytes")
+        }
+        pk.verify(digest, sig.signature_material)
+      } else if sig.pubkey_algo != algo_eddsa_legacy {
         raise UnsupportedPubkeyAlgo(sig.pubkey_algo)
       } else {
         // Signature material: MPI r || MPI s, each 256 bits. Reject trailing
@@ -126,7 +137,9 @@ pub fn verify_armor(
 }
 
 ///|
-fn find_signature_packet(packets : Array[PgpPacket]) -> PgpSignature raise PgpError {
+fn find_signature_packet(
+  packets : Array[PgpPacket],
+) -> PgpSignature raise PgpError {
   for p in packets {
     if p.tag == 2 {
       return parse_signature_packet(p.body)
@@ -142,13 +155,7 @@ fn build_ed25519_sig(r : Bytes, s : Bytes) -> Bytes raise PgpError {
   }
   let r_pad = pad_left(r, 32)
   let s_pad = pad_left(s, 32)
-  Bytes::makei(64, fn(i) {
-    if i < 32 {
-      r_pad[i]
-    } else {
-      s_pad[i - 32]
-    }
-  })
+  Bytes::makei(64, fn(i) { if i < 32 { r_pad[i] } else { s_pad[i - 32] } })
 }
 
 ///|
@@ -168,39 +175,38 @@ fn build_ecdsa_raw(r : Bytes, s : Bytes, half : Int) -> Bytes raise PgpError {
 fn pad_left(b : Bytes, target : Int) -> Bytes raise PgpError {
   if b.length() > target {
     raise InvalidMpi(
-      "integer too wide: " +
-      b.length().to_string() +
-      " > " +
-      target.to_string(),
+      "integer too wide: " + b.length().to_string() + " > " + target.to_string(),
     )
   }
   let pad = target - b.length()
-  Bytes::makei(target, fn(i) {
-    if i < pad {
-      b'\x00'
-    } else {
-      b[i - pad]
-    }
-  })
+  Bytes::makei(target, fn(i) { if i < pad { b'\x00' } else { b[i - pad] } })
 }
 
 ///|
 // The bytes that @rsa.verify / @p256.verify / @p384.verify will pre-hash
-// internally to produce the digest. This is `message || hashed_subpackets_raw
-// || trailer`.
+// internally to produce the digest. For v4 this is `message || prelude ||
+// trailer`; for v6 it is `salt || message || prelude || trailer` with the
+// trailer's version byte set to 0x06.
 fn build_pre_hash_input(sig : PgpSignature, message : Bytes) -> Bytes {
   let prelude = sig.hashed_subpackets_raw
   let prelude_len = prelude.length()
-  let total = message.length() + prelude_len + 6
+  let salt_len = sig.salt.length()
+  let total = salt_len + message.length() + prelude_len + 6
   let buf = FixedArray::make(total, b'\x00')
+  let mut off = 0
+  for i = 0; i < salt_len; i = i + 1 {
+    buf[off + i] = sig.salt[i]
+  }
+  off = off + salt_len
   for i = 0; i < message.length(); i = i + 1 {
-    buf[i] = message[i]
+    buf[off + i] = message[i]
   }
+  off = off + message.length()
   for i = 0; i < prelude_len; i = i + 1 {
-    buf[message.length() + i] = prelude[i]
+    buf[off + i] = prelude[i]
   }
-  let off = message.length() + prelude_len
-  buf[off] = b'\x04'
+  off = off + prelude_len
+  buf[off] = if sig.version == 6 { b'\x06' } else { b'\x04' }
   buf[off + 1] = b'\xff'
   buf[off + 2] = ((prelude_len.to_uint() >> 24) & 0xffU).to_byte()
   buf[off + 3] = ((prelude_len.to_uint() >> 16) & 0xffU).to_byte()
@@ -239,12 +245,26 @@ pub(all) enum PgpPrivateKey {
 /// (2023-11-14, 1700000000) for reproducibility; pass the current time
 /// when producing real signatures so verifiers that enforce "signed
 /// within the last N hours" policies don't reject them.
+///
+/// `version`: 4 (default) or 6. Selects the Signature Packet wire format.
+/// When `version=6` we emit:
+///   - the v6 packet layout with 4-byte hashed/unhashed length fields
+///   - an empty salt (salt_len = 0) for reproducible test output. RFC 9580
+///     §5.2.3.3 mandates a non-empty random salt for SHA-512 (16-byte
+///     minimum) etc. for real signatures — pass a real salt for production
+///     by extending this API (currently caller-supplied salt is not exposed)
+///   - Ed25519 raises to algo 27 with raw 64-byte signature material (no MPI)
+///   - v6 trailer byte 0x06
 pub fn sign_armor(
   privkey : PgpPrivateKey,
   message : Bytes,
   hash_algo? : Int = 0,
   creation_time? : UInt = 1700000000U,
+  version? : Int = 4,
 ) -> String raise PgpError {
+  if version != 4 && version != 6 {
+    raise UnsupportedPacketVersion(version)
+  }
   let chosen_hash = if hash_algo == 0 {
     match privkey {
       Ed25519(_) => hash_sha512
@@ -256,7 +276,8 @@ pub fn sign_armor(
     hash_algo
   }
   let pubkey_algo = match privkey {
-    Ed25519(_) => algo_eddsa_legacy
+    // v4 EdDSA legacy is algo 22; v6 Ed25519 is algo 27.
+    Ed25519(_) => if version == 6 { algo_ed25519 } else { algo_eddsa_legacy }
     Rsa(_) => algo_rsa_sign_or_encrypt
     EcdsaP256(_) => algo_ecdsa
     EcdsaP384(_) => algo_ecdsa
@@ -266,56 +287,70 @@ pub fn sign_armor(
   // area is RFC-valid.
   let hashed_sub = build_creation_time_subpacket(creation_time)
   let hashed_sub_len = hashed_sub.length()
-  // hashed_subpackets_raw = version + sig_type + pubkey_algo + hash_algo
-  //   + 2-byte hashed_sub_len + hashed_sub
-  let prelude_len = 6 + hashed_sub_len
+  // Prelude length: v4 uses a 2-byte length field, v6 uses 4-byte.
+  let len_field = if version == 6 { 4 } else { 2 }
+  let prelude_len = 4 + len_field + hashed_sub_len
   let prelude = FixedArray::make(prelude_len, b'\x00')
-  prelude[0] = b'\x04'
+  prelude[0] = if version == 6 { b'\x06' } else { b'\x04' }
   prelude[1] = b'\x00' // sig_type = binary doc
   prelude[2] = pubkey_algo.to_byte()
   prelude[3] = chosen_hash.to_byte()
-  prelude[4] = ((hashed_sub_len >> 8) & 0xff).to_byte()
-  prelude[5] = (hashed_sub_len & 0xff).to_byte()
+  if version == 6 {
+    prelude[4] = ((hashed_sub_len.to_uint() >> 24) & 0xffU).to_byte()
+    prelude[5] = ((hashed_sub_len.to_uint() >> 16) & 0xffU).to_byte()
+    prelude[6] = ((hashed_sub_len.to_uint() >> 8) & 0xffU).to_byte()
+    prelude[7] = (hashed_sub_len.to_uint() & 0xffU).to_byte()
+  } else {
+    prelude[4] = ((hashed_sub_len >> 8) & 0xff).to_byte()
+    prelude[5] = (hashed_sub_len & 0xff).to_byte()
+  }
   for i = 0; i < hashed_sub_len; i = i + 1 {
-    prelude[6 + i] = hashed_sub[i]
+    prelude[4 + len_field + i] = hashed_sub[i]
   }
   let prelude_bytes = Bytes::makei(prelude_len, fn(j) { prelude[j] })
-  // Compute digest = H(message || prelude || trailer)
-  let digest = digest_for_pgp_sign(chosen_hash, message, prelude_bytes)
+  // For deterministic test output: empty salt for v6. RFC 9580 §5.2.3.3
+  // recommends a non-empty random salt; production callers should not
+  // ship this default.
+  let salt : Bytes = b""
+  // Compute digest = H(salt || message || prelude || trailer); for v4 the
+  // salt is b"" and the trailer's version byte is 0x04.
+  let digest = digest_for_pgp_sign(
+    chosen_hash, message, prelude_bytes, salt, version,
+  )
   // Sign the digest with the algorithm-specific path.
   let sig_material = match privkey {
     Ed25519(sk) => {
       // Ed25519 .sign(M) does the internal SHA-512(R||A||M). For OpenPGP
-      // v4 we want Ed25519 to operate on `digest`, so we pass digest as M.
+      // we pass `digest` as the message so Ed25519 operates on the v4/v6
+      // PGP digest.
       let raw = sk.sign(digest)
-      // raw is 64 bytes (R || S). Encode as MPI(r), MPI(s) each 256-bit.
-      let r = Bytes::makei(32, fn(i) { raw[i] })
-      let s = Bytes::makei(32, fn(i) { raw[i + 32] })
-      concat_bytes(encode_mpi(r), encode_mpi(s))
+      if version == 6 {
+        // RFC 9580 §5.2.3.3.4: raw 64-byte signature, no MPI wrapping.
+        raw
+      } else {
+        let r = Bytes::makei(32, fn(i) { raw[i] })
+        let s = Bytes::makei(32, fn(i) { raw[i + 32] })
+        concat_bytes(encode_mpi(r), encode_mpi(s))
+      }
     }
     Rsa(sk) => {
-      // For RSA-PKCS#1 v1.5, our @rsa.sign(message, hash) computes
-      // EM = pad || DigestInfo || H(message). For OpenPGP we want the
-      // DigestInfo over `digest` (not over message), so we re-derive by
-      // hashing `message || prelude || trailer` inside @rsa.sign with the
-      // chosen hash. That requires passing the pre-hash input — i.e.
-      // message || prelude || trailer.
-      let pre = build_pgp_pre_hash_input(message, prelude_bytes)
+      // RSA-PKCS#1 v1.5 inside @rsa.sign re-hashes; we feed it the same
+      // pre-hash input that the verifier will hash.
+      let pre = build_pgp_pre_hash_input(message, prelude_bytes, salt, version)
       let raw = sk.sign(pre, hash_alg_for_pgp(chosen_hash)) catch {
         _ => raise Crypto("RSA sign failed")
       }
-      // Encode as a single MPI.
       encode_mpi(raw)
     }
     EcdsaP256(sk) => {
-      let pre = build_pgp_pre_hash_input(message, prelude_bytes)
+      let pre = build_pgp_pre_hash_input(message, prelude_bytes, salt, version)
       let raw = sk.sign(pre) // Raw r||s 64 bytes
       let r = Bytes::makei(32, fn(i) { raw[i] })
       let s = Bytes::makei(32, fn(i) { raw[i + 32] })
       concat_bytes(encode_mpi(r), encode_mpi(s))
     }
     EcdsaP384(sk) => {
-      let pre = build_pgp_pre_hash_input(message, prelude_bytes)
+      let pre = build_pgp_pre_hash_input(message, prelude_bytes, salt, version)
       let raw = sk.sign(pre) // Raw r||s 96 bytes
       let r = Bytes::makei(48, fn(i) { raw[i] })
       let s = Bytes::makei(48, fn(i) { raw[i + 48] })
@@ -325,22 +360,35 @@ pub fn sign_armor(
   // left16 = top 16 bits of digest.
   let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
   // Build full Signature Packet body.
-  // Layout: prelude || unhashed_subpackets_len(2)=0 || left16(2) || sig_material
-  let unhashed_len = 0
-  let sig_pkt_len = prelude_len + 2 + 2 + sig_material.length()
+  // v4: prelude || unhashed_len(2)=0 || left16(2) || sig_material
+  // v6: prelude || unhashed_len(4)=0 || left16(2) || salt_len(1) ||
+  //     salt(0) || sig_material
+  let salt_len = salt.length()
+  let extra = if version == 6 { 1 + salt_len } else { 0 }
+  let sig_pkt_len = prelude_len + len_field + 2 + extra + sig_material.length()
   let sig_pkt = FixedArray::make(sig_pkt_len, b'\x00')
   for i = 0; i < prelude_len; i = i + 1 {
     sig_pkt[i] = prelude_bytes[i]
   }
-  sig_pkt[prelude_len] = ((unhashed_len >> 8) & 0xff).to_byte()
-  sig_pkt[prelude_len + 1] = (unhashed_len & 0xff).to_byte()
-  sig_pkt[prelude_len + 2] = ((left16 >> 8) & 0xffU).to_byte()
-  sig_pkt[prelude_len + 3] = (left16 & 0xffU).to_byte()
+  // unhashed_len = 0, encoded as 2 or 4 bytes.
+  for i = 0; i < len_field; i = i + 1 {
+    sig_pkt[prelude_len + i] = b'\x00'
+  }
+  sig_pkt[prelude_len + len_field] = ((left16 >> 8) & 0xffU).to_byte()
+  sig_pkt[prelude_len + len_field + 1] = (left16 & 0xffU).to_byte()
+  let mut p = prelude_len + len_field + 2
+  if version == 6 {
+    sig_pkt[p] = salt_len.to_byte()
+    p = p + 1
+    for i = 0; i < salt_len; i = i + 1 {
+      sig_pkt[p + i] = salt[i]
+    }
+    p = p + salt_len
+  }
   for i = 0; i < sig_material.length(); i = i + 1 {
-    sig_pkt[prelude_len + 4 + i] = sig_material[i]
+    sig_pkt[p + i] = sig_material[i]
   }
   let sig_pkt_bytes = Bytes::makei(sig_pkt_len, fn(j) { sig_pkt[j] })
-  // Wrap in a new-format packet header (tag 2 = Signature).
   let pkt_blob = wrap_new_format_packet(2, sig_pkt_bytes)
   let armor = build_armor("SIGNATURE", pkt_blob)
   armor
@@ -374,24 +422,38 @@ fn digest_for_pgp_sign(
   hash_algo : Int,
   message : Bytes,
   prelude : Bytes,
+  salt : Bytes,
+  version : Int,
 ) -> Bytes raise PgpError {
-  let input = build_pgp_pre_hash_input(message, prelude)
+  let input = build_pgp_pre_hash_input(message, prelude, salt, version)
   hash_with_algo(hash_algo, input)
 }
 
 ///|
-fn build_pgp_pre_hash_input(message : Bytes, prelude : Bytes) -> Bytes {
+fn build_pgp_pre_hash_input(
+  message : Bytes,
+  prelude : Bytes,
+  salt : Bytes,
+  version : Int,
+) -> Bytes {
   let prelude_len = prelude.length()
-  let total = message.length() + prelude_len + 6
+  let salt_len = salt.length()
+  let total = salt_len + message.length() + prelude_len + 6
   let buf = FixedArray::make(total, b'\x00')
+  let mut off = 0
+  for i = 0; i < salt_len; i = i + 1 {
+    buf[off + i] = salt[i]
+  }
+  off = off + salt_len
   for i = 0; i < message.length(); i = i + 1 {
-    buf[i] = message[i]
+    buf[off + i] = message[i]
   }
+  off = off + message.length()
   for i = 0; i < prelude_len; i = i + 1 {
-    buf[message.length() + i] = prelude[i]
+    buf[off + i] = prelude[i]
   }
-  let off = message.length() + prelude_len
-  buf[off] = b'\x04'
+  off = off + prelude_len
+  buf[off] = if version == 6 { b'\x06' } else { b'\x04' }
   buf[off + 1] = b'\xff'
   buf[off + 2] = ((prelude_len.to_uint() >> 24) & 0xffU).to_byte()
   buf[off + 3] = ((prelude_len.to_uint() >> 16) & 0xffU).to_byte()

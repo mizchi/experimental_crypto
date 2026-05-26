@@ -471,10 +471,7 @@ fn intersect_dns_constraints(
 }
 
 ///|
-fn dns_within_constraints(
-  dns : String,
-  cons : DnsNameConstraints,
-) -> Bool {
+fn dns_within_constraints(dns : String, cons : DnsNameConstraints) -> Bool {
   for ex in cons.excluded {
     if dns_name_in_subtree(dns, ex) {
       return false
@@ -874,6 +871,7 @@ fn find_basic_constraints(
 }
 
 ///|
+
 ///|
 /// Options that fine-tune chain verification. Defaults are conservative
 /// (no caller-required EKU, but all the in-chain extension checks remain on).

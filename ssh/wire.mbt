@@ -51,7 +51,10 @@ pub fn WireReader::read_uint32(self : WireReader) -> UInt raise SshError {
 }
 
 ///|
-pub fn WireReader::read_bytes(self : WireReader, n : Int) -> Bytes raise SshError {
+pub fn WireReader::read_bytes(
+  self : WireReader,
+  n : Int,
+) -> Bytes raise SshError {
   if self.remaining() < n {
     raise TruncatedInput("bytes(" + n.to_string() + ")")
   }

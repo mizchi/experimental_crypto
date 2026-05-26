@@ -21,7 +21,7 @@ fn hex(s : String) -> Bytes {
   while i < len {
     let hi = nibble(s.get_char(i * 2).unwrap())
     let lo = nibble(s.get_char(i * 2 + 1).unwrap())
-    out.unsafe_set(i, ((hi * 16) + lo).to_byte())
+    out.unsafe_set(i, (hi * 16 + lo).to_byte())
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out.unsafe_get(j) })
@@ -40,8 +40,12 @@ test "secp256k1: PrivateKey(1).public_key == G" {
   assert_eq(bytes.length(), 65)
   assert_eq(bytes[0], b'\x04')
   // SEC 2 §2.4.1 Gx / Gy.
-  let gx = hex("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798")
-  let gy = hex("483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8")
+  let gx = hex(
+    "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
+  )
+  let gy = hex(
+    "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
+  )
   for i = 0; i < 32; i = i + 1 {
     assert_eq(bytes[1 + i], gx[i])
   }
@@ -56,6 +60,8 @@ test "secp256k1: PrivateKey(1).public_key == G" {
 
 // Bitcoin-style test scalar — same value used by the p256 tests, comfortably
 // inside [1, n) for secp256k1 as well.
+
+///|
 let test_scalar : String = "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721"
 
 ///|
@@ -124,6 +130,8 @@ test "secp256k1: roundtrip uncompressed" {
 // -----------------------------------------------------------------------------
 
 // n / 2 as 32-byte BE — bytes 32..64 of a signature ≤ this iff low-s.
+
+///|
 let half_n_hex : String = "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0"
 
 ///|
@@ -147,22 +155,9 @@ fn cmp_be32(a : Bytes, b : Bytes) -> Int {
 // having to compute n - s ourselves.
 fn try_messages() -> Array[Bytes] {
   let msgs : Array[Bytes] = [
-    b"sample",
-    b"test",
-    b"bitcoin",
-    b"ethereum",
-    b"low-s probe 0",
-    b"low-s probe 1",
-    b"low-s probe 2",
-    b"low-s probe 3",
-    b"low-s probe 4",
-    b"low-s probe 5",
-    b"low-s probe 6",
-    b"low-s probe 7",
-    b"low-s probe 8",
-    b"low-s probe 9",
-    b"low-s probe 10",
-    b"low-s probe 11",
+    b"sample", b"test", b"bitcoin", b"ethereum", b"low-s probe 0", b"low-s probe 1",
+    b"low-s probe 2", b"low-s probe 3", b"low-s probe 4", b"low-s probe 5", b"low-s probe 6",
+    b"low-s probe 7", b"low-s probe 8", b"low-s probe 9", b"low-s probe 10", b"low-s probe 11",
   ]
   msgs
 }
@@ -321,8 +316,12 @@ test "secp256k1: from_uncompressed rejects off-curve point" {
 ///|
 test "secp256k1: from_uncompressed rejects bad tag byte (compressed 0x02)" {
   // Real Gx coords with tag 0x02 should be rejected (only 0x04 accepted).
-  let gx = hex("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798")
-  let gy = hex("483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8")
+  let gx = hex(
+    "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798",
+  )
+  let gy = hex(
+    "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8",
+  )
   let bad = Bytes::makei(65, fn(i) {
     if i == 0 {
       b'\x02'
@@ -389,13 +388,7 @@ test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
   let sk = @secp256k1.PrivateKey::from_bytes(hex(test_scalar))
   let pk = sk.public_key()
   let sig = sk.sign(b"sample")
-  let bad = Bytes::makei(64, fn(i) {
-    if i < 32 {
-      sig[i]
-    } else {
-      b'\x00'
-    }
-  })
+  let bad = Bytes::makei(64, fn(i) { if i < 32 { sig[i] } else { b'\x00' } })
   assert_false(@secp256k1.verify(pk, b"sample", bad, Raw))
 }
 
@@ -404,13 +397,7 @@ test "ATTACK CVE-2022-21449: r=0 must be rejected" {
   let sk = @secp256k1.PrivateKey::from_bytes(hex(test_scalar))
   let pk = sk.public_key()
   let sig = sk.sign(b"sample")
-  let bad = Bytes::makei(64, fn(i) {
-    if i < 32 {
-      b'\x00'
-    } else {
-      sig[i]
-    }
-  })
+  let bad = Bytes::makei(64, fn(i) { if i < 32 { b'\x00' } else { sig[i] } })
   assert_false(@secp256k1.verify(pk, b"sample", bad, Raw))
 }
 
@@ -446,13 +433,7 @@ test "ATTACK: r = n (boundary, must reject)" {
   let sig = sk.sign(b"sample")
   let n_hex = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
   let r_eq_n = hex(n_hex)
-  let bad = Bytes::makei(64, fn(i) {
-    if i < 32 {
-      r_eq_n[i]
-    } else {
-      sig[i]
-    }
-  })
+  let bad = Bytes::makei(64, fn(i) { if i < 32 { r_eq_n[i] } else { sig[i] } })
   assert_false(@secp256k1.verify(pk, b"sample", bad, Raw))
 }
 

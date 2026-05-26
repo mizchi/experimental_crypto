@@ -229,9 +229,7 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
 }
 
 ///|
-fn parse_signer_info(
-  elem : @asn1.Element,
-) -> SignerInfoFields raise CmsError {
+fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
   let items = expect_sequence(elem, "SignerInfo")
   if items.length() < 5 {
     raise Malformed("SignerInfo arity")
@@ -251,8 +249,14 @@ fn parse_signer_info(
     signed_attrs = Some(extract_context_implicit(items[idx]))
     idx = idx + 1
   }
-  let sig_alg_items = expect_sequence(items[idx], "SignerInfo.signatureAlgorithm")
-  let signature_alg = expect_oid(sig_alg_items[0], "signatureAlgorithm.algorithm")
+  let sig_alg_items = expect_sequence(
+    items[idx],
+    "SignerInfo.signatureAlgorithm",
+  )
+  let signature_alg = expect_oid(
+    sig_alg_items[0],
+    "signatureAlgorithm.algorithm",
+  )
   idx = idx + 1
   let signature = match items[idx].value {
     OctetString(b) => b
@@ -260,7 +264,8 @@ fn parse_signer_info(
   }
   let attrs = match signed_attrs {
     Some(b) => b
-    None => raise Malformed("signedAttrs required (detached CMS must hash content)")
+    None =>
+      raise Malformed("signedAttrs required (detached CMS must hash content)")
   }
   {
     sid_issuer,
@@ -435,7 +440,9 @@ pub fn verify_detached(
   // Extract issuer public key from the embedded signer cert.
   let issuer_pubkey = @pkix_verify.extract_public_key(
     sd.signer_cert.tbs.subject_public_key_info,
-  ) catch { _ => raise NoSignerCertificate }
+  ) catch {
+    _ => raise NoSignerCertificate
+  }
   verify_signature(
     sd.signer.signature_alg,
     sd.signer.digest_alg,
@@ -477,20 +484,21 @@ fn verify_signature(
         raise UnsupportedSignatureAlgorithm(sig_alg)
       }
       @rsa.HashAlg::Sha512
-    } else {
       // Bare id-rsaEncryption: take the hash from digestAlgorithm.
-      if digest_alg == id_sha256() {
-        @rsa.HashAlg::Sha256
-      } else if digest_alg == id_sha384() {
-        @rsa.HashAlg::Sha384
-      } else if digest_alg == id_sha512() {
-        @rsa.HashAlg::Sha512
-      } else {
-        raise UnsupportedDigestAlgorithm(digest_alg)
-      }
+    } else if digest_alg == id_sha256() {
+      @rsa.HashAlg::Sha256
+    } else if digest_alg == id_sha384() {
+      @rsa.HashAlg::Sha384
+    } else if digest_alg == id_sha512() {
+      @rsa.HashAlg::Sha512
+    } else {
+      raise UnsupportedDigestAlgorithm(digest_alg)
     }
     match pubkey {
-      Rsa(pk) => pk.verify(message, signature, hash_alg) catch { e => raise Rsa(e) }
+      Rsa(pk) =>
+        pk.verify(message, signature, hash_alg) catch {
+          e => raise Rsa(e)
+        }
       _ => raise UnsupportedSignatureAlgorithm(sig_alg)
     }
   } else if sig_alg == id_ecdsa_with_sha256() {
@@ -614,11 +622,7 @@ fn parse_attributes(
         // Strip outer SET tag (1 byte) + length encoding
         let n_total = der.length()
         let len_byte = der[1].to_int()
-        let len_skip = if len_byte < 0x80 {
-          2
-        } else {
-          2 + (len_byte & 0x7f)
-        }
+        let len_skip = if len_byte < 0x80 { 2 } else { 2 + (len_byte & 0x7f) }
         Bytes::makei(n_total - len_skip, fn(i) { der[len_skip + i] })
       }
       _ => raise Malformed("Attribute.values not SET")

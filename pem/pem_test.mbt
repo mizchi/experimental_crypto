@@ -43,7 +43,8 @@ test "pem: decode_strict rejects pre-BEGIN explanatory text" {
     #|-----END CERTIFICATE-----
   match (try? @pem.decode_strict(input)) {
     Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="strict mode must reject pre-BEGIN garbage")
+    Ok(_) =>
+      assert_eq(true, false, msg="strict mode must reject pre-BEGIN garbage")
   }
 }
 
@@ -56,7 +57,8 @@ test "pem: decode_strict rejects post-END trailing content" {
     #|some trailing garbage
   match (try? @pem.decode_strict(input)) {
     Err(_) => ()
-    Ok(_) => assert_eq(true, false, msg="strict mode must reject post-END garbage")
+    Ok(_) =>
+      assert_eq(true, false, msg="strict mode must reject post-END garbage")
   }
 }
 

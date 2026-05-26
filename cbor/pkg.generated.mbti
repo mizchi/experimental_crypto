@@ -1,0 +1,45 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/cbor"
+
+// Values
+pub fn decode(Bytes) -> CborValue raise CborError
+
+pub fn decode_first(Bytes) -> (CborValue, Int) raise CborError
+
+pub fn encode(CborValue) -> Bytes
+
+pub fn map_get_int(CborValue, Int64) -> CborValue?
+
+pub fn map_get_str(CborValue, String) -> CborValue?
+
+// Errors
+pub suberror CborError {
+  TruncatedInput
+  InvalidInitialByte(Byte)
+  InvalidUtf8
+  IntegerTooLarge
+  IndefiniteLengthUnsupported
+  TrailingBytes(Int)
+  NestingTooDeep
+  InvalidEncoding(String)
+} derive(Show)
+
+// Types and methods
+pub(all) enum CborValue {
+  Uint(UInt64)
+  Nint(UInt64)
+  Bytes(Bytes)
+  Text(String)
+  Array(Array[CborValue])
+  Map(Array[(CborValue, CborValue)])
+  Tag(UInt64, CborValue)
+  Bool(Bool)
+  Null
+  Undefined
+  Float(Double)
+} derive(Show)
+
+// Type aliases
+
+// Traits
+

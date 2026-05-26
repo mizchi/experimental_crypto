@@ -23,7 +23,7 @@ fn hex_to_bytes(s : String) -> Bytes {
   while i < len {
     let hi = nibble(s.get_char(i * 2).unwrap())
     let lo = nibble(s.get_char(i * 2 + 1).unwrap())
-    out[i] = ((hi * 16) + lo).to_byte()
+    out[i] = (hi * 16 + lo).to_byte()
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out[j] })
@@ -183,4 +183,73 @@ test "hmac_sha512: RFC 4231 case 1" {
       "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
     ),
   )
+}
+
+///|
+test "sha1: empty" {
+  // FIPS 180-4 / RFC 3174: SHA-1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709
+  let h = @hash.sha1(b"")
+  assert_eq(h, hex_to_bytes("da39a3ee5e6b4b0d3255bfef95601890afd80709"))
+}
+
+///|
+test "sha1: abc" {
+  // FIPS 180-4 appendix A.1: SHA-1("abc") = a9993e364706816aba3e25717850c26c9cd0d89d
+  let h = @hash.sha1(b"abc")
+  assert_eq(h, hex_to_bytes("a9993e364706816aba3e25717850c26c9cd0d89d"))
+}
+
+///|
+test "sha1: 448-bit message (multi-block)" {
+  // FIPS 180-4 appendix A.2: "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+  // → 84983e441c3bd26ebaae4aa1f95129e5e54670f1
+  let h = @hash.sha1(
+    b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+  )
+  assert_eq(h, hex_to_bytes("84983e441c3bd26ebaae4aa1f95129e5e54670f1"))
+}
+
+///|
+test "ripemd160: empty" {
+  // Published vector: RIPEMD-160("") = 9c1185a5c5e9fc54612808977ee8f548b2258d31
+  let h = @hash.ripemd160(b"")
+  assert_eq(h, hex_to_bytes("9c1185a5c5e9fc54612808977ee8f548b2258d31"))
+}
+
+///|
+test "ripemd160: abc" {
+  // RIPEMD-160("abc") = 8eb208f7e05d987a9b044a8e98c6b087f15a0bfc
+  let h = @hash.ripemd160(b"abc")
+  assert_eq(h, hex_to_bytes("8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"))
+}
+
+///|
+test "ripemd160: message digest" {
+  // RIPEMD-160("message digest") = 5d0689ef49d2fae572b881b123a85ffa21595f36
+  let h = @hash.ripemd160(b"message digest")
+  assert_eq(h, hex_to_bytes("5d0689ef49d2fae572b881b123a85ffa21595f36"))
+}
+
+///|
+test "ripemd160: 56-byte message (cross block boundary)" {
+  // "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq" (56 bytes)
+  // → 12a053384a9c0c88e405a06c27dcf49ada62eb2b
+  let h = @hash.ripemd160(
+    b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+  )
+  assert_eq(h, hex_to_bytes("12a053384a9c0c88e405a06c27dcf49ada62eb2b"))
+}
+
+///|
+test "ripemd160: a-z lowercase" {
+  // RIPEMD-160("abcdefghijklmnopqrstuvwxyz") = f71c27109c692c1b56bbdceb5b9d2865b3708dbc
+  let h = @hash.ripemd160(b"abcdefghijklmnopqrstuvwxyz")
+  assert_eq(h, hex_to_bytes("f71c27109c692c1b56bbdceb5b9d2865b3708dbc"))
+}
+
+///|
+test "hash160: empty" {
+  // hash160("") = ripemd160(sha256("")) = b472a266d0bd89c13706a4132ccfb16f7c3b9fcb
+  let h = @hash.hash160(b"")
+  assert_eq(h, hex_to_bytes("b472a266d0bd89c13706a4132ccfb16f7c3b9fcb"))
 }

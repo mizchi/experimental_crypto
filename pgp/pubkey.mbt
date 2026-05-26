@@ -1,14 +1,16 @@
 // OpenPGP Public-Key Packet (RFC 9580 §5.5.2 / RFC 4880 §5.5.2).
 //
-// We only parse v4 keys (the dominant deployed format). v6 (RFC 9580 new
-// keys) has a slightly different layout and is left as future work.
+// We parse both v4 and v6 keys. v6 adds a 4-byte explicit length prefix
+// in front of the algorithm-specific public-key data (RFC 9580 §5.5.2).
 //
 // Supported pubkey algorithms:
-//   - 1   RSA (Encrypt or Sign)
-//   - 19  ECDSA  (with curve OID)
-//   - 22  EdDSA legacy / Ed25519
+//   - 1   RSA (Encrypt or Sign)              (v4 + v6)
+//   - 19  ECDSA  (with curve OID)            (v4 + v6)
+//   - 22  EdDSA legacy / Ed25519             (v4 only — uses curve OID + 0x40||raw MPI)
+//   - 27  Ed25519 (RFC 9580 id-Ed25519)      (v6 — raw 32-byte key, no OID, no 0x40)
 //
-// Not supported: DSA (17), ECDH (18), ElGamal (16, 20), Ed448, X25519, X448.
+// Not supported: DSA (17), ECDH (18), ElGamal (16, 20), Ed448 (28),
+// X25519 (25), X448 (26).
 
 ///|
 pub(all) enum PgpPublicKey {
@@ -37,6 +39,10 @@ pub let algo_ecdsa : Int = 19
 pub let algo_eddsa_legacy : Int = 22
 
 ///|
+// RFC 9580 §9.1: Ed25519 (v6) without curve OID, raw 32-byte key.
+pub let algo_ed25519 : Int = 27
+
+///|
 // Hash algorithm IDs (RFC 4880 §9.4).
 pub let hash_sha256 : Int = 8
 
@@ -47,7 +53,7 @@ pub let hash_sha384 : Int = 9
 pub let hash_sha512 : Int = 10
 
 ///|
-/// Parse the body of a Public-Key Packet (tag 6).
+/// Parse the body of a Public-Key Packet (tag 6). Handles v4 and v6.
 pub fn parse_public_key_packet(
   body : Bytes,
 ) -> PgpPublicKeyPacket raise PgpError {
@@ -55,30 +61,63 @@ pub fn parse_public_key_packet(
     raise PacketTooShort("public-key packet header")
   }
   let version = body[0].to_int()
-  if version != 4 {
+  if version != 4 && version != 6 {
     raise UnsupportedPacketVersion(version)
   }
-  let creation_time =
-    (body[1].to_uint() << 24) |
+  let creation_time = (body[1].to_uint() << 24) |
     (body[2].to_uint() << 16) |
     (body[3].to_uint() << 8) |
     body[4].to_uint()
   let algo = body[5].to_int()
+  // v6 inserts a 4-byte length-of-algorithm-specific-public-key here. We
+  // parse it for validation but otherwise let the inner structure (MPIs
+  // / fixed sizes) drive offset arithmetic.
+  let key_data_off = if version == 6 {
+    if body.length() < 10 {
+      raise PacketTooShort("v6 public-key length prefix")
+    }
+    let key_len = (body[6].to_int() << 24) |
+      (body[7].to_int() << 16) |
+      (body[8].to_int() << 8) |
+      body[9].to_int()
+    if 10 + key_len > body.length() {
+      raise PacketTooShort("v6 public-key body")
+    }
+    10
+  } else {
+    6
+  }
   let key = if algo == algo_rsa_sign_or_encrypt {
-    let (n_bytes, n_consumed) = read_mpi(body, 6)
-    let (e_bytes, _) = read_mpi(body, 6 + n_consumed)
+    let (n_bytes, n_consumed) = read_mpi(body, key_data_off)
+    let (e_bytes, _) = read_mpi(body, key_data_off + n_consumed)
     let n = BigInt::from_octets(n_bytes[:])
     let e = BigInt::from_octets(e_bytes[:])
     PgpPublicKey::Rsa({ n, e, n_bytes_len: n_bytes.length() })
+  } else if algo == algo_ed25519 {
+    // RFC 9580 §5.5.5.6: raw 32-byte key, no curve OID, no 0x40 prefix.
+    // Only valid for v6 keys.
+    if version != 6 {
+      raise UnsupportedPubkeyAlgo(algo)
+    }
+    if key_data_off + 32 > body.length() {
+      raise PacketTooShort("v6 ed25519 raw key")
+    }
+    let raw = bytes_slice(body, key_data_off, key_data_off + 32)
+    let pk = @ed25519.PublicKey::from_bytes(raw) catch {
+      _ => raise InvalidMpi("v6 ed25519 pubkey")
+    }
+    PgpPublicKey::Ed25519(pk)
   } else if algo == algo_eddsa_legacy {
     // RFC 4880bis §13.3: 1-byte OID length || OID bytes || MPI (0x40 || raw_pubkey)
-    let oid_len = body[6].to_int()
-    if 7 + oid_len > body.length() {
+    // Valid for v4 only — v6 must use algo 27.
+    if version != 4 {
+      raise UnsupportedPubkeyAlgo(algo)
+    }
+    let oid_len = body[key_data_off].to_int()
+    if key_data_off + 1 + oid_len > body.length() {
       raise PacketTooShort("eddsa OID")
     }
-    // We trust the OID is ed25519 (1.3.6.1.4.1.11591.15.1) — caller can
-    // double-check via `creation_time` / fingerprint if needed.
-    let (mpi_bytes, _) = read_mpi(body, 7 + oid_len)
+    let (mpi_bytes, _) = read_mpi(body, key_data_off + 1 + oid_len)
     // MPI is 0x40 || raw 32-byte ed25519 pubkey (33 bytes total).
     if mpi_bytes.length() != 33 || mpi_bytes[0] != b'\x40' {
       raise InvalidMpi("eddsa point encoding")
@@ -89,14 +128,19 @@ pub fn parse_public_key_packet(
     }
     PgpPublicKey::Ed25519(pk)
   } else if algo == algo_ecdsa {
-    // RFC 4880 §5.5.2: 1-byte OID length || OID bytes || MPI(SEC1 uncompressed point)
-    let oid_len = body[6].to_int()
-    if 7 + oid_len > body.length() {
+    // RFC 4880 §5.5.2 (v4) / RFC 9580 §5.5.5.2 (v6, same algorithm-
+    // specific layout, just wrapped in the v6 4-byte length prefix):
+    //   1-byte OID length || OID bytes || MPI(SEC1 uncompressed point)
+    let oid_len = body[key_data_off].to_int()
+    if key_data_off + 1 + oid_len > body.length() {
       raise PacketTooShort("ecdsa OID")
     }
-    let oid_bytes = bytes_slice(body, 7, 7 + oid_len)
-    let (mpi_bytes, _) = read_mpi(body, 7 + oid_len)
-    // MPI is the SEC1 uncompressed point: 0x04 || X || Y.
+    let oid_bytes = bytes_slice(
+      body,
+      key_data_off + 1,
+      key_data_off + 1 + oid_len,
+    )
+    let (mpi_bytes, _) = read_mpi(body, key_data_off + 1 + oid_len)
     if is_p256_oid(oid_bytes) {
       let pk = @p256.PublicKey::from_uncompressed(mpi_bytes) catch {
         _ => raise InvalidMpi("p256 ecdsa pubkey")
@@ -151,9 +195,7 @@ fn is_p384_oid(b : Bytes) -> Bool {
 /// Parse a `-----BEGIN PGP PUBLIC KEY BLOCK-----` armor and return the
 /// first Public-Key Packet's parsed contents. Sub-keys (algorithm 14
 /// packets) and user IDs are skipped.
-pub fn parse_pubkey_armor(
-  armor : String,
-) -> PgpPublicKeyPacket raise PgpError {
+pub fn parse_pubkey_armor(armor : String) -> PgpPublicKeyPacket raise PgpError {
   let a = decode_armor(armor)
   let packets = parse_packets(a.data)
   for p in packets {

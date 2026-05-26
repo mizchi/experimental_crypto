@@ -109,8 +109,8 @@ fn is_on_curve(p_pt : Point) -> Bool {
     return true
   }
   let p = k1_p()
-  let lhs = (p_pt.y * p_pt.y) % p
-  let x3 = (p_pt.x * p_pt.x % p * p_pt.x) % p
+  let lhs = p_pt.y * p_pt.y % p
+  let x3 = p_pt.x * p_pt.x % p * p_pt.x % p
   let rhs = mod_pos(x3 + k1_b(), p)
   lhs == rhs
 }
@@ -221,7 +221,9 @@ pub suberror Secp256k1Error {
 
 ///|
 /// Parse an uncompressed SEC1 point `04 || X(32) || Y(32)` (65 bytes total).
-pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise Secp256k1Error {
+pub fn PublicKey::from_uncompressed(
+  b : Bytes,
+) -> PublicKey raise Secp256k1Error {
   if b.length() != 65 {
     raise InvalidPublicKeyLength(b.length())
   }
@@ -253,6 +255,24 @@ pub fn PublicKey::to_uncompressed(self : PublicKey) -> Bytes {
     out.unsafe_set(33 + i, y_bytes[i])
   }
   Bytes::makei(65, fn(j) { out.unsafe_get(j) })
+}
+
+///|
+/// Serialize the public key as SEC1 compressed: 33 bytes, `0x02 || X` when
+/// Y is even and `0x03 || X` when Y is odd. Used by BIP-32 child key
+/// derivation (which keys HMAC-SHA512 on the compressed serialisation in
+/// the non-hardened branch) and Bitcoin block-chain pubkey hashes.
+pub fn PublicKey::to_compressed(self : PublicKey) -> Bytes {
+  let x_bytes = self.point.x.to_octets(length=32)
+  let y_bytes = self.point.y.to_octets(length=32)
+  // Y is even iff its big-endian LSB (byte 31) has bit 0 = 0.
+  let prefix = if (y_bytes[31].to_int() & 1) == 0 { b'\x02' } else { b'\x03' }
+  let out = FixedArray::make(33, b'\x00')
+  out.unsafe_set(0, prefix)
+  for i = 0; i < 32; i = i + 1 {
+    out.unsafe_set(1 + i, x_bytes[i])
+  }
+  Bytes::makei(33, fn(j) { out.unsafe_get(j) })
 }
 
 ///|
@@ -304,9 +324,7 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise Secp256k1Error {
   let curve_oid = match alg_items[1].value {
     Oid(o) => o.to_string()
     _ =>
-      raise InvalidPointEncoding(
-        "SPKI: expected namedCurve OID in parameters",
-      )
+      raise InvalidPointEncoding("SPKI: expected namedCurve OID in parameters")
   }
   if curve_oid != secp256k1_named_curve_str {
     raise UnexpectedSpkiOid(curve_oid)
@@ -467,11 +485,7 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 // Core sign routine. `low_s = true` applies BIP-62 §3 normalisation (s →
 // n - s when s > n/2). Returns (r, s) as BigInts so we can encode in either
 // format and so tests can inspect the raw scalars.
-fn sign_core(
-  d : BigInt,
-  message : Bytes,
-  low_s : Bool,
-) -> (BigInt, BigInt) {
+fn sign_core(d : BigInt, message : Bytes, low_s : Bool) -> (BigInt, BigInt) {
   let n = k1_n()
   let e_bytes = @hash.sha256(message)
   let e = BigInt::from_octets(e_bytes[:])
@@ -489,7 +503,7 @@ fn sign_core(
       r = r_point.x % n
       if r.compare_int(0) > 0 {
         let k_inv = mod_inverse(k, n)
-        let s_calc = (k_inv * ((e + r * d) % n)) % n
+        let s_calc = k_inv * ((e + r * d) % n) % n
         if s_calc.compare_int(0) > 0 {
           s = s_calc
           found = true
@@ -518,7 +532,7 @@ fn sign_core(
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
-  format~ : SignatureFormat = Raw,
+  format? : SignatureFormat = Raw,
 ) -> Bytes {
   let (r, s) = sign_core(self.d, message, true)
   encode_signature(r, s, format)
@@ -532,7 +546,7 @@ pub fn PrivateKey::sign(
 pub fn PrivateKey::sign_no_low_s(
   self : PrivateKey,
   message : Bytes,
-  format~ : SignatureFormat = Raw,
+  format? : SignatureFormat = Raw,
 ) -> Bytes {
   let (r, s) = sign_core(self.d, message, false)
   encode_signature(r, s, format)
@@ -598,7 +612,10 @@ fn encode_der_integer(v : BigInt) -> Bytes {
     } else if needs_sign && i == 1 + len_prefix.length() {
       b'\x00'
     } else {
-      let mag_idx = i - 1 - len_prefix.length() - (if needs_sign { 1 } else { 0 })
+      let mag_idx = i -
+        1 -
+        len_prefix.length() -
+        (if needs_sign { 1 } else { 0 })
       mag[mag_idx]
     }
   })
@@ -634,12 +651,7 @@ priv struct Rfc6979State {
 }
 
 ///|
-fn rfc6979_init(
-  d : BigInt,
-  h1 : Bytes,
-  rlen : Int,
-  q : BigInt,
-) -> Rfc6979State {
+fn rfc6979_init(d : BigInt, h1 : Bytes, rlen : Int, q : BigInt) -> Rfc6979State {
   let hlen = h1.length()
   let v0 = Bytes::makei(hlen, fn(_) { b'\x01' })
   let k0 = Bytes::makei(hlen, fn(_) { b'\x00' })

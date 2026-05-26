@@ -37,6 +37,7 @@ pub struct PublicKey {
 }
 pub fn PublicKey::from_spki_der(Bytes) -> Self raise Secp256k1Error
 pub fn PublicKey::from_uncompressed(Bytes) -> Self raise Secp256k1Error
+pub fn PublicKey::to_compressed(Self) -> Bytes
 pub fn PublicKey::to_uncompressed(Self) -> Bytes
 
 pub(all) enum SignatureFormat {

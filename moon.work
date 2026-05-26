@@ -24,4 +24,11 @@ members = [
   "./pgp",
   "./cms",
   "./secp256k1",
+  "./jwe",
+  "./cbor",
+  "./cose",
+  "./bip39",
+  "./bip32",
+  "./ocsp",
+  "./crl",
 ]

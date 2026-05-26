@@ -58,8 +58,7 @@ test "aes-128-cbc: NIST SP 800-38A §F.2.1/F.2.2 round trip" {
 test "aes-256-cbc: NIST SP 800-38A §F.2.5/F.2.6 round trip" {
   // F.2.5 CBC-AES256.Encrypt
   let key = cbc_hex(
-    "603deb1015ca71be2b73aef0857d7781" +
-    "1f352c073b6108d72d9810a30914dff4",
+    "603deb1015ca71be2b73aef0857d7781" + "1f352c073b6108d72d9810a30914dff4",
   )
   let iv = cbc_hex("000102030405060708090a0b0c0d0e0f")
   let plaintext = cbc_hex(
@@ -83,7 +82,10 @@ test "aes-256-cbc: NIST SP 800-38A §F.2.5/F.2.6 round trip" {
 ///|
 test "aes-cbc: rejects bad IV length" {
   let key = cbc_hex("2b7e151628aed2a6abf7158809cf4f3c")
-  match (try? @aead.aes_cbc_encrypt(key, b"\x00", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")) {
+  match
+    (try? @aead.aes_cbc_encrypt(
+      key, b"\x00", b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+    )) {
     Err(_) => ()
     Ok(_) => assert_eq(true, false, msg="expected InvalidNonceSize")
   }

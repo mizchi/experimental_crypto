@@ -30,9 +30,7 @@ let detached_signature : String =
 ///|
 fn message_bytes() -> Bytes {
   let s = "hello pgp signing"
-  Bytes::makei(s.length(), fn(i) {
-    s.get_char(i).unwrap().to_int().to_byte()
-  })
+  Bytes::makei(s.length(), fn(i) { s.get_char(i).unwrap().to_int().to_byte() })
 }
 
 ///|
@@ -112,7 +110,10 @@ test "pgp: sign Ed25519 + verify roundtrip" {
   let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
-  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), b"hello pgp ed25519")
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"hello pgp ed25519",
+  )
   assert_true(@pgp.verify_armor(armor, b"hello pgp ed25519", pk_pgp))
 }
 
@@ -121,7 +122,10 @@ test "pgp: sign ECDSA P-256 + verify roundtrip" {
   let scalar = Bytes::makei(32, fn(i) { (i + 7).to_byte() })
   let sk = @p256.PrivateKey::from_bytes(scalar)
   let pk_pgp = @pgp.PgpPublicKey::EcdsaP256(sk.public_key())
-  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::EcdsaP256(sk), b"hello pgp p256")
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::EcdsaP256(sk),
+    b"hello pgp p256",
+  )
   assert_true(@pgp.verify_armor(armor, b"hello pgp p256", pk_pgp))
 }
 
@@ -130,6 +134,145 @@ test "pgp: sign ECDSA P-384 + verify roundtrip" {
   let scalar = Bytes::makei(48, fn(i) { (i + 11).to_byte() })
   let sk = @p384.PrivateKey::from_bytes(scalar)
   let pk_pgp = @pgp.PgpPublicKey::EcdsaP384(sk.public_key())
-  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::EcdsaP384(sk), b"hello pgp p384")
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::EcdsaP384(sk),
+    b"hello pgp p384",
+  )
   assert_true(@pgp.verify_armor(armor, b"hello pgp p384", pk_pgp))
+}
+
+// -----------------------------------------------------------------------------
+// v6 (RFC 9580) roundtrips.
+//
+// We could not produce a real v6 fixture from this host: gpg 2.4.9 is
+// installed but its build advertises only EDDSA (algo 22) in
+// `gpg --version`, and emits v4 signatures even with `future-default` /
+// `--default-new-key-algo ed25519/cert,sign+cv25519/encr`. The
+// supported-algorithms list does not include Ed25519 (algo 27, RFC 9580
+// id-Ed25519). So we only exercise sign-then-verify against our own impl.
+// -----------------------------------------------------------------------------
+
+///|
+test "pgp v6: sign Ed25519 + verify roundtrip" {
+  let seed = Bytes::makei(32, fn(i) { (i + 13).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"hello pgp v6 ed25519",
+    version=6,
+  )
+  assert_true(@pgp.verify_armor(armor, b"hello pgp v6 ed25519", pk_pgp))
+}
+
+///|
+test "pgp v6: sign ECDSA P-256 + verify roundtrip" {
+  let scalar = Bytes::makei(32, fn(i) { (i + 17).to_byte() })
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let pk_pgp = @pgp.PgpPublicKey::EcdsaP256(sk.public_key())
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::EcdsaP256(sk),
+    b"hello pgp v6 p256",
+    version=6,
+  )
+  assert_true(@pgp.verify_armor(armor, b"hello pgp v6 p256", pk_pgp))
+}
+
+///|
+test "pgp v6: tampered message fails" {
+  let seed = Bytes::makei(32, fn(i) { (i + 19).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"hello pgp v6 ed25519",
+    version=6,
+  )
+  assert_false(@pgp.verify_armor(armor, b"hello pgp v6 ed25519!", pk_pgp))
+}
+
+///|
+test "pgp v6: tampered version byte rejected" {
+  // Sign with v6 then mangle the packet body's first byte to 0x05 (an
+  // unused/reserved version). The parser should raise UnsupportedPacketVersion.
+  let seed = Bytes::makei(32, fn(i) { (i + 23).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"hello v6 vbyte",
+    version=6,
+  )
+  let decoded = @pgp.decode_armor(armor)
+  let pkts = @pgp.parse_packets(decoded.data)
+  let mut sig_body : Bytes = b""
+  for p in pkts {
+    if p.tag == 2 {
+      sig_body = p.body
+    }
+  }
+  let bad_body = Bytes::makei(sig_body.length(), fn(i) {
+    if i == 0 {
+      b'\x05'
+    } else {
+      sig_body[i]
+    }
+  })
+  match (try? @pgp.parse_signature_packet(bad_body)) {
+    Err(UnsupportedPacketVersion(5)) => ()
+    Err(other) => abort("expected UnsupportedPacketVersion(5), got \{other}")
+    Ok(_) => abort("expected rejection")
+  }
+  assert_true(@pgp.verify_armor(armor, b"hello v6 vbyte", pk_pgp))
+}
+
+///|
+test "pgp v6: v4 and v6 produce different armors" {
+  // Signature material differs between v4 (MPI-wrapped r||s, 70 bytes) and
+  // v6 (raw 64 bytes); trailer byte differs (0x04 vs 0x06); algo ID differs.
+  let seed = Bytes::makei(32, fn(i) { (i + 29).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let armor_v4 = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"compare v4 v6",
+  )
+  let armor_v6 = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"compare v4 v6",
+    version=6,
+  )
+  assert_not_eq(armor_v4, armor_v6)
+}
+
+///|
+test "pgp v6: wire format checks (algo 27, salt=0, raw 64-byte sig)" {
+  let seed = Bytes::makei(32, fn(i) { (i + 31).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let armor_v4 = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), b"algo-check")
+  let armor_v6 = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"algo-check",
+    version=6,
+  )
+  let pkts_v4 = @pgp.parse_packets(@pgp.decode_armor(armor_v4).data)
+  let pkts_v6 = @pgp.parse_packets(@pgp.decode_armor(armor_v6).data)
+  let mut sig4 = @pgp.parse_signature_packet(pkts_v4[0].body)
+  for p in pkts_v4 {
+    if p.tag == 2 {
+      sig4 = @pgp.parse_signature_packet(p.body)
+    }
+  }
+  let mut sig6 = @pgp.parse_signature_packet(pkts_v6[0].body)
+  for p in pkts_v6 {
+    if p.tag == 2 {
+      sig6 = @pgp.parse_signature_packet(p.body)
+    }
+  }
+  assert_eq(sig4.version, 4)
+  assert_eq(sig4.pubkey_algo, @pgp.algo_eddsa_legacy)
+  assert_eq(sig4.salt.length(), 0)
+  assert_eq(sig6.version, 6)
+  assert_eq(sig6.pubkey_algo, @pgp.algo_ed25519)
+  assert_eq(sig6.salt.length(), 0)
+  assert_eq(sig6.signature_material.length(), 64) // raw Ed25519 sig
 }

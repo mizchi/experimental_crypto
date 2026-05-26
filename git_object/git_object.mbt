@@ -233,7 +233,5 @@ fn bytes_to_string(b : Bytes) -> String {
 
 ///|
 fn string_to_bytes(s : String) -> Bytes {
-  Bytes::makei(s.length(), fn(i) {
-    s.get_char(i).unwrap().to_int().to_byte()
-  })
+  Bytes::makei(s.length(), fn(i) { s.get_char(i).unwrap().to_int().to_byte() })
 }

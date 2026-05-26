@@ -19,6 +19,6 @@ repository = ""
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ ]
 
 description = "secp256k1 (Bitcoin/Ethereum) ECDSA sign + verify with BIP-62 low-s normalisation."

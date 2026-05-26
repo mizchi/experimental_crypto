@@ -48,7 +48,9 @@ pub fn parse_allowed_signers(
 }
 
 ///|
-fn try_parse_allowed_signer_line(line : String) -> AllowedSigner? raise SshError {
+fn try_parse_allowed_signer_line(
+  line : String,
+) -> AllowedSigner? raise SshError {
   // Tokenise the line into fields. Quoted values ("foo bar") count as one
   // token. The first whitespace-separated piece is principals. After that
   // we walk until we hit a recognised keytype.
@@ -169,7 +171,7 @@ pub fn verify_with_allowed_signers(
       }
       None => ()
     }
-    if verify_armor_with(armor, message, s.pubkey, namespace=namespace) {
+    if verify_armor_with(armor, message, s.pubkey, namespace~) {
       return true
     }
   }

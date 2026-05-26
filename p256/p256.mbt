@@ -109,11 +109,11 @@ fn is_on_curve(p_pt : Point) -> Bool {
     return true
   }
   let p = p256_p()
-  let lhs = (p_pt.y * p_pt.y) % p
-  let x3 = (p_pt.x * p_pt.x % p * p_pt.x) % p
+  let lhs = p_pt.y * p_pt.y % p
+  let x3 = p_pt.x * p_pt.x % p * p_pt.x % p
   // a = -3 (mod p), expressed as `(p - 3) * x mod p` to keep everything
   // non-negative before the final mod.
-  let three_x = (BigInt::from_int(3) * p_pt.x) % p
+  let three_x = BigInt::from_int(3) * p_pt.x % p
   let rhs = mod_pos(x3 - three_x + p256_b(), p)
   lhs == rhs
 }
@@ -331,9 +331,7 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise P256Error {
   let curve_oid = match alg_items[1].value {
     Oid(o) => o.to_string()
     _ =>
-      raise InvalidPointEncoding(
-        "SPKI: expected namedCurve OID in parameters",
-      )
+      raise InvalidPointEncoding("SPKI: expected namedCurve OID in parameters")
   }
   if curve_oid != secp256r1_named_curve_str {
     raise UnexpectedSpkiOid(curve_oid)
@@ -521,7 +519,7 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
-  format~ : SignatureFormat = Raw,
+  format? : SignatureFormat = Raw,
 ) -> Bytes {
   let n = p256_n()
   let e_bytes = @hash.sha256(message)
@@ -543,7 +541,7 @@ pub fn PrivateKey::sign(
       if r.compare_int(0) > 0 {
         // s = k^-1 * (e + r * d) mod n
         let k_inv = mod_inverse(k, n)
-        let s_calc = (k_inv * ((e + r * self.d) % n)) % n
+        let s_calc = k_inv * ((e + r * self.d) % n) % n
         if s_calc.compare_int(0) > 0 {
           s = s_calc
           found = true
@@ -623,7 +621,10 @@ fn encode_der_integer(v : BigInt) -> Bytes {
     } else if needs_sign && i == 1 + len_prefix.length() {
       b'\x00'
     } else {
-      let mag_idx = i - 1 - len_prefix.length() - (if needs_sign { 1 } else { 0 })
+      let mag_idx = i -
+        1 -
+        len_prefix.length() -
+        (if needs_sign { 1 } else { 0 })
       mag[mag_idx]
     }
   })
@@ -659,12 +660,7 @@ priv struct Rfc6979State {
 }
 
 ///|
-fn rfc6979_init(
-  d : BigInt,
-  h1 : Bytes,
-  rlen : Int,
-  q : BigInt,
-) -> Rfc6979State {
+fn rfc6979_init(d : BigInt, h1 : Bytes, rlen : Int, q : BigInt) -> Rfc6979State {
   let hlen = h1.length()
   // V = 0x01 0x01 ... (hlen)
   // K = 0x00 0x00 ... (hlen)
@@ -896,10 +892,10 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P256Error {
 }
 
 ///|
-pub fn PrivateKey::from_pkcs8_pem(pem_str : String) -> PrivateKey raise P256Error {
-  let block = @pem.decode(pem_str) catch {
-    _ => raise InvalidPrivateKey("pem")
-  }
+pub fn PrivateKey::from_pkcs8_pem(
+  pem_str : String,
+) -> PrivateKey raise P256Error {
+  let block = @pem.decode(pem_str) catch { _ => raise InvalidPrivateKey("pem") }
   if block.label != "PRIVATE KEY" {
     raise InvalidPrivateKey(
       "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,

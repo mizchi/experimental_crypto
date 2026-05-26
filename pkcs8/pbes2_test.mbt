@@ -66,8 +66,7 @@ test "pbes2: decrypt openssl RSA fixture with correct password recovers RSA Priv
 test "pbes2: wrong password fails (InvalidPadding or downstream parse error)" {
   match (try? @pkcs8.decrypt_pem(enc_rsa_pem, b"wrong-password")) {
     Err(_) => ()
-    Ok(_) =>
-      assert_eq(true, false, msg="wrong password must not produce a key")
+    Ok(_) => assert_eq(true, false, msg="wrong password must not produce a key")
   }
 }
 
@@ -92,8 +91,7 @@ test "pbes2: tampered ciphertext fails" {
   }
   match (try? @pkcs8.decrypt(tampered, b"testpassword")) {
     Err(_) => ()
-    Ok(_) =>
-      assert_eq(true, false, msg="tampered ciphertext must not decrypt")
+    Ok(_) => assert_eq(true, false, msg="tampered ciphertext must not decrypt")
   }
 }
 

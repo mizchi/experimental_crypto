@@ -19,6 +19,6 @@ repository = ""
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ ]
 
 description = "NIST P-256 (secp256r1) ECDSA signature verification (verify-only)."

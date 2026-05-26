@@ -218,13 +218,7 @@ pub fn decrypt(
       cipher.key_size.to_string(),
     )
   }
-  let key = @pbkdf2.pbkdf2(
-    kdf.prf,
-    password,
-    kdf.salt,
-    kdf.iterations,
-    dk_len,
-  ) catch {
+  let key = @pbkdf2.pbkdf2(kdf.prf, password, kdf.salt, kdf.iterations, dk_len) catch {
     e => raise Pbkdf2(e)
   }
   let padded_plain = @aead.aes_cbc_decrypt(key, cipher.iv, enc.encrypted_data) catch {

@@ -1,3 +1,7 @@
+import {
+  "moonbitlang/core/quickcheck",
+} for "test"
+
 options(
   supported_targets: [ "native", "js" ],
   link: { "native": { "cc-link-flags": "" } },
@@ -7,6 +11,3 @@ options(
     "getrandom_native.mbt": [ "native" ],
   },
 )
-import {
-  "moonbitlang/core/quickcheck",
-} for "test"

@@ -1,0 +1,58 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/cose"
+
+import {
+  "mizchi/asn1",
+  "mizchi/cbor",
+  "mizchi/ed25519",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/rsa",
+}
+
+// Values
+pub fn parse_attestation_object(Bytes) -> AttestationObject raise CoseError
+
+pub fn parse_cose_key(Bytes) -> CoseKey raise CoseError
+
+pub fn parse_cose_key_value(@cbor.CborValue) -> CoseKey raise CoseError
+
+pub fn verify_sign1(Bytes, Bytes, CoseKey, external_aad? : Bytes) -> Bool raise CoseError
+
+// Errors
+pub suberror CoseError {
+  CborDecode(@cbor.CborError)
+  InvalidStructure(String)
+  UnsupportedAlgorithm(Int64)
+  AlgorithmKeyMismatch
+  InvalidKey(String)
+  InvalidSignature(String)
+  VerificationFailed
+  Asn1(@asn1.Asn1Error)
+} derive(Show)
+
+// Types and methods
+pub(all) struct AttestationObject {
+  fmt : String
+  auth_data : Bytes
+  att_stmt : @cbor.CborValue
+}
+
+pub(all) enum CoseAlg {
+  ES256
+  ES384
+  EdDSA
+  RS256
+} derive(Eq, Show)
+
+pub(all) enum CoseKey {
+  Ec2P256(pubkey~ : @p256.PublicKey)
+  Ec2P384(pubkey~ : @p384.PublicKey)
+  OkpEd25519(pubkey~ : @ed25519.PublicKey)
+  Rsa(pubkey~ : @rsa.RsaPublicKey)
+}
+
+// Type aliases
+
+// Traits
+

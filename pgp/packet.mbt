@@ -31,7 +31,9 @@ fn read_packet(data : Bytes, start : Int) -> (PgpPacket, Int) raise PgpError {
   }
   let header = data[start].to_int()
   if (header & 0x80) == 0 {
-    raise ArmorMalformed("packet header high bit not set: 0x" + header.to_string())
+    raise ArmorMalformed(
+      "packet header high bit not set: 0x" + header.to_string(),
+    )
   }
   if (header & 0x40) == 0 {
     // Old format: 10TTTTLL where TTTT is tag (4 bits) and LL is length type.

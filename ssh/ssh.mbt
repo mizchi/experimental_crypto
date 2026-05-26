@@ -163,7 +163,9 @@ fn verify_signed_data(
       } else {
         raise UnsupportedAlgorithm(algo)
       }
-      pk.verify(signed_data, raw, hash_alg) catch { _ => false }
+      pk.verify(signed_data, raw, hash_alg) catch {
+        _ => false
+      }
     }
   }
 }

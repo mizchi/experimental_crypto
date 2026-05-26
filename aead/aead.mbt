@@ -124,8 +124,7 @@ pub fn seal_detached(
     ChaCha20Poly1305 => chacha20_poly1305_seal(key, nonce, aad, plaintext)
     Aes128Gcm => aes_gcm_seal(16, key, nonce, aad, plaintext)
     Aes256Gcm => aes_gcm_seal(32, key, nonce, aad, plaintext)
-    XChaCha20Poly1305 =>
-      xchacha20_poly1305_seal(key, nonce, aad, plaintext)
+    XChaCha20Poly1305 => xchacha20_poly1305_seal(key, nonce, aad, plaintext)
   }
 }
 
@@ -175,7 +174,7 @@ fn check_chacha20_block_count(plaintext_len : Int) -> Unit raise AeadError {
     raise PlaintextTooLong
   }
   let needed_blocks : UInt64 = (plaintext_len.to_uint64() + 63UL) / 64UL
-  let max_blocks : UInt64 = ((1UL << 32) - 2UL)
+  let max_blocks : UInt64 = (1UL << 32) - 2UL
   if needed_blocks > max_blocks {
     raise PlaintextTooLong
   }

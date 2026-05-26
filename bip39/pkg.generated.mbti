@@ -1,0 +1,26 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/bip39"
+
+// Values
+pub let english_wordlist : FixedArray[String]
+
+pub fn entropy_to_mnemonic(Bytes) -> String raise Bip39Error
+
+pub fn mnemonic_to_entropy(String) -> Bytes raise Bip39Error
+
+pub fn mnemonic_to_seed(String, passphrase? : String) -> Bytes
+
+// Errors
+pub suberror Bip39Error {
+  InvalidEntropyLength(Int)
+  InvalidMnemonicWordCount(Int)
+  UnknownWord(String)
+  InvalidChecksum
+} derive(Show)
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

@@ -20,9 +20,7 @@ let armored_signature : String =
 ///|
 fn fixture_message() -> Bytes {
   let s = "hello git signing"
-  Bytes::makei(s.length(), fn(i) {
-    s.get_char(i).unwrap().to_int().to_byte()
-  })
+  Bytes::makei(s.length(), fn(i) { s.get_char(i).unwrap().to_int().to_byte() })
 }
 
 ///|
@@ -33,8 +31,7 @@ test "ssh: parse pubkey text" {
   let pk = @ssh.parse_ed25519_pubkey(parsed.blob)
   let rebuilt = @ssh.format_ssh_pubkey_text(pk, comment="mizchi@misc-test")
   assert_eq(
-    rebuilt,
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV mizchi@misc-test",
+    rebuilt, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV mizchi@misc-test",
   )
 }
 
@@ -73,7 +70,12 @@ test "ssh: wrong namespace returns false" {
   let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
   let pk = @ssh.parse_ed25519_pubkey(parsed.blob)
   assert_false(
-    @ssh.verify_armor(armored_signature, fixture_message(), pk, namespace="file"),
+    @ssh.verify_armor(
+      armored_signature,
+      fixture_message(),
+      pk,
+      namespace="file",
+    ),
   )
 }
 
@@ -82,7 +84,11 @@ test "ssh: wrong pubkey returns false" {
   let other_seed = Bytes::makei(32, fn(_) { b'\x00' })
   let other_sk = @ed25519.PrivateKey::from_seed(other_seed)
   assert_false(
-    @ssh.verify_armor(armored_signature, fixture_message(), other_sk.public_key()),
+    @ssh.verify_armor(
+      armored_signature,
+      fixture_message(),
+      other_sk.public_key(),
+    ),
   )
 }
 
@@ -310,7 +316,10 @@ test "ssh: sign_armor_with P-256 roundtrip" {
   let scalar = Bytes::makei(32, fn(i) { (i + 1).to_byte() })
   let sk = @p256.PrivateKey::from_bytes(scalar)
   let pk = @ssh.SshPublicKey::P256(sk.public_key())
-  let armor = @ssh.sign_armor_with(@ssh.SshPrivateKey::P256(sk), b"hello p256 ssh")
+  let armor = @ssh.sign_armor_with(
+    @ssh.SshPrivateKey::P256(sk),
+    b"hello p256 ssh",
+  )
   assert_true(@ssh.verify_armor_with(armor, b"hello p256 ssh", pk))
 }
 
@@ -319,7 +328,10 @@ test "ssh: sign_armor_with P-384 roundtrip" {
   let scalar = Bytes::makei(48, fn(i) { (i + 1).to_byte() })
   let sk = @p384.PrivateKey::from_bytes(scalar)
   let pk = @ssh.SshPublicKey::P384(sk.public_key())
-  let armor = @ssh.sign_armor_with(@ssh.SshPrivateKey::P384(sk), b"hello p384 ssh")
+  let armor = @ssh.sign_armor_with(
+    @ssh.SshPrivateKey::P384(sk),
+    b"hello p384 ssh",
+  )
   assert_true(@ssh.verify_armor_with(armor, b"hello p384 ssh", pk))
 }
 

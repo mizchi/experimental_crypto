@@ -23,7 +23,7 @@ fn hex(s : String) -> Bytes {
   while i < len {
     let hi = nibble(s.get_char(i * 2).unwrap())
     let lo = nibble(s.get_char(i * 2 + 1).unwrap())
-    out.unsafe_set(i, ((hi * 16) + lo).to_byte())
+    out.unsafe_set(i, (hi * 16 + lo).to_byte())
     i = i + 1
   }
   Bytes::makei(len, fn(j) { out.unsafe_get(j) })
@@ -120,13 +120,7 @@ test "p384: tampered signature fails" {
 test "p384: r=0 rejected" {
   let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
   let sig = vec_sig_raw()
-  let zero_r = Bytes::makei(96, fn(i) {
-    if i < 48 {
-      b'\x00'
-    } else {
-      sig[i]
-    }
-  })
+  let zero_r = Bytes::makei(96, fn(i) { if i < 48 { b'\x00' } else { sig[i] } })
   assert_false(@p384.verify(pk, vec_msg(), zero_r, Raw))
 }
 
@@ -223,13 +217,7 @@ test "p384: SignatureFormat Show" {
 test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
   let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
   let sig = vec_sig_raw()
-  let bad = Bytes::makei(96, fn(i) {
-    if i < 48 {
-      sig[i]
-    } else {
-      b'\x00'
-    }
-  })
+  let bad = Bytes::makei(96, fn(i) { if i < 48 { sig[i] } else { b'\x00' } })
   assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
 }
 

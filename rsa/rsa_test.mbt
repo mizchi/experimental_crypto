@@ -45,6 +45,7 @@ fn hex(s : String) -> Bytes {
 //
 // header  = `eyJhbGciOiJSUzI1NiJ9`
 // payload = `eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ`
+
 ///|
 let rfc7515_signing_input : Bytes = hex(
   "65794a68624763694f694a53557a49314e694a392e65794a7063334d694f694a71623255694c41304b49434a6c654841694f6a457a4d4441344d546b7a4f44417344516f67496d6830644841364c79396c654746746347786c4c6d4e76625339706331397962323930496a7030636e566c6651",
@@ -212,12 +213,8 @@ test "Sha384 / Sha512 are now wired up (return false for wrong hash)" {
   // or SHA-512 should now return false (rather than raise) since both
   // hashes are implemented.
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
-  assert_false(
-    pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384),
-  )
-  assert_false(
-    pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512),
-  )
+  assert_false(pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384))
+  assert_false(pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512))
 }
 
 // -----------------------------------------------------------------------------

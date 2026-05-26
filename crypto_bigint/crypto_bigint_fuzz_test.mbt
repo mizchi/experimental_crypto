@@ -147,7 +147,9 @@ test "fuzz crypto_bigint: pow_mod(a, 0, m) == 1 mod m" {
     let m = make_odd_modulus(bm, LIMB_COUNT)
     let a = bytes_to_uint(ba, LIMB_COUNT)
     let r = a.pow_mod(@crypto_bigint.Uint::zero(LIMB_COUNT), m)
-    assert_true(@crypto_bigint.Uint::ct_eq(r, @crypto_bigint.Uint::one(LIMB_COUNT)))
+    assert_true(
+      @crypto_bigint.Uint::ct_eq(r, @crypto_bigint.Uint::one(LIMB_COUNT)),
+    )
   }
 }
 
@@ -179,7 +181,9 @@ test "fuzz crypto_bigint: inv_mod(a, m) * a == 1 mod m when invertible" {
         ()
       Ok(inv) => {
         let prod = a.mul_mod(inv, m)
-        assert_true(@crypto_bigint.Uint::ct_eq(prod, @crypto_bigint.Uint::one(LIMB_COUNT)))
+        assert_true(
+          @crypto_bigint.Uint::ct_eq(prod, @crypto_bigint.Uint::one(LIMB_COUNT)),
+        )
       }
     }
   }

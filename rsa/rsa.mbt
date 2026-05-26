@@ -102,7 +102,9 @@ fn decode_one(der : Bytes) -> @asn1.Element raise RsaError {
 ///|
 // Parse a single RSAPublicKey SEQUENCE { n, e } element (without the
 // SPKI wrapper). Used by both `from_pkcs1_der` and `from_spki_der`.
-fn parse_rsa_public_key_elem(elem : @asn1.Element) -> RsaPublicKey raise RsaError {
+fn parse_rsa_public_key_elem(
+  elem : @asn1.Element,
+) -> RsaPublicKey raise RsaError {
   let items = expect_sequence(elem)
   if items.length() != 2 {
     raise InvalidEncoding("RSAPublicKey must have 2 entries")
@@ -347,7 +349,9 @@ pub(all) struct RsaPrivateKey {
 ///
 /// Only the first four fields (version, n, e, d) are read; the CRT
 /// parameters are skipped.
-pub fn RsaPrivateKey::from_pkcs1_der(der : Bytes) -> RsaPrivateKey raise RsaError {
+pub fn RsaPrivateKey::from_pkcs1_der(
+  der : Bytes,
+) -> RsaPrivateKey raise RsaError {
   let elem = decode_one(der)
   let items = expect_sequence(elem)
   if items.length() < 4 {
@@ -410,7 +414,6 @@ pub fn RsaPrivateKey::sign(
   s.to_octets(length=self.n_bytes_len)
 }
 
-
 // ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
 
 ///|
@@ -422,7 +425,9 @@ fn rsa_encryption_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
 /// Load an RSA private key from a PKCS#8 PrivateKeyInfo DER blob (the
 /// `BEGIN PRIVATE KEY` PEM body, post-base64-decode). Verifies the
 /// algorithm OID is rsaEncryption (1.2.840.113549.1.1.1).
-pub fn RsaPrivateKey::from_pkcs8_der(der : Bytes) -> RsaPrivateKey raise RsaError {
+pub fn RsaPrivateKey::from_pkcs8_der(
+  der : Bytes,
+) -> RsaPrivateKey raise RsaError {
   let info = @pkcs8.parse_der(der) catch {
     e => raise InvalidEncoding("pkcs8: " + e.to_string())
   }
@@ -435,12 +440,16 @@ pub fn RsaPrivateKey::from_pkcs8_der(der : Bytes) -> RsaPrivateKey raise RsaErro
 ///|
 /// Convenience: parse a `-----BEGIN PRIVATE KEY-----` PEM (unencrypted)
 /// and return the contained RSA private key.
-pub fn RsaPrivateKey::from_pkcs8_pem(pem_str : String) -> RsaPrivateKey raise RsaError {
+pub fn RsaPrivateKey::from_pkcs8_pem(
+  pem_str : String,
+) -> RsaPrivateKey raise RsaError {
   let block = @pem.decode(pem_str) catch {
     e => raise InvalidEncoding("pem: " + e.to_string())
   }
   if block.label != "PRIVATE KEY" {
-    raise InvalidEncoding("expected -----BEGIN PRIVATE KEY----- label, got " + block.label)
+    raise InvalidEncoding(
+      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
+    )
   }
   RsaPrivateKey::from_pkcs8_der(block.data)
 }
@@ -713,7 +722,7 @@ pub fn RsaPublicKey::verify_pss(
   message : Bytes,
   signature : Bytes,
   hash : HashAlg,
-  salt_len~ : Int = -1,
+  salt_len? : Int = -1,
 ) -> Bool raise RsaError {
   // §8.1.2 step 1: signature length must equal k.
   if signature.length() != self.n_bytes_len {

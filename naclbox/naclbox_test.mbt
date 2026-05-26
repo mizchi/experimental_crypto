@@ -85,10 +85,8 @@ test "secretbox rejects tag tamper" {
     }
   })
   let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox_open(
-      key,
-      nonce,
-      tampered,
-    )
+    key, nonce, tampered,
+  )
   match result {
     Ok(_) => abort("expected AuthenticationFailed")
     Err(@naclbox.AuthenticationFailed) => ()
@@ -111,10 +109,8 @@ test "secretbox rejects wrong key size" {
   let key = Bytes::makei(16, fn(_) { b'\x00' })
   let nonce = Bytes::makei(24, fn(_) { b'\x00' })
   let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox(
-      key,
-      nonce,
-      b"x",
-    )
+    key, nonce, b"x",
+  )
   match result {
     Err(@naclbox.InvalidKeyLength(16)) => ()
     Ok(_) => abort("expected InvalidKeyLength")
@@ -127,10 +123,8 @@ test "secretbox rejects wrong nonce size" {
   let key = Bytes::makei(32, fn(_) { b'\x00' })
   let nonce = Bytes::makei(12, fn(_) { b'\x00' })
   let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox(
-      key,
-      nonce,
-      b"x",
-    )
+    key, nonce, b"x",
+  )
   match result {
     Err(@naclbox.InvalidNonceLength(12)) => ()
     Ok(_) => abort("expected InvalidNonceLength")
@@ -144,15 +138,12 @@ test "secretbox_open rejects short ciphertext" {
   let nonce = Bytes::makei(24, fn(_) { b'\x00' })
   let too_short = Bytes::makei(8, fn(_) { b'\x00' })
   let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox_open(
-      key,
-      nonce,
-      too_short,
-    )
+    key, nonce, too_short,
+  )
   match result {
     Err(@naclbox.InvalidCiphertextLength(8)) => ()
     Ok(_) => abort("expected InvalidCiphertextLength")
-    Err(e) =>
-      abort("expected InvalidCiphertextLength but got " + e.to_string())
+    Err(e) => abort("expected InvalidCiphertextLength but got " + e.to_string())
   }
 }
 
@@ -244,11 +235,11 @@ test "box rejects tag tamper" {
     }
   })
   let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.box_open(
-      alice.public_key,
-      bob.secret_key,
-      nonce,
-      tampered,
-    )
+    alice.public_key,
+    bob.secret_key,
+    nonce,
+    tampered,
+  )
   match result {
     Err(@naclbox.AuthenticationFailed) => ()
     Ok(_) => abort("expected AuthenticationFailed")
@@ -260,8 +251,8 @@ test "box rejects tag tamper" {
 test "KeyPair::from_seed rejects wrong length" {
   let bad = Bytes::makei(16, fn(_) { b'\x00' })
   let result : Result[@naclbox.KeyPair, @naclbox.NaclBoxError] = try? @naclbox.KeyPair::from_seed(
-      bad,
-    )
+    bad,
+  )
   match result {
     Err(@naclbox.InvalidKeyLength(16)) => ()
     Ok(_) => abort("expected InvalidKeyLength")

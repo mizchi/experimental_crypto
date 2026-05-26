@@ -88,9 +88,9 @@ fn is_on_curve(p_pt : Point) -> Bool {
     return true
   }
   let p = p384_p()
-  let lhs = (p_pt.y * p_pt.y) % p
-  let x3 = (p_pt.x * p_pt.x % p * p_pt.x) % p
-  let three_x = (BigInt::from_int(3) * p_pt.x) % p
+  let lhs = p_pt.y * p_pt.y % p
+  let x3 = p_pt.x * p_pt.x % p * p_pt.x % p
+  let three_x = BigInt::from_int(3) * p_pt.x % p
   let rhs = mod_pos(x3 - three_x + p384_b(), p)
   lhs == rhs
 }
@@ -284,9 +284,7 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise P384Error {
   let curve_oid = match alg_items[1].value {
     Oid(o) => o.to_string()
     _ =>
-      raise InvalidPointEncoding(
-        "SPKI: expected namedCurve OID in parameters",
-      )
+      raise InvalidPointEncoding("SPKI: expected namedCurve OID in parameters")
   }
   if curve_oid != secp384r1_named_curve_str {
     raise UnexpectedSpkiOid(curve_oid)
@@ -447,7 +445,7 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
-  format~ : SignatureFormat = Raw,
+  format? : SignatureFormat = Raw,
 ) -> Bytes {
   let n = p384_n()
   let e_bytes = @hash.sha384(message)
@@ -466,7 +464,7 @@ pub fn PrivateKey::sign(
       r = r_point.x % n
       if r.compare(BigInt::from_int(0)) > 0 {
         let k_inv = mod_inverse(k, n)
-        let s_calc = (k_inv * ((e + r * self.d) % n)) % n
+        let s_calc = k_inv * ((e + r * self.d) % n) % n
         if s_calc.compare(BigInt::from_int(0)) > 0 {
           s = s_calc
           found = true
@@ -482,7 +480,11 @@ pub fn PrivateKey::sign(
 }
 
 ///|
-fn encode_signature_p384(r : BigInt, s : BigInt, format : SignatureFormat) -> Bytes {
+fn encode_signature_p384(
+  r : BigInt,
+  s : BigInt,
+  format : SignatureFormat,
+) -> Bytes {
   match format {
     Raw => {
       let r_bytes = r.to_octets(length=48)
@@ -541,7 +543,10 @@ fn encode_der_integer_p384(v : BigInt) -> Bytes {
     } else if needs_sign && i == 1 + len_prefix.length() {
       b'\x00'
     } else {
-      let mag_idx = i - 1 - len_prefix.length() - (if needs_sign { 1 } else { 0 })
+      let mag_idx = i -
+        1 -
+        len_prefix.length() -
+        (if needs_sign { 1 } else { 0 })
       mag[mag_idx]
     }
   })
@@ -786,10 +791,10 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P384Error {
 }
 
 ///|
-pub fn PrivateKey::from_pkcs8_pem(pem_str : String) -> PrivateKey raise P384Error {
-  let block = @pem.decode(pem_str) catch {
-    _ => raise InvalidPrivateKey("pem")
-  }
+pub fn PrivateKey::from_pkcs8_pem(
+  pem_str : String,
+) -> PrivateKey raise P384Error {
+  let block = @pem.decode(pem_str) catch { _ => raise InvalidPrivateKey("pem") }
   if block.label != "PRIVATE KEY" {
     raise InvalidPrivateKey(
       "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,

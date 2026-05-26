@@ -129,11 +129,7 @@ fn hmac_generic_128block(
 ) -> Bytes {
   let block_size = 128
   let padded = FixedArray::make(block_size, b'\x00')
-  let k = if key.length() > block_size {
-    hash_fn(key)
-  } else {
-    key
-  }
+  let k = if key.length() > block_size { hash_fn(key) } else { key }
   for i = 0; i < k.length(); i = i + 1 {
     padded.unsafe_set(i, k[i])
   }
@@ -164,10 +160,9 @@ fn hmac_generic_128block(
   for i = 0; i < inner_hash.length(); i = i + 1 {
     outer_input.unsafe_set(block_size + i, inner_hash[i])
   }
-  let outer_input_bytes = Bytes::makei(
-    block_size + inner_hash.length(),
-    fn(j) { outer_input.unsafe_get(j) },
-  )
+  let outer_input_bytes = Bytes::makei(block_size + inner_hash.length(), fn(j) {
+    outer_input.unsafe_get(j)
+  })
   hash_fn(outer_input_bytes)
 }
 

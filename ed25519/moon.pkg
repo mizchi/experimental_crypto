@@ -1,9 +1,9 @@
 import {
   "moonbitlang/core/bigint",
-  "mizchi/asn1" @asn1,
-  "mizchi/pkcs8" @pkcs8,
-  "mizchi/pem" @pem,
-  "mizchi/pkix" @pkix,
+  "mizchi/asn1",
+  "mizchi/pkcs8",
+  "mizchi/pem",
+  "mizchi/pkix",
 }
 
 import {

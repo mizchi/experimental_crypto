@@ -1248,7 +1248,9 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error 
 ///|
 /// Convenience: parse a `-----BEGIN PRIVATE KEY-----` PEM and return the
 /// contained Ed25519 private key.
-pub fn PrivateKey::from_pkcs8_pem(pem_str : String) -> PrivateKey raise Ed25519Error {
+pub fn PrivateKey::from_pkcs8_pem(
+  pem_str : String,
+) -> PrivateKey raise Ed25519Error {
   let block = @pem.decode(pem_str) catch {
     e => raise InvalidEncoding("pem: " + e.to_string())
   }

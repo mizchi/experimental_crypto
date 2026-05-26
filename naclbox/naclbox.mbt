@@ -62,12 +62,12 @@ pub fn secretbox(
     raise InvalidNonceLength(nonce.length())
   }
   let aead_result : Result[(Bytes, Bytes), @aead.AeadError] = try? @aead.seal_detached(
-      @aead.XChaCha20Poly1305,
-      key,
-      nonce,
-      b"",
-      message,
-    )
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    b"",
+    message,
+  )
   match aead_result {
     Err(e) => raise KeyGenerationError(e.to_string())
     Ok((ct, tag)) =>
@@ -102,13 +102,13 @@ pub fn secretbox_open(
   let tag = Bytes::makei(16, fn(i) { ciphertext[i] })
   let ct = Bytes::makei(ciphertext.length() - 16, fn(i) { ciphertext[i + 16] })
   let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
-      @aead.XChaCha20Poly1305,
-      key,
-      nonce,
-      b"",
-      ct,
-      tag,
-    )
+    @aead.XChaCha20Poly1305,
+    key,
+    nonce,
+    b"",
+    ct,
+    tag,
+  )
   match result {
     Ok(pt) => pt
     Err(@aead.AuthenticationFailed) => raise AuthenticationFailed
@@ -126,9 +126,8 @@ pub fn box_beforenm(
   sender_privkey : @x25519.PrivateKey,
 ) -> SharedKey raise NaclBoxError {
   let ecdh_result : Result[@x25519.SharedSecret, @x25519.X25519Error] = try? @x25519.diffie_hellman(
-      sender_privkey,
-      recipient_pubkey,
-    )
+    sender_privkey, recipient_pubkey,
+  )
   match ecdh_result {
     Err(e) => raise KeyGenerationError(e.to_string())
     Ok(shared) => {

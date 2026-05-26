@@ -342,3 +342,30 @@ fn aes_encrypt(key : Bytes, block : Bytes) -> Bytes raise AeadError {
   let (rk, nr) = aes_key_schedule(key)
   aes_encrypt_block(block, rk, nr)
 }
+
+///|
+/// AES single-block encrypt (one 16-byte block under the given key). This is
+/// the raw block cipher with no mode: it does NOT chain, pad, or authenticate.
+/// Exposed for higher-level constructions that need the block primitive
+/// directly (e.g. AES Key Wrap, RFC 3394, in `mizchi/jwe`).
+///
+/// `key` must be 16 or 32 bytes (AES-128 or AES-256). `block` must be exactly
+/// 16 bytes. Not constant-time (table-based S-box) — same caveat as the rest
+/// of this module.
+pub fn aes_block_encrypt(key : Bytes, block : Bytes) -> Bytes raise AeadError {
+  if block.length() != 16 {
+    raise InvalidKeySize(expected=16, got=block.length())
+  }
+  let (rk, nr) = aes_key_schedule(key)
+  aes_encrypt_block(block, rk, nr)
+}
+
+///|
+/// AES single-block decrypt. See `aes_block_encrypt` for the rationale.
+pub fn aes_block_decrypt(key : Bytes, block : Bytes) -> Bytes raise AeadError {
+  if block.length() != 16 {
+    raise InvalidKeySize(expected=16, got=block.length())
+  }
+  let (rk, nr) = aes_key_schedule(key)
+  aes_decrypt_block(block, rk, nr)
+}

@@ -71,22 +71,14 @@ fn left_pad(b : Bytes, target_len : Int) -> Bytes raise SshError {
     )
   }
   let pad = target_len - b.length()
-  Bytes::makei(target_len, fn(i) {
-    if i < pad {
-      b'\x00'
-    } else {
-      b[i - pad]
-    }
-  })
+  Bytes::makei(target_len, fn(i) { if i < pad { b'\x00' } else { b[i - pad] } })
 }
 
 ///|
 // Parse a single `algorithm base64 [comment]` line. Whitespace at line
 // boundaries is tolerated. Returns the algorithm tag, the wire-format
 // pubkey bytes (still tagged), and an optional comment.
-pub fn parse_ssh_pubkey_text(
-  line : String,
-) -> SshPublicKeyText raise SshError {
+pub fn parse_ssh_pubkey_text(line : String) -> SshPublicKeyText raise SshError {
   let trimmed = trim_ascii(line)
   let parts = split_whitespace(trimmed)
   if parts.length() < 2 {
@@ -116,11 +108,7 @@ pub fn parse_ssh_pubkey_text(
   let inner_algo = reader.read_string_ascii()
   if inner_algo != algorithm {
     raise InvalidEncoding(
-      "algorithm mismatch (text=" +
-      algorithm +
-      ", blob=" +
-      inner_algo +
-      ")",
+      "algorithm mismatch (text=" + algorithm + ", blob=" + inner_algo + ")",
     )
   }
   { algorithm, blob, comment }
@@ -130,9 +118,7 @@ pub fn parse_ssh_pubkey_text(
 // Parse an SSH-format Ed25519 pubkey from its wire blob (e.g. what
 // parse_ssh_pubkey_text returns in `.blob`, or what's embedded in a
 // SSHSIG envelope's publickey field).
-pub fn parse_ed25519_pubkey(
-  blob : Bytes,
-) -> @ed25519.PublicKey raise SshError {
+pub fn parse_ed25519_pubkey(blob : Bytes) -> @ed25519.PublicKey raise SshError {
   let reader = WireReader::new(blob)
   let algo = reader.read_string_ascii()
   if algo != ed25519_algo {
@@ -158,9 +144,7 @@ pub fn parse_ed25519_pubkey(
 //   string  "ecdsa-sha2-nistpN"
 //   string  "nistpN"
 //   string  Q  (uncompressed: 04 || X || Y, 1+2N bytes)
-pub fn parse_ecdsa_pubkey(
-  blob : Bytes,
-) -> SshPublicKey raise SshError {
+pub fn parse_ecdsa_pubkey(blob : Bytes) -> SshPublicKey raise SshError {
   let reader = WireReader::new(blob)
   let algo = reader.read_string_ascii()
   let curve_label = reader.read_string_ascii()
@@ -237,12 +221,11 @@ pub fn format_ssh_pubkey_text(
   sb.write_char(' ')
   sb.write_string(b64)
   match comment {
-    Some(c) => {
+    Some(c) =>
       if c.length() > 0 {
         sb.write_char(' ')
         sb.write_string(c)
       }
-    }
     None => ()
   }
   sb.to_string()

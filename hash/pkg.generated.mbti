@@ -4,6 +4,8 @@ package "mizchi/hash"
 // Values
 pub fn ct_eq(Bytes, Bytes) -> Bool
 
+pub fn hash160(Bytes) -> Bytes
+
 pub fn hmac_sha256(Bytes, Bytes) -> Bytes
 
 pub fn hmac_sha256_compute(HmacSha256Ctx, Bytes) -> Bytes
@@ -13,6 +15,10 @@ pub fn hmac_sha256_init(Bytes) -> HmacSha256Ctx
 pub fn hmac_sha384(Bytes, Bytes) -> Bytes
 
 pub fn hmac_sha512(Bytes, Bytes) -> Bytes
+
+pub fn ripemd160(Bytes) -> Bytes
+
+pub fn sha1(Bytes) -> Bytes
 
 pub fn sha256(Bytes) -> Bytes
 

@@ -19,6 +19,6 @@ repository = ""
 
 license = "Apache-2.0"
 
-keywords = []
+keywords = [ ]
 
 description = "RSA PKCS#1 v1.5 signature verification (verify-only)."

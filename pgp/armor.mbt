@@ -75,7 +75,9 @@ pub fn decode_armor(input : String) -> Armored raise PgpError {
       }
       None => ()
     }
-    if line.length() > 0 && line.get_char(0).unwrap() == '=' && line.length() == 5 {
+    if line.length() > 0 &&
+      line.get_char(0).unwrap() == '=' &&
+      line.length() == 5 {
       // CRC line "=AAAA"
       let crc_b64 = substring(line, 1, line.length())
       let crc_bytes = @base64.decode(crc_b64) catch {
@@ -84,8 +86,7 @@ pub fn decode_armor(input : String) -> Armored raise PgpError {
       if crc_bytes.length() != 3 {
         raise ArmorMalformed("crc length")
       }
-      let crc =
-        (crc_bytes[0].to_uint() << 16) |
+      let crc = (crc_bytes[0].to_uint() << 16) |
         (crc_bytes[1].to_uint() << 8) |
         crc_bytes[2].to_uint()
       crc_expected = Some(crc)
@@ -104,10 +105,7 @@ pub fn decode_armor(input : String) -> Armored raise PgpError {
     _ => raise ArmorMalformed("body base64")
   }
   match crc_expected {
-    Some(expected) =>
-      if crc24(data) != expected {
-        raise ArmorCrcMismatch
-      }
+    Some(expected) => if crc24(data) != expected { raise ArmorCrcMismatch }
     None => ()
   }
   { label, data }

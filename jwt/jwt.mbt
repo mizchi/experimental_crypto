@@ -120,13 +120,7 @@ fn base64url_encode(b : Bytes) -> String {
   let s = @base64.encode(b[:], padding=false)
   let buf = StringBuilder::new()
   for c in s {
-    let c2 = if c == '+' {
-      '-'
-    } else if c == '/' {
-      '_'
-    } else {
-      c
-    }
+    let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
     buf.write_char(c2)
   }
   buf.to_string()
@@ -150,13 +144,7 @@ fn base64url_decode(s : String) -> Bytes raise JwtError {
     if not(is_valid) {
       raise InvalidToken("invalid base64url character")
     }
-    let c2 = if c == '-' {
-      '+'
-    } else if c == '_' {
-      '/'
-    } else {
-      c
-    }
+    let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
     buf.write_char(c2)
     n = n + 1
   }
@@ -270,7 +258,9 @@ fn json_to_compact_string(j : Json) -> String {
 pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let alg = key_alg(key)
   let header = build_header_json(alg, kid)
-  let header_b64 = base64url_encode(@utf8.encode(json_to_compact_string(header)[:]))
+  let header_b64 = base64url_encode(
+    @utf8.encode(json_to_compact_string(header)[:]),
+  )
   let payload_b64 = base64url_encode(
     @utf8.encode(json_to_compact_string(payload)[:]),
   )
@@ -281,34 +271,22 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
     EdDsa(privkey~) => privkey.sign(signing_bytes)
     Rs256(privkey~) =>
       privkey.sign(signing_bytes, @rsa.HashAlg::Sha256) catch {
-        e =>
-          raise UnsupportedAlgorithm(
-            "RS256 sign failed: " + e.to_string(),
-          )
+        e => raise UnsupportedAlgorithm("RS256 sign failed: " + e.to_string())
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
     Es384(privkey~) => privkey.sign(signing_bytes)
     // PSS with sLen = 0 (deterministic) — see module comment.
     Ps256(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, b"") catch {
-        e =>
-          raise UnsupportedAlgorithm(
-            "PS256 sign failed: " + e.to_string(),
-          )
+        e => raise UnsupportedAlgorithm("PS256 sign failed: " + e.to_string())
       }
     Ps384(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha384, b"") catch {
-        e =>
-          raise UnsupportedAlgorithm(
-            "PS384 sign failed: " + e.to_string(),
-          )
+        e => raise UnsupportedAlgorithm("PS384 sign failed: " + e.to_string())
       }
     Ps512(privkey~) =>
       privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha512, b"") catch {
-        e =>
-          raise UnsupportedAlgorithm(
-            "PS512 sign failed: " + e.to_string(),
-          )
+        e => raise UnsupportedAlgorithm("PS512 sign failed: " + e.to_string())
       }
   }
   signing_input + "." + base64url_encode(signature)
@@ -356,9 +334,7 @@ fn audience_matches(claim : Json, expected : String) -> Bool {
     Array(arr) => {
       for v in arr {
         match v {
-          String(s) => if s == expected {
-              return true
-            }
+          String(s) => if s == expected { return true }
           _ => ()
         }
       }
@@ -402,7 +378,9 @@ pub fn verify(
   // silently ignore" attacks.
   match header.get("crit") {
     Some(_) =>
-      raise InvalidHeader("crit header is present but no extensions are supported")
+      raise InvalidHeader(
+        "crit header is present but no extensions are supported",
+      )
     None => ()
   }
   // RFC 7797: `"b64":false` changes the signing-input construction;
@@ -435,25 +413,50 @@ pub fn verify(
       }
     (ES256, Es256(pubkey~)) =>
       // RFC 7515 §3.4: the JWS signature is r||s, 64 bytes total.
-      @p256.verify(pubkey, signing_bytes, provided_sig, @p256.SignatureFormat::Raw) catch {
+      @p256.verify(
+        pubkey,
+        signing_bytes,
+        provided_sig,
+        @p256.SignatureFormat::Raw,
+      ) catch {
         _ => raise InvalidSignature
       }
     (ES384, Es384(pubkey~)) =>
       // r||s, 96 bytes total for ES384.
-      @p384.verify(pubkey, signing_bytes, provided_sig, @p384.SignatureFormat::Raw) catch {
+      @p384.verify(
+        pubkey,
+        signing_bytes,
+        provided_sig,
+        @p384.SignatureFormat::Raw,
+      ) catch {
         _ => raise InvalidSignature
       }
     // PSS verify with sLen = 0 (matches the sign path; see module comment).
     (PS256, Ps256(pubkey~)) =>
-      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha256, salt_len=0) catch {
+      pubkey.verify_pss(
+        signing_bytes,
+        provided_sig,
+        @rsa.HashAlg::Sha256,
+        salt_len=0,
+      ) catch {
         _ => raise InvalidSignature
       }
     (PS384, Ps384(pubkey~)) =>
-      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha384, salt_len=0) catch {
+      pubkey.verify_pss(
+        signing_bytes,
+        provided_sig,
+        @rsa.HashAlg::Sha384,
+        salt_len=0,
+      ) catch {
         _ => raise InvalidSignature
       }
     (PS512, Ps512(pubkey~)) =>
-      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha512, salt_len=0) catch {
+      pubkey.verify_pss(
+        signing_bytes,
+        provided_sig,
+        @rsa.HashAlg::Sha512,
+        salt_len=0,
+      ) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>
@@ -488,23 +491,17 @@ pub fn verify(
     raise ClaimsParseError("exp claim is required")
   }
   match exp {
-    Some(e) => if e + opts.clock_skew_sec < opts.now {
-        raise Expired
-      }
+    Some(e) => if e + opts.clock_skew_sec < opts.now { raise Expired }
     None => ()
   }
   match get_numeric_date(claims, "nbf") {
-    Some(nbf) => if nbf > opts.now + opts.clock_skew_sec {
-        raise NotYetValid
-      }
+    Some(nbf) => if nbf > opts.now + opts.clock_skew_sec { raise NotYetValid }
     None => ()
   }
   match opts.issuer {
     Some(expected) =>
       match get_string(claims, "iss") {
-        Some(s) => if s != expected {
-            raise InvalidIssuer
-          }
+        Some(s) => if s != expected { raise InvalidIssuer }
         None => raise InvalidIssuer
       }
     None => ()
@@ -512,7 +509,8 @@ pub fn verify(
   match opts.audience {
     Some(expected) =>
       match claims.get("aud") {
-        Some(v) => if not(audience_matches(v, expected)) {
+        Some(v) =>
+          if not(audience_matches(v, expected)) {
             raise InvalidAudience
           }
         None => raise InvalidAudience

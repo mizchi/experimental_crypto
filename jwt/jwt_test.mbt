@@ -43,13 +43,7 @@ fn b64u_to_bytes(s : String) -> Bytes {
   let buf = StringBuilder::new()
   let mut n = 0
   for c in s {
-    let c2 = if c == '-' {
-      '+'
-    } else if c == '_' {
-      '/'
-    } else {
-      c
-    }
+    let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
     buf.write_char(c2)
     n = n + 1
   }
@@ -57,7 +51,9 @@ fn b64u_to_bytes(s : String) -> Bytes {
   for _ in 0..<pad {
     buf.write_char('=')
   }
-  @base64.decode(buf.to_string()) catch { _ => abort("bad b64u in test") }
+  @base64.decode(buf.to_string()) catch {
+    _ => abort("bad b64u in test")
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -134,7 +130,8 @@ test "HS256: wrong secret fails verification" {
   m["sub"] = Json::string("bob")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts = @jwt.VerifyOptions::default(0L)
-  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=other_secret), opts)) {
+  match
+    (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=other_secret), opts)) {
     Err(InvalidSignature) => ()
     Ok(_) => abort("expected InvalidSignature")
     Err(e) => abort("expected InvalidSignature, got \{e}")
@@ -315,8 +312,7 @@ test "aud: string and array forms both match" {
 test "InvalidToken: wrong segment count" {
   let secret : Bytes = b"k"
   let opts = @jwt.VerifyOptions::default(0L)
-  match
-    (try? @jwt.verify("only.two", @jwt.VerifyKey::Hs256(secret~), opts)) {
+  match (try? @jwt.verify("only.two", @jwt.VerifyKey::Hs256(secret~), opts)) {
     Err(InvalidToken(_)) => ()
     other => abort("expected InvalidToken, got \{other}")
   }
@@ -561,8 +557,8 @@ test "ATTACK CVE-2015-9235: alg=none token must be rejected" {
   let secret : Bytes = b"any"
   match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
     Err(UnsupportedAlgorithm(s)) => assert_eq(s, "none")
-    Err(KeyAlgorithmMismatch) => ()  // also acceptable
-    Err(InvalidToken(_)) => ()  // rejected at token shape
+    Err(KeyAlgorithmMismatch) => () // also acceptable
+    Err(InvalidToken(_)) => () // rejected at token shape
     other => abort("alg=none NOT rejected: \{other}")
   }
 }
@@ -638,7 +634,11 @@ test "JWT RS256 sign + verify roundtrip" {
   claims["sub"] = Json::string("rs256-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Rs256(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
-  let v = @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=sk.public_key()), opts)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Rs256(pubkey=sk.public_key()),
+    opts,
+  )
   assert_eq(v.alg, @jwt.Algorithm::RS256)
   match v.claims.get("sub") {
     Some(String(s)) => assert_eq(s, "rs256-roundtrip")
@@ -656,7 +656,11 @@ test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
   claims["sub"] = Json::string("ps256-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
-  let v = @jwt.verify(token, @jwt.VerifyKey::Ps256(pubkey=sk.public_key()), opts)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Ps256(pubkey=sk.public_key()),
+    opts,
+  )
   assert_eq(v.alg, @jwt.Algorithm::PS256)
   match v.claims.get("sub") {
     Some(String(s)) => assert_eq(s, "ps256-roundtrip")
@@ -671,7 +675,11 @@ test "JWT PS384 sign + verify roundtrip" {
   claims["sub"] = Json::string("ps384-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps384(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
-  let v = @jwt.verify(token, @jwt.VerifyKey::Ps384(pubkey=sk.public_key()), opts)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Ps384(pubkey=sk.public_key()),
+    opts,
+  )
   assert_eq(v.alg, @jwt.Algorithm::PS384)
 }
 
@@ -682,7 +690,11 @@ test "JWT PS512 sign + verify roundtrip" {
   claims["sub"] = Json::string("ps512-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps512(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
-  let v = @jwt.verify(token, @jwt.VerifyKey::Ps512(pubkey=sk.public_key()), opts)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Ps512(pubkey=sk.public_key()),
+    opts,
+  )
   assert_eq(v.alg, @jwt.Algorithm::PS512)
 }
 
@@ -710,12 +722,16 @@ test "JWT PS256: tampered payload fails signature check" {
   let parts = token.split(".").to_array()
   let bad_token = parts[0].to_string() +
     "." +
-    "eyJzdWIiOiJ0YW1wZXJlZCJ9" +  // base64url({"sub":"tampered"})
+    "eyJzdWIiOiJ0YW1wZXJlZCJ9" + // base64url({"sub":"tampered"})
     "." +
     parts[2].to_string()
   let opts = @jwt.VerifyOptions::default(0L)
   match
-    (try? @jwt.verify(bad_token, @jwt.VerifyKey::Ps256(pubkey=sk.public_key()), opts)) {
+    (try? @jwt.verify(
+      bad_token,
+      @jwt.VerifyKey::Ps256(pubkey=sk.public_key()),
+      opts,
+    )) {
     Err(InvalidSignature) => ()
     other => abort("expected InvalidSignature, got \{other}")
   }
@@ -731,7 +747,11 @@ test "JWT ES256 sign + verify roundtrip" {
   claims["sub"] = Json::string("es256-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Es256(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
-  let v = @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=sk.public_key()), opts)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Es256(pubkey=sk.public_key()),
+    opts,
+  )
   assert_eq(v.alg, @jwt.Algorithm::ES256)
 }
 
@@ -745,7 +765,11 @@ test "JWT ES384 sign + verify roundtrip" {
   claims["sub"] = Json::string("es384-roundtrip")
   let token = @jwt.sign(Json::object(claims), @jwt.Key::Es384(privkey=sk))
   let opts = @jwt.VerifyOptions::default(0L)
-  let v = @jwt.verify(token, @jwt.VerifyKey::Es384(pubkey=sk.public_key()), opts)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Es384(pubkey=sk.public_key()),
+    opts,
+  )
   assert_eq(v.alg, @jwt.Algorithm::ES384)
 }
 

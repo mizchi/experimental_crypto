@@ -110,7 +110,13 @@ test "ATTACK X25519 small-subgroup: pubkey=all-zero must raise AllZeroSharedSecr
 test "ATTACK X25519 small-subgroup: pubkey=1 (low-order) must raise AllZeroSharedSecret" {
   // Another known low-order point: u=1.
   let sk = @x25519.PrivateKey::from_bytes(Bytes::makei(32, fn(_) { b'\x42' }))
-  let pk_bytes = Bytes::makei(32, fn(i) { if i == 0 { b'\x01' } else { b'\x00' } })
+  let pk_bytes = Bytes::makei(32, fn(i) {
+    if i == 0 {
+      b'\x01'
+    } else {
+      b'\x00'
+    }
+  })
   let pk = @x25519.PublicKey::from_bytes(pk_bytes)
   match (try? @x25519.diffie_hellman(sk, pk)) {
     Err(AllZeroSharedSecret) => ()

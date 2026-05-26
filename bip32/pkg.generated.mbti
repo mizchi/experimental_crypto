@@ -1,0 +1,49 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/bip32"
+
+import {
+  "mizchi/secp256k1",
+}
+
+// Values
+pub fn derive_path(ExtendedPrivateKey, String) -> ExtendedPrivateKey raise Bip32Error
+
+pub fn derive_private(ExtendedPrivateKey, UInt) -> ExtendedPrivateKey raise Bip32Error
+
+pub fn derive_public(ExtendedPublicKey, UInt) -> ExtendedPublicKey raise Bip32Error
+
+pub fn master_from_seed(Bytes) -> ExtendedPrivateKey raise Bip32Error
+
+pub fn neuter(ExtendedPrivateKey) -> ExtendedPublicKey
+
+// Errors
+pub suberror Bip32Error {
+  InvalidSeedLength(Int)
+  InvalidChildIndex
+  DerivationFailed(String)
+  HardenedFromPublic(UInt)
+  InvalidPath(String)
+  Secp256k1(@secp256k1.Secp256k1Error)
+} derive(Show)
+
+// Types and methods
+pub(all) struct ExtendedPrivateKey {
+  privkey : @secp256k1.PrivateKey
+  chain_code : Bytes
+  depth : Int
+  parent_fingerprint : Bytes
+  child_index : UInt
+}
+
+pub(all) struct ExtendedPublicKey {
+  pubkey : @secp256k1.PublicKey
+  chain_code : Bytes
+  depth : Int
+  parent_fingerprint : Bytes
+  child_index : UInt
+}
+
+// Type aliases
+
+// Traits
+

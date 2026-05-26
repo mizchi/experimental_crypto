@@ -1,9 +1,9 @@
 import {
-  "mizchi/asn1" @asn1,
-  "mizchi/pkix" @pkix,
-  "mizchi/pkix_verify" @pkix_verify,
-  "mizchi/rsa" @rsa,
-  "mizchi/p256" @p256,
-  "mizchi/p384" @p384,
-  "mizchi/hash" @hash,
+  "mizchi/asn1",
+  "mizchi/pkix",
+  "mizchi/pkix_verify",
+  "mizchi/rsa",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/hash",
 }

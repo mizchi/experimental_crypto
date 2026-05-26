@@ -120,13 +120,8 @@ fn build_self_signed_ed25519(
   extensions : Array[@pkix.Extension],
 ) -> (@pkix.Certificate, @ed25519.PublicKey) raise {
   build_ed25519_cert(
-    seed_hex,
-    cn,
-    cn, // self-signed: issuer = subject
-    not_before,
-    not_after,
-    extensions,
-    seed_hex,
+    seed_hex, cn, cn, // self-signed: issuer = subject
+     not_before, not_after, extensions, seed_hex,
   )
 }
 
@@ -261,7 +256,8 @@ test "verify_certificate: tampered signature fails" {
     signature_algorithm: cert.signature_algorithm,
     signature: { bytes: tampered, unused_bits: 0 },
   }
-  match (try? @pkix_verify.verify_certificate(bad, Ed25519(pk), "250101000000Z")) {
+  match
+    (try? @pkix_verify.verify_certificate(bad, Ed25519(pk), "250101000000Z")) {
     Err(SignatureMismatch) => ()
     _ => assert_true(false)
   }
@@ -276,7 +272,8 @@ test "verify_certificate: NotYetValid before notBefore" {
     "400101000000Z",
     [basic_constraints_ca_ext()],
   )
-  match (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
+  match
+    (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
     Err(NotYetValid) => ()
     _ => assert_true(false)
   }
@@ -291,7 +288,8 @@ test "verify_certificate: Expired after notAfter" {
     "200101000000Z",
     [basic_constraints_ca_ext()],
   )
-  match (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
+  match
+    (try? @pkix_verify.verify_certificate(cert, Ed25519(pk), "250101000000Z")) {
     Err(Expired) => ()
     _ => assert_true(false)
   }
@@ -326,12 +324,7 @@ test "verify_chain: 2-cert chain (leaf + intermediate + anchor pubkey) passes" {
     [basic_constraints_non_ca_ext()],
     inter_seed,
   )
-  @pkix_verify.verify_chain(
-    leaf,
-    [inter],
-    Ed25519(anchor_pk),
-    "250101000000Z",
-  )
+  @pkix_verify.verify_chain(leaf, [inter], Ed25519(anchor_pk), "250101000000Z")
 }
 
 ///|
@@ -629,11 +622,7 @@ fn key_usage_ext(key_cert_sign : Bool, critical : Bool) -> @pkix.Extension {
   let value = @asn1.encode_der(
     @asn1.Element::new(@asn1.tag_bit_string, BitString(bs)),
   )
-  {
-    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15]),
-    critical,
-    value,
-  }
+  { oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15]), critical, value }
 }
 
 ///|
@@ -674,10 +663,7 @@ fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
     @asn1.Tag::context(1U, constructed=true),
     @asn1.Value::Unknown(gst_bytes),
   )
-  let nc = @asn1.Element::new(
-    @asn1.tag_sequence,
-    Sequence([excluded_subtrees]),
-  )
+  let nc = @asn1.Element::new(@asn1.tag_sequence, Sequence([excluded_subtrees]))
   let value = @asn1.encode_der(nc)
   {
     oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
@@ -689,7 +675,9 @@ fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
 ///|
 // extendedKeyUsage with one explicit OID (e.g. id-kp-serverAuth).
 fn eku_ext_server_auth() -> @pkix.Extension {
-  let server_auth = @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 3, 1])
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
   let value = @asn1.encode_der(
     @asn1.Element::new(
       @asn1.tag_sequence,
@@ -1064,5 +1052,10 @@ test "pathLenConstraint=1 with one intermediate before leaf passes" {
     i1_cert.tbs.subject_public_key_info,
   )
   // Should pass — I1 allows 1 sub-CA, I0 is exactly that.
-  @pkix_verify.verify_chain(leaf, [i0_cert, i1_cert], anchor_pk, "250601000000Z")
+  @pkix_verify.verify_chain(
+    leaf,
+    [i0_cert, i1_cert],
+    anchor_pk,
+    "250601000000Z",
+  )
 }

@@ -1,0 +1,55 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/jwe"
+
+import {
+  "mizchi/aead",
+  "mizchi/rsa",
+}
+
+// Values
+pub fn decrypt(String, DecryptionKey) -> Bytes raise JweError
+
+pub fn encrypt(Bytes, JweAlg, JweEnc, EncryptionKey, cek? : Bytes, iv? : Bytes, oaep_seed? : Bytes, extra_header? : Map[String, Json]) -> String raise JweError
+
+// Errors
+pub suberror JweError {
+  InvalidToken(String)
+  InvalidHeader(String)
+  UnsupportedAlgorithm(String)
+  AlgorithmMismatch(String)
+  AuthenticationFailed
+  InvalidKeySize(String)
+  InvalidIvSize(String)
+  Aead(@aead.AeadError)
+  RsaOaepError(String)
+}
+pub impl Show for JweError
+
+// Types and methods
+pub(all) enum DecryptionKey {
+  DecDir(cek~ : Bytes)
+  DecRsa(privkey~ : @rsa.RsaPrivateKey)
+  DecAes256Kw(kek~ : Bytes)
+}
+
+pub(all) enum EncryptionKey {
+  EncDir(cek~ : Bytes)
+  EncRsa(pubkey~ : @rsa.RsaPublicKey)
+  EncAes256Kw(kek~ : Bytes)
+}
+
+pub(all) enum JweAlg {
+  Dir
+  Rsa_oaep_256
+  A256kw
+} derive(Eq, Show)
+
+pub(all) enum JweEnc {
+  A128gcm
+  A256gcm
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+
