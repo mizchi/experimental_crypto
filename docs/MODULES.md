@@ -43,7 +43,11 @@ CSPRNG bridge. Platform backends: `crypto.getRandomValues` on JS,
 
 ### `mizchi/proofs` + `<lib>/wrap` sub-packages
 **Proof goals**: 5 (proofs) + 1 (pem/wrap) + 2 (aead/wrap) + 1 (hkdf/wrap)
-+ 1 (asn1/wrap) = **10**, all discharged via `moon prove` + Why3 + Z3.
++ 1 (asn1/wrap) = **10**, all discharged via `moon prove` + Why3 +
+multi-solver pipeline (Z3 → CVC5 → Alt-Ergo). `aead/wrap`'s
+block-alignment postconditions `(x + result) % block_size == 0` need
+CVC5 — Z3 alone times out on the Euclidean axiom needed to discharge
+them.
 
 Proof-carrying leaf functions split between two patterns:
 

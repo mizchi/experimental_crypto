@@ -12,12 +12,6 @@
 /// fragment, returns the number of zero bytes needed to pad it to a multiple
 /// of `block_size` (16 for AES-GCM). When `len` is already aligned the
 /// padding is 0.
-///
-/// The block-alignment property `(len + result) % block_size == 0` is true
-/// but currently times out in Z3 4.15.4 (driver lowers Int `%` to `mod_`
-/// while the model uses `mod`, and the Euclidean axiom needed to bridge the
-/// two isn't being instantiated). The range invariant below is what we get
-/// for free; the alignment is covered by the runtime tests in `aead`.
 pub fn ghash_zero_pad_len(
   len : Int,
   block_size : Int,
@@ -26,6 +20,7 @@ pub fn ghash_zero_pad_len(
   proof_require: block_size > 0,
   proof_ensure: result => 0 <= result,
   proof_ensure: result => result < block_size,
+  proof_ensure: result => (len + result) % block_size == 0,
 } {
   (block_size - len % block_size) % block_size
 }
@@ -38,9 +33,7 @@ pub fn ghash_zero_pad_len(
 /// aligned), so the result is in `[1, block_size]`.
 ///
 /// The padding byte value equals the padding length, so `block_size` must
-/// fit in a byte (≤ 255). The block-alignment property `(plaintext_len +
-/// result) % block_size == 0` is mechanically true but currently times out
-/// in Z3 — see the note on `ghash_zero_pad_len`.
+/// fit in a byte (≤ 255).
 pub fn pkcs7_pad_len(
   plaintext_len : Int,
   block_size : Int,
@@ -50,6 +43,7 @@ pub fn pkcs7_pad_len(
   proof_require: block_size <= 255,
   proof_ensure: result => 1 <= result,
   proof_ensure: result => result <= block_size,
+  proof_ensure: result => (plaintext_len + result) % block_size == 0,
 } {
   block_size - plaintext_len % block_size
 }

@@ -13,3 +13,4 @@ target/
 .direnv/
 result
 result-*
+proofs/why3.conf
