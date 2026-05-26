@@ -804,15 +804,18 @@ fn fe_inv(z : Fe) -> Fe {
 
 ///|
 // Compare two field elements for equality after full canonical reduction.
+// OR-accumulates the per-byte XOR with no early termination so the timing
+// of this check does not leak which byte position differs. Inputs to all
+// current call sites (point_decompress, ed_points_equal) are public, but
+// this hygiene keeps the function safe for future secret-input callers.
 fn fe_eq(a : Fe, b : Fe) -> Bool {
   let ab = fe_to_bytes(a)
   let bb = fe_to_bytes(b)
+  let mut acc = 0
   for i in 0..<32 {
-    if ab[i] != bb[i] {
-      return false
-    }
+    acc = acc | (ab[i].to_int() ^ bb[i].to_int())
   }
-  true
+  acc == 0
 }
 
 ///|

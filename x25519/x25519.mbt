@@ -138,14 +138,14 @@ pub fn diffie_hellman(
 ) -> SharedSecret raise X25519Error {
   let out = scalarmult_unchecked(sk.bytes, pk.bytes)
   // RFC 7748 §6.1: an all-zero output indicates a small-subgroup point.
-  let mut all_zero = true
+  // OR-accumulate every byte (no early break) so the timing of this check
+  // does not leak the position of the first non-zero byte in the shared
+  // secret.
+  let mut acc = 0
   for i in 0..<32 {
-    if out[i].to_int() != 0 {
-      all_zero = false
-      break
-    }
+    acc = acc | out[i].to_int()
   }
-  if all_zero {
+  if acc == 0 {
     raise AllZeroSharedSecret
   }
   { bytes: out }
