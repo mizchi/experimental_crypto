@@ -1,6 +1,9 @@
 import {
   "mizchi/ed25519",
   "mizchi/rsa" @rsa,
+  "mizchi/p256" @p256,
+  "mizchi/p384" @p384,
+  "mizchi/hash" @hash,
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/encoding/utf8",
 }

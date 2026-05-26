@@ -9,15 +9,12 @@
 //   "moonbitlang/x@0.4.6",
 // }
 
-name = "mizchi/jwt"
+name = "mizchi/p384"
 
 version = "0.1.0"
 
 import {
-  "mizchi/ed25519@0.1.0",
-  "mizchi/rsa@0.1.0",
-  "mizchi/p256@0.1.0",
-  "mizchi/p384@0.1.0",
+  "mizchi/asn1@0.1.0",
   "mizchi/hash@0.1.0",
 }
 

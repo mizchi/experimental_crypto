@@ -39,6 +39,11 @@ pub(all) enum VerifyKey {
   // RS256 verify only: we hold an RSA public key but never any private
   // material, mirroring the verify-only scope of `mizchi/rsa`.
   Rs256(pubkey~ : @rsa.RsaPublicKey)
+  // ES256 (ECDSA with P-256 + SHA-256, RFC 7518 §3.4). Signature is the JOSE
+  // raw form r||s (64 bytes); verify-only for now.
+  Es256(pubkey~ : @p256.PublicKey)
+  // ES384 (ECDSA with P-384 + SHA-384, RFC 7518 §3.4). JOSE raw r||s = 96B.
+  Es384(pubkey~ : @p384.PublicKey)
 }
 
 ///|
@@ -192,6 +197,8 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     Hs256(..) => HS256
     EdDsa(..) => EdDSA
     Rs256(..) => RS256
+    Es256(..) => ES256
+    Es384(..) => ES384
   }
 }
 
@@ -232,7 +239,7 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let signing_input = header_b64 + "." + payload_b64
   let signing_bytes = @utf8.encode(signing_input[:])
   let signature : Bytes = match key {
-    Hs256(secret~) => hmac_sha256(secret, signing_bytes)
+    Hs256(secret~) => @hash.hmac_sha256(secret, signing_bytes)
     EdDsa(privkey~) => privkey.sign(signing_bytes)
   }
   signing_input + "." + base64url_encode(signature)
@@ -326,8 +333,8 @@ pub fn verify(
   let provided_sig = base64url_decode(sig_b64)
   let ok = match (alg, key) {
     (HS256, Hs256(secret~)) => {
-      let expected = hmac_sha256(secret, signing_bytes)
-      ct_eq(expected, provided_sig)
+      let expected = @hash.hmac_sha256(secret, signing_bytes)
+      @hash.ct_eq(expected, provided_sig)
     }
     (EdDSA, EdDsa(pubkey~)) =>
       // Ed25519 verification is itself constant-time over the signature
@@ -338,6 +345,16 @@ pub fn verify(
       // signals a wrong key); fold that into our InvalidSignature so
       // the verify boundary stays simple for callers.
       pubkey.verify(signing_bytes, provided_sig, @rsa.HashAlg::Sha256) catch {
+        _ => raise InvalidSignature
+      }
+    (ES256, Es256(pubkey~)) =>
+      // RFC 7515 §3.4: the JWS signature is r||s, 64 bytes total.
+      @p256.verify(pubkey, signing_bytes, provided_sig, @p256.SignatureFormat::Raw) catch {
+        _ => raise InvalidSignature
+      }
+    (ES384, Es384(pubkey~)) =>
+      // r||s, 96 bytes total for ES384.
+      @p384.verify(pubkey, signing_bytes, provided_sig, @p384.SignatureFormat::Raw) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>

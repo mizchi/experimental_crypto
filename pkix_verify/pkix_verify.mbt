@@ -20,6 +20,8 @@
 pub(all) enum PublicKey {
   Ed25519(@ed25519.PublicKey)
   Rsa(@rsa.RsaPublicKey)
+  P256(@p256.PublicKey)
+  P384(@p384.PublicKey)
 }
 
 ///|
@@ -37,6 +39,8 @@ pub suberror PkixVerifyError {
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
+  P256(@p256.P256Error)
+  P384(@p384.P384Error)
   Asn1(@asn1.Asn1Error)
 } derive(Show)
 
@@ -58,6 +62,36 @@ fn rsa_encryption_oid() -> @asn1.ObjectIdentifier {
 // sha256WithRSAEncryption, PKCS#1.
 fn sha256_with_rsa_oid() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 1, 11])
+}
+
+///|
+// id-ecPublicKey, RFC 5480 §2.1.1.
+fn ec_public_key_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 2, 1])
+}
+
+///|
+// secp256r1 (P-256) namedCurve, RFC 5480 §2.1.1.1.
+fn secp256r1_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 3, 1, 7])
+}
+
+///|
+// ecdsa-with-SHA256, RFC 5758 §3.2.
+fn ecdsa_with_sha256_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 4, 3, 2])
+}
+
+///|
+// secp384r1 (P-384) namedCurve, RFC 5480 §2.1.1.1.
+fn secp384r1_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 3, 132, 0, 34])
+}
+
+///|
+// ecdsa-with-SHA384, RFC 5758 §3.2.
+fn ecdsa_with_sha384_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 4, 3, 3])
 }
 
 ///|
@@ -89,6 +123,35 @@ pub fn extract_public_key(
       e => raise Rsa(e)
     }
     Rsa(pk)
+  } else if alg == ec_public_key_oid() {
+    // RFC 5480 §2.1.1: AlgorithmIdentifier parameters MUST be a namedCurve
+    // OID for the EC curve being used. We handle P-256 and P-384.
+    let curve_oid = match spki.algorithm.parameters {
+      Some(param_bytes) => {
+        let elem = @asn1.decode_der(param_bytes) catch { e => raise Asn1(e) }
+        match elem.value {
+          Oid(o) => o
+          _ => raise UnsupportedPublicKeyAlgorithm(alg)
+        }
+      }
+      None => raise UnsupportedPublicKeyAlgorithm(alg)
+    }
+    if spki.subject_public_key.unused_bits != 0 {
+      raise UnsupportedPublicKeyAlgorithm(alg)
+    }
+    if curve_oid == secp256r1_oid() {
+      let pk = @p256.PublicKey::from_uncompressed(spki.subject_public_key.bytes) catch {
+        e => raise P256(e)
+      }
+      P256(pk)
+    } else if curve_oid == secp384r1_oid() {
+      let pk = @p384.PublicKey::from_uncompressed(spki.subject_public_key.bytes) catch {
+        e => raise P384(e)
+      }
+      P384(pk)
+    } else {
+      raise UnsupportedPublicKeyAlgorithm(alg)
+    }
   } else {
     raise UnsupportedPublicKeyAlgorithm(alg)
   }
@@ -128,6 +191,42 @@ pub fn verify_signature(
       Rsa(pk) => {
         let ok = pk.verify(message, sig_bytes, @rsa.HashAlg::Sha256) catch {
           e => raise Rsa(e)
+        }
+        if not(ok) {
+          raise SignatureMismatch
+        }
+      }
+      _ => raise UnsupportedSignatureAlgorithm(alg)
+    }
+  } else if alg == ecdsa_with_sha256_oid() {
+    match issuer_pubkey {
+      P256(pk) => {
+        // X.509 / RFC 5480: the ECDSA signature value is the DER encoding of
+        // `SEQUENCE { INTEGER r, INTEGER s }`, not the JOSE raw form.
+        let ok = @p256.verify(
+          pk,
+          message,
+          sig_bytes,
+          @p256.SignatureFormat::Der,
+        ) catch {
+          e => raise P256(e)
+        }
+        if not(ok) {
+          raise SignatureMismatch
+        }
+      }
+      _ => raise UnsupportedSignatureAlgorithm(alg)
+    }
+  } else if alg == ecdsa_with_sha384_oid() {
+    match issuer_pubkey {
+      P384(pk) => {
+        let ok = @p384.verify(
+          pk,
+          message,
+          sig_bytes,
+          @p384.SignatureFormat::Der,
+        ) catch {
+          e => raise P384(e)
         }
         if not(ok) {
           raise SignatureMismatch

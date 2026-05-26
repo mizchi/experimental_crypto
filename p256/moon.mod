@@ -1,7 +1,7 @@
 // Learn more about moon.mod configuration:
 // https://docs.moonbitlang.com/en/latest/toolchain/moon/module.html
 
-name = "mizchi/rsa"
+name = "mizchi/p256"
 
 version = "0.1.0"
 
@@ -18,4 +18,4 @@ license = "Apache-2.0"
 
 keywords = []
 
-description = "RSA PKCS#1 v1.5 signature verification (verify-only)."
+description = "NIST P-256 (secp256r1) ECDSA signature verification (verify-only)."

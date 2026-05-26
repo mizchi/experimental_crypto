@@ -433,3 +433,115 @@ test "RS256: KeyAlgorithmMismatch when alg=HS256 but key is Rs256" {
     other => abort("expected KeyAlgorithmMismatch, got \{other}")
   }
 }
+
+// -----------------------------------------------------------------------------
+// ES256: RFC 7515 §A.3 verify
+// -----------------------------------------------------------------------------
+
+///|
+fn rfc7515_a3_pubkey() -> @p256.PublicKey raise {
+  // From RFC 7515 §A.3.1: P-256 JWK with x / y base64url-encoded. We embed
+  // them as hex to keep the test self-contained.
+  let x = hex_to_bytes(
+    "7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445",
+  )
+  let y = hex_to_bytes(
+    "c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad",
+  )
+  let bytes = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i < 33 {
+      x[i - 1]
+    } else {
+      y[i - 33]
+    }
+  })
+  @p256.PublicKey::from_uncompressed(bytes)
+}
+
+///|
+test "ES256: RFC 7515 §A.3 token verifies" {
+  let token = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.DtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
+  let pk = rfc7515_a3_pubkey()
+  let opts : @jwt.VerifyOptions = {
+    now: 1300819300L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+  }
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)
+  assert_eq(v.alg, @jwt.Algorithm::ES256)
+  match v.claims.get("iss") {
+    Some(String(s)) => assert_eq(s, "joe")
+    _ => abort("missing iss")
+  }
+}
+
+///|
+test "ES256: tampered signature fails" {
+  // Flip one base64url char in the signature segment.
+  let bad = "eyJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.AtEhU3ljbEg8L38VWAfUAqOyKAM6-Xx-F4GawxaepmXFCgfTjDxw5djxLa8ISlSApmWQxfKTUJqPP3-Kg6NU1Q"
+  let pk = rfc7515_a3_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(bad, @jwt.VerifyKey::Es256(pubkey=pk), opts)) {
+    Err(InvalidSignature) => ()
+    other => abort("expected InvalidSignature, got \{other}")
+  }
+}
+
+///|
+test "ES256: KeyAlgorithmMismatch when alg=HS256 but key is Es256" {
+  let secret : Bytes = b"k"
+  let m : Map[String, Json] = Map::new()
+  m["sub"] = Json::string("x")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let pk = rfc7515_a3_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)) {
+    Err(KeyAlgorithmMismatch) => ()
+    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// ES384: end-to-end (token + key generated via openssl secp384r1 + SHA-384)
+// -----------------------------------------------------------------------------
+
+///|
+fn es384_pubkey() -> @p384.PublicKey raise {
+  // Same SPKI as p384's openssl-generated key.
+  let spki = hex_to_bytes(
+    "3076301006072a8648ce3d020106052b8104002203620004fa918c3751c0b9adcd761351c9852ff7635ee3b696150bca4655a37583b5fc3f7c2e3aeb55eb4bc5d94e04e6ccc577f7cfab8c58bc51062ab204523d6e065fe54352340f069d5a395ededcbf1a363178b035a281dd2ee60369317f985a654b05",
+  )
+  @p384.PublicKey::from_spki_der(spki)
+}
+
+///|
+test "ES384: token signed by openssl verifies" {
+  // Generated with openssl secp384r1 + SHA-384 against signing input
+  // `<header>.<payload>` from a JWT with `{"alg":"ES384","typ":"JWT"}` and
+  // payload `{"sub":"mizchi","iss":"test"}`.
+  let token = "eyJhbGciOiJFUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.IVF1bDvZX38ltujtQQIWXhPwZDUlHOx6FtRDDA4v1Q1ZS69tUr_BbH3sY3x8pxvp1x_ESP-nEzknjsz5vM6i51HOk1T3z0V_U_pnrCmbpIo--miUMdJIIHrUWofOCb9J"
+  let pk = es384_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es384(pubkey=pk), opts)
+  assert_eq(v.alg, @jwt.Algorithm::ES384)
+  match v.claims.get("sub") {
+    Some(String(s)) => assert_eq(s, "mizchi")
+    _ => abort("missing sub")
+  }
+}
+
+///|
+test "ES384: tampered signature fails" {
+  // Flip the first char of the signature segment.
+  let bad = "eyJhbGciOiJFUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.JVF1bDvZX38ltujtQQIWXhPwZDUlHOx6FtRDDA4v1Q1ZS69tUr_BbH3sY3x8pxvp1x_ESP-nEzknjsz5vM6i51HOk1T3z0V_U_pnrCmbpIo--miUMdJIIHrUWofOCb9J"
+  let pk = es384_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(bad, @jwt.VerifyKey::Es384(pubkey=pk), opts)) {
+    Err(InvalidSignature) => ()
+    other => abort("expected InvalidSignature, got \{other}")
+  }
+}

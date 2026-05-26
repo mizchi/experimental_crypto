@@ -196,7 +196,7 @@ fn digest_length(hash : HashAlg) -> Int raise RsaError {
 ///|
 fn hash_message(hash : HashAlg, msg : Bytes) -> Bytes raise RsaError {
   match hash {
-    Sha256 => sha256(msg)
+    Sha256 => @hash.sha256(msg)
     _ => raise UnsupportedHash(hash)
   }
 }
