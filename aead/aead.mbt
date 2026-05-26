@@ -59,6 +59,14 @@ pub suberror AeadError {
 /// Encrypts `plaintext` with `key`, `nonce`, and additional authenticated
 /// data `aad`. The 16-byte authentication tag is appended to the returned
 /// ciphertext.
+///
+/// **The caller is responsible for ensuring that `nonce` is unique per
+/// `(key, message)`.** Reusing a nonce under the same key is catastrophic:
+/// for ChaCha20-Poly1305 it leaks the XOR of the two plaintexts and lets
+/// an attacker recover the Poly1305 key (allowing forgery); for AES-GCM
+/// it leaks the GHASH authentication key. Use a real CSPRNG nonce (see
+/// `mizchi/getrandom`) or a persisted monotonic counter. See this
+/// module's README for the full rules.
 pub fn seal(
   alg : Algorithm,
   key : Bytes,
@@ -100,6 +108,9 @@ pub fn open(
 ///|
 /// Encrypts `plaintext` and returns the ciphertext and 16-byte tag as a
 /// detached pair `(ciphertext, tag)`.
+///
+/// Same nonce-reuse warning as `seal` applies — the caller MUST ensure
+/// the nonce is unique per `(key, message)`.
 pub fn seal_detached(
   alg : Algorithm,
   key : Bytes,
