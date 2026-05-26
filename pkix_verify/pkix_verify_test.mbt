@@ -560,3 +560,54 @@ test "verify_certificate: LE R10 expired check fires before 2024-03-13" {
     _ => assert_true(false)
   }
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+// Construct a v3 Ed25519 cert carrying a single critical extension with an
+// OID we do NOT recognise (1.2.3.4.5 — IANA-unassigned playground arc) and a
+// trivial DER value. RFC 5280 §4.2: the verifier MUST reject.
+test "ATTACK RFC 5280 §4.2: unknown critical extension rejected" {
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4, 5])
+  // extnValue: a tiny OCTET STRING-shaped payload — for an unknown extension
+  // the content doesn't matter because we reject before parsing it.
+  let value : Bytes = b"\x04\x00"
+  let bad_ext : @pkix.Extension = { oid: unknown_oid, critical: true, value }
+  let (cert, pk) = build_self_signed_ed25519(
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "Attacker CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bad_ext],
+  )
+  let issuer_pk = @pkix_verify.PublicKey::Ed25519(pk)
+  match
+    (try? @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z")) {
+    Err(UnknownCriticalExtension(oid)) => assert_eq(oid, unknown_oid)
+    other => abort("unknown critical extension NOT rejected: \{other}")
+  }
+}
+
+///|
+// Same OID but `critical = false` — the verifier ignores it per RFC 5280.
+test "non-critical unknown extension is silently accepted" {
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4, 5])
+  let value : Bytes = b"\x04\x00"
+  let benign_ext : @pkix.Extension = {
+    oid: unknown_oid,
+    critical: false,
+    value,
+  }
+  let (cert, pk) = build_self_signed_ed25519(
+    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "Benign CA",
+    "250101000000Z",
+    "260101000000Z",
+    [benign_ext],
+  )
+  let issuer_pk = @pkix_verify.PublicKey::Ed25519(pk)
+  // Should not raise.
+  @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z")
+}

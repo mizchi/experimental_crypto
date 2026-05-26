@@ -36,6 +36,11 @@ pub suberror PkixVerifyError {
   IssuerSubjectMismatch
   EmptyChain
   MalformedExtension(String)
+  // RFC 5280 §4.2: "If a certificate contains a critical extension that the
+  // application cannot process, then the application MUST reject the
+  // certificate". Raised when a critical extension's OID is not in our
+  // recognised set.
+  UnknownCriticalExtension(@asn1.ObjectIdentifier)
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
@@ -98,6 +103,85 @@ fn ecdsa_with_sha384_oid() -> @asn1.ObjectIdentifier {
 // basicConstraints, RFC 5280 §4.2.1.9.
 fn basic_constraints_oid() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19])
+}
+
+// ─── recognised critical extensions ──────────────────────────────────────
+//
+// RFC 5280 §4.2 mandates that a verifier MUST reject any certificate
+// containing a critical extension it cannot process. The list below
+// declares which OIDs we accept as "recognised". Some of these we fully
+// process; others we currently parse-but-don't-enforce, which is a
+// compliance gap — listed explicitly so we can track it.
+//
+//   PROCESSED  basicConstraints (cA + pathLen)
+//   PARSED-BUT-NOT-ENFORCED  keyUsage, extendedKeyUsage, subjectAltName,
+//                            certificatePolicies, nameConstraints,
+//                            policyConstraints, inhibitAnyPolicy
+//
+// `subjectKeyIdentifier` and `authorityKeyIdentifier` are non-critical by
+// definition (RFC 5280 §4.2.1.{1,2}) so they aren't in this list — if a
+// cert ever marks them critical, we'll reject as malformed.
+//
+// To strengthen this verifier you'd remove the "parsed-but-not-enforced"
+// row and add an actual processor; see `find_basic_constraints` for the
+// shape.
+
+///|
+fn key_usage_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15])
+}
+
+///|
+fn extended_key_usage_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 37])
+}
+
+///|
+fn subject_alt_name_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 17])
+}
+
+///|
+fn certificate_policies_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32])
+}
+
+///|
+fn name_constraints_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30])
+}
+
+///|
+fn policy_constraints_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 36])
+}
+
+///|
+fn inhibit_any_policy_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 54])
+}
+
+///|
+fn is_recognised_critical_extension(oid : @asn1.ObjectIdentifier) -> Bool {
+  oid == basic_constraints_oid() ||
+  oid == key_usage_oid() ||
+  oid == extended_key_usage_oid() ||
+  oid == subject_alt_name_oid() ||
+  oid == certificate_policies_oid() ||
+  oid == name_constraints_oid() ||
+  oid == policy_constraints_oid() ||
+  oid == inhibit_any_policy_oid()
+}
+
+///|
+fn check_critical_extensions(
+  cert : @pkix.Certificate,
+) -> Unit raise PkixVerifyError {
+  for ext in cert.tbs.extensions {
+    if ext.critical && not(is_recognised_critical_extension(ext.oid)) {
+      raise UnknownCriticalExtension(ext.oid)
+    }
+  }
 }
 
 // ─── public key extraction ───────────────────────────────────────────────
@@ -288,6 +372,11 @@ pub fn verify_certificate(
   now : String,
 ) -> Unit raise PkixVerifyError {
   check_validity(cert.tbs.validity, now)
+  // RFC 5280 §4.2: reject any certificate that carries a critical
+  // extension we do not recognise. Runs before signature verification so
+  // we don't spend a (potentially expensive) RSA modexp on a cert we'd
+  // refuse on policy grounds anyway.
+  check_critical_extensions(cert)
   // Re-encode TBS so we can hand the exact signed bytes to the primitive.
   // The pkix DER roundtrip is byte-stable for the certs we care about
   // (verified by `pkix fixture: ... DER roundtrip is byte-stable`).
