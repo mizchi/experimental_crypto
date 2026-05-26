@@ -20,6 +20,9 @@ pub suberror PemError {
 } derive(Show)
 
 ///|
+/// Default decoder. RFC 7468 lax mode: tolerates surrounding whitespace,
+/// CRLF, base64 lines of any length, both padded and unpadded base64.
+/// For RFC 7468 strict mode use `decode_strict`.
 pub fn decode(input : String) -> PemBlock raise PemError {
   let blocks = decode_all(input)
   if blocks.length() == 0 {
@@ -34,7 +37,116 @@ pub fn decode(input : String) -> PemBlock raise PemError {
 }
 
 ///|
+/// Default upper bound on input size for decode / decode_all, to prevent
+/// trivially-crafted multi-gigabyte PEM strings from causing an OOM via
+/// the line splitter. Override per-call by passing `max_input_size?`.
+pub let pem_max_input_size : Int = 16 * 1024 * 1024 // 16 MiB
+
+///|
+/// RFC 7468 §3 strict mode. Requires:
+///   - base64 padding (lines end with `=` if needed)
+///   - base64 lines no longer than 64 characters (RFC 7468 §3 line wrap)
+///   - exactly one PemBlock, with no extraneous explanatory text outside
+///     the BEGIN/END markers
+///
+/// For the lax form (whitespace tolerant, padding optional, ignore text
+/// outside markers) use `decode`. Both share the same `PemError` family.
+pub fn decode_strict(
+  input : String,
+  max_input_size? : Int,
+) -> PemBlock raise PemError {
+  let cap = match max_input_size {
+    Some(n) => n
+    None => pem_max_input_size
+  }
+  if input.length() > cap {
+    raise InvalidFormat(
+      "input exceeds max_input_size (" + cap.to_string() + ")",
+    )
+  }
+  // 1. Reject pre-BEGIN garbage (we walk the input ourselves).
+  let lines = split_lines(input)
+  // Find the first non-empty line.
+  let mut idx = 0
+  while idx < lines.length() && trim(lines[idx]) == "" {
+    idx = idx + 1
+  }
+  if idx == lines.length() {
+    raise MissingBeginMarker
+  }
+  let first = lines[idx]
+  let label = match parse_begin_marker(first) {
+    Some(l) => l
+    None => raise MissingBeginMarker
+  }
+  idx = idx + 1
+  // 2. Scan base64 lines until the END marker. No headers in strict mode.
+  let b64 = StringBuilder::new()
+  let mut end_label : String? = None
+  let mut saw_any_line = false
+  while idx < lines.length() {
+    let line = lines[idx]
+    idx = idx + 1
+    match parse_end_marker(line) {
+      Some(l) => {
+        end_label = Some(l)
+        break
+      }
+      None => {
+        // Strict mode: line must be exactly base64 chars + optional '='
+        // padding, length <= 64.
+        if line.length() > 64 {
+          raise InvalidFormat("base64 line longer than 64 chars")
+        }
+        if not(is_pure_base64_line(line)) {
+          raise InvalidFormat("non-base64 character in PEM body")
+        }
+        b64.write_string(line)
+        saw_any_line = true
+      }
+    }
+  }
+  let el = match end_label {
+    Some(s) => s
+    None => raise MissingEndMarker
+  }
+  if el != label {
+    raise LabelMismatch(begin=label, end=el)
+  }
+  // 3. Strict base64 decode: require padding. core's @base64.decode is
+  // strict about padding when ignore_whitespace=false.
+  let body_str = b64.to_string()
+  if not(has_proper_base64_padding(body_str)) {
+    raise InvalidBase64
+  }
+  let data = @base64.decode(body_str) catch { _ => raise InvalidBase64 }
+  // 4. Reject post-END garbage.
+  while idx < lines.length() {
+    if trim(lines[idx]) != "" {
+      raise InvalidFormat("non-empty content after END marker")
+    }
+    idx = idx + 1
+  }
+  let _ = saw_any_line
+  { label, data, headers: [] }
+}
+
+///|
+fn has_proper_base64_padding(s : String) -> Bool {
+  // RFC 4648 §4: the base64 alphabet is padded to a 4-character boundary
+  // with `=`. Length must be a multiple of 4 in strict mode.
+  s.length() % 4 == 0
+}
+
+///|
 pub fn decode_all(input : String) -> Array[PemBlock] raise PemError {
+  if input.length() > pem_max_input_size {
+    raise InvalidFormat(
+      "input exceeds pem_max_input_size (" +
+      pem_max_input_size.to_string() +
+      ")",
+    )
+  }
   let lines = split_lines(input)
   let blocks : Array[PemBlock] = []
   let mut i = 0

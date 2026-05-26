@@ -169,17 +169,43 @@ fn wrap_context_implicit_set(
   number : UInt,
   items : Array[@asn1.Element],
 ) -> @asn1.Element {
-  // Re-serialize the items in SET order and present the raw bytes under the
-  // context tag. We do NOT enforce DER SET ordering here; attributes round-trip
-  // bit-for-bit because we preserve the input order.
-  let enc = @asn1.Encoder::new()
+  // DER SET OF (X.690 §11.6) requires components to be ordered by their
+  // encoded byte sequence. Sort the encoded forms lexicographically before
+  // emitting the [n] IMPLICIT SET so a round-trip from a non-canonical input
+  // produces canonical output (closes review #1 finding 18).
+  let encoded : Array[Bytes] = []
   for item in items {
-    enc.write_element(item)
+    encoded.push(@asn1.encode_der(item))
+  }
+  encoded.sort_by(fn(a, b) { bytes_lex_compare(a, b) })
+  let enc = @asn1.Encoder::new()
+  for e in encoded {
+    enc.buf.write_bytes(e)
   }
   @asn1.Element::new(
     @asn1.Tag::context(number, constructed=true),
     Unknown(enc.finish()),
   )
+}
+
+///|
+fn bytes_lex_compare(a : Bytes, b : Bytes) -> Int {
+  // Shorter-then-byte ordering matches DER SET OF semantics: pad the shorter
+  // value with trailing zeros for the comparison so that, e.g.,
+  // `0x30 0x00` (empty SEQUENCE) precedes `0x30 0x02 0x05 0x00`.
+  let la = a.length()
+  let lb = b.length()
+  let mut i = 0
+  let n = if la < lb { la } else { lb }
+  while i < n {
+    let av = a[i].to_int()
+    let bv = b[i].to_int()
+    if av != bv {
+      return av - bv
+    }
+    i = i + 1
+  }
+  la - lb
 }
 
 ///|

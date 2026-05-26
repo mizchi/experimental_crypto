@@ -2015,6 +2015,12 @@ fn blake2b(
   // Final block — bytes counter = total_len (truncated, no key block content counted? Actually,
   // BLAKE2b counts EVERY byte processed including the key padding block.
   // RFC 7693 §3.3: t = total number of bytes hashed including key block(s).
+  //
+  // The counter is split into (t_low, t_high) as a 128-bit big counter. We
+  // pass t_high = 0UL because Argon2 never feeds blake2b_long with more
+  // than 2^32 input bytes (the m_cost-derived buffers stay well under
+  // 2^31 bytes). If you ever reuse blake2b_long for streaming over inputs
+  // exceeding 2^64 - 1 bytes, t_high must be set to (total_len >> 64).
   let last_count : UInt64 = total_len.to_uint64()
   blake2b_compress(h, buf, (num_blocks - 1) * 128, last_count, 0UL, true)
 

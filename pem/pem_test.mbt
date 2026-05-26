@@ -1,4 +1,81 @@
 ///|
+test "pem: decode_strict accepts canonical encode_simple output" {
+  let original = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09"
+  let encoded = @pem.encode_simple("CERTIFICATE", original)
+  let block = @pem.decode_strict(encoded)
+  assert_eq(block.label, "CERTIFICATE")
+  assert_eq(block.data, original)
+  assert_eq(block.headers.length(), 0)
+}
+
+///|
+test "pem: decode_strict rejects unpadded base64" {
+  // AAECAwQ -> drop the '=' padding
+  let input =
+    #|-----BEGIN CERTIFICATE-----
+    #|AAECAwQ
+    #|-----END CERTIFICATE-----
+  match (try? @pem.decode_strict(input)) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="strict mode must require padding")
+  }
+}
+
+///|
+test "pem: decode_strict rejects line > 64 chars" {
+  // Base64 line of 80 chars (legal base64, but too long for RFC 7468 strict)
+  let input =
+    #|-----BEGIN DATA-----
+    #|AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo=
+    #|-----END DATA-----
+  match (try? @pem.decode_strict(input)) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="strict mode must reject 80-char line")
+  }
+}
+
+///|
+test "pem: decode_strict rejects pre-BEGIN explanatory text" {
+  let input =
+    #|some random text before the block
+    #|-----BEGIN CERTIFICATE-----
+    #|AAECAwQ=
+    #|-----END CERTIFICATE-----
+  match (try? @pem.decode_strict(input)) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="strict mode must reject pre-BEGIN garbage")
+  }
+}
+
+///|
+test "pem: decode_strict rejects post-END trailing content" {
+  let input =
+    #|-----BEGIN CERTIFICATE-----
+    #|AAECAwQ=
+    #|-----END CERTIFICATE-----
+    #|some trailing garbage
+  match (try? @pem.decode_strict(input)) {
+    Err(_) => ()
+    Ok(_) => assert_eq(true, false, msg="strict mode must reject post-END garbage")
+  }
+}
+
+///|
+test "pem: decode (lax) accepts the same inputs strict rejects" {
+  // Lax mode tolerates surrounding text and unpadded base64 (the latter via
+  // core/encoding/base64's default lenient behavior).
+  let input =
+    #|Pre-BEGIN explanatory text.
+    #|-----BEGIN CERTIFICATE-----
+    #|AAECAwQ=
+    #|-----END CERTIFICATE-----
+    #|Trailing notes.
+  let block = @pem.decode(input)
+  assert_eq(block.label, "CERTIFICATE")
+  assert_eq(block.data, b"\x00\x01\x02\x03\x04")
+}
+
+///|
 test "pem: encode_simple produces canonical block" {
   let out = @pem.encode_simple("CERTIFICATE", b"\x00\x01\x02\x03\x04")
   inspect(
