@@ -1,3 +1,7 @@
 import {
   "moonbitlang/core/encoding/base64",
 }
+
+import {
+  "moonbitlang/core/quickcheck" as @quickcheck,
+} for "test"

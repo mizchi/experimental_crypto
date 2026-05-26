@@ -3,3 +3,7 @@ import {
   "mizchi/pkix",
   "mizchi/pem",
 }
+
+import {
+  "moonbitlang/core/quickcheck" as @quickcheck,
+} for "test"
