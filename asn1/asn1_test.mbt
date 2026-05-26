@@ -596,3 +596,147 @@ test "tag: roundtrip universal 0..16384" {
     assert_eq(decoded, original)
   }
 }
+
+///|
+test "security: nested SEQUENCE deeper than MAX_DEPTH rejected" {
+  // Build SEQUENCE { SEQUENCE { ... { } ... } } nested 40 levels deep,
+  // well past the 32-level guard. Innermost is an empty SEQUENCE.
+  // Each outer wrapper adds: tag(1) + length(1) + child_size,
+  // so length grows by 2 per level. With 40 levels the longest length is
+  // 78 which still fits in short form (< 128).
+  let depth = 40
+  // Encode bottom-up: start with empty bytes (innermost children only;
+  // the innermost SEQUENCE itself is the first wrap).
+  let mut current : Bytes = b""
+  for level in 0..<depth {
+    let child_size = current.length()
+    // length always < 128 here so short form is fine
+    let prefix : Bytes = Bytes::makei(2, fn(i) {
+      if i == 0 {
+        b'\x30'
+      } else {
+        child_size.to_byte()
+      }
+    })
+    let combined = Bytes::makei(prefix.length() + current.length(), fn(i) {
+      if i < prefix.length() {
+        prefix[i]
+      } else {
+        current[i - prefix.length()]
+      }
+    })
+    current = combined
+    let _ = level
+
+  }
+  match (try? @asn1.decode_der(current)) {
+    Err(@asn1.Unsupported(_)) => ()
+    Err(other) =>
+      assert_eq(true, false, msg="expected Unsupported, got " + other.to_string())
+    Ok(_) => assert_eq(true, false, msg="expected nested-too-deep rejection")
+  }
+}
+
+///|
+test "security: length exceeding max_input_size rejected" {
+  // long form, 4-byte length = 0x01000001 (~16 MiB + 1) which is one above
+  // the 16 MiB cap. read_length should bail with Unsupported before any
+  // allocation attempt.
+  let bytes : Bytes = b"\x04\x84\x01\x00\x00\x01"
+  match (try? @asn1.decode_der(bytes)) {
+    Err(@asn1.Unsupported(_)) => ()
+    Err(other) =>
+      assert_eq(true, false, msg="expected Unsupported, got " + other.to_string())
+    Ok(_) => assert_eq(true, false, msg="expected length-too-large rejection")
+  }
+}
+
+///|
+test "security: OID arc UInt overflow rejected" {
+  // OID arc encoded as base-128 with enough continuation bytes to overflow
+  // the UInt32 accumulator. 6 bytes of 0xFF followed by 0x7F packs ~49 bits
+  // of data, well past the 32-bit ceiling.
+  // First byte 0x2A (== 42) -> arc 1.2; then a giant continuation arc.
+  let bytes : Bytes = b"\x06\x08\x2A\xFF\xFF\xFF\xFF\xFF\xFF\x7F"
+  match (try? @asn1.decode_der(bytes)) {
+    Err(@asn1.InvalidEncoding(_)) => ()
+    Err(other) =>
+      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
+    Ok(_) => assert_eq(true, false, msg="expected OID overflow rejection")
+  }
+}
+
+///|
+test "security: non-minimal OID base-128 rejected" {
+  // OID 1.2.840 normally encodes as 0x2A 0x86 0x48. A non-minimal form
+  // pads the 840 arc with a leading 0x80 continuation byte: 0x80 0x86 0x48.
+  // 0x80 means "continuation set, value bits = 0" which is an illegal
+  // leading byte under X.690 §8.19.2.
+  let bytes : Bytes = b"\x06\x04\x2A\x80\x86\x48"
+  match (try? @asn1.decode_der(bytes)) {
+    Err(@asn1.InvalidEncoding(_)) => ()
+    Err(other) =>
+      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
+    Ok(_) => assert_eq(true, false, msg="expected non-minimal OID rejection")
+  }
+}
+
+///|
+test "security: INTEGER with redundant 0x00 padding rejected" {
+  // 0x02 0x02 0x00 0x01 = INTEGER 1 with a redundant 0x00 prefix. Canonical
+  // DER would encode 1 as 0x02 0x01 0x01. Per X.690 §8.3.2 this must reject.
+  let bytes : Bytes = b"\x02\x02\x00\x01"
+  match (try? @asn1.decode_der(bytes)) {
+    Err(@asn1.InvalidEncoding(_)) => ()
+    Err(other) =>
+      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
+    Ok(_) => assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
+  }
+}
+
+///|
+test "security: INTEGER with redundant 0xFF padding rejected" {
+  // 0x02 0x02 0xFF 0xFF = -1 with redundant 0xFF padding. Canonical form
+  // is 0x02 0x01 0xFF. Per X.690 §8.3.2 must reject.
+  let bytes : Bytes = b"\x02\x02\xFF\xFF"
+  match (try? @asn1.decode_der(bytes)) {
+    Err(@asn1.InvalidEncoding(_)) => ()
+    Err(other) =>
+      assert_eq(true, false, msg="expected InvalidEncoding, got " + other.to_string())
+    Ok(_) => assert_eq(true, false, msg="expected non-canonical INTEGER rejection")
+  }
+}
+
+///|
+test "security: INTEGER with zero length rejected" {
+  // 0x02 0x00 = INTEGER with no content. Always invalid.
+  let bytes : Bytes = b"\x02\x00"
+  match (try? @asn1.decode_der(bytes)) {
+    Err(_) => () // InvalidLength
+    Ok(_) => assert_eq(true, false, msg="expected zero-length INTEGER rejection")
+  }
+}
+
+///|
+test "security: canonical INTEGER 128 still accepted" {
+  // Sanity: 0x02 0x02 0x00 0x80 = +128 (leading 0x00 required because next
+  // byte's high bit is set). Must NOT be rejected by the new canonical
+  // check; this is the legitimate sign-extension case.
+  let bytes : Bytes = b"\x02\x02\x00\x80"
+  let elem = @asn1.decode_der(bytes)
+  match elem.value {
+    Integer(b) => assert_eq(b, b"\x00\x80")
+    _ => assert_eq(true, false, msg="expected Integer")
+  }
+}
+
+///|
+test "security: canonical INTEGER -128 still accepted" {
+  // 0x02 0x01 0x80 = -128 (no padding needed). Must remain accepted.
+  let bytes : Bytes = b"\x02\x01\x80"
+  let elem = @asn1.decode_der(bytes)
+  match elem.value {
+    Integer(b) => assert_eq(b, b"\x80")
+    _ => assert_eq(true, false, msg="expected Integer")
+  }
+}

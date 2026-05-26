@@ -178,15 +178,30 @@ fn decode_oid(bytes : Bytes) -> ObjectIdentifier raise Asn1Error {
     arcs.push(first - 80U)
   }
   let mut i = 1
+  // UInt overflow guard: if value already exceeds this, shifting left by 7
+  // would lose high bits. UInt::max_value >> 7 == 0x01FFFFFF on 32-bit UInt.
+  let shift_overflow_threshold : UInt = 0xFFFFFFFFU >> 7
   while i < bytes.length() {
     let mut value : UInt = 0U
+    let mut first_in_arc = true
     while true {
       if i >= bytes.length() {
         raise InvalidEncoding("truncated OID arc")
       }
       let b = bytes[i].to_int()
+      // X.690 §8.19.2: each base-128 sub-identifier must be minimally encoded.
+      // The first continuation byte of an arc cannot be 0x80 because that
+      // would mean a leading zero (continuation set but value bits all zero).
+      if first_in_arc && b == 0x80 {
+        raise InvalidEncoding("non-minimal OID base-128 encoding")
+      }
+      // Reject any byte that would shift the accumulator past UInt range.
+      if value > shift_overflow_threshold {
+        raise InvalidEncoding("OID arc overflows UInt")
+      }
       value = (value << 7) | (b & 0x7F).reinterpret_as_uint()
       i = i + 1
+      first_in_arc = false
       if (b & 0x80) == 0 {
         break
       }
@@ -366,6 +381,12 @@ pub fn write_length(enc : Encoder, length : Int) -> Unit {
 }
 
 ///|
+/// DER length cap. 16 MiB is well above any realistic certificate / CMS
+/// blob and keeps a single TLV from forcing a multi-hundred-MB allocation.
+/// Hit on decode -> `Unsupported("length exceeds max_input_size")`.
+const MAX_INPUT_SIZE : Int = 16 * 1024 * 1024
+
+///|
 pub fn read_length(dec : Decoder) -> Int raise Asn1Error {
   if dec.remaining() < 1 {
     raise TruncatedInput
@@ -398,18 +419,29 @@ pub fn read_length(dec : Decoder) -> Int raise Asn1Error {
   if value < 128 {
     raise InvalidEncoding("long form used for length < 128")
   }
+  if value > MAX_INPUT_SIZE {
+    raise Unsupported("length exceeds max_input_size")
+  }
   value
 }
+
+///|
+/// Hard cap on nested SEQUENCE / SET parsing depth. Real-world DER blobs
+/// (certificates, CMS, PKCS#7) rarely nest more than ~10 levels. Anything
+/// deeper is almost certainly a stack-overflow attempt. Hit on decode ->
+/// `Unsupported("nested too deep")`.
+const MAX_DEPTH : Int = 32
 
 ///|
 pub struct Decoder {
   input : Bytes
   mut pos : Int
+  current_depth : Int
 }
 
 ///|
 pub fn Decoder::new(input : Bytes) -> Decoder {
-  { input, pos: 0 }
+  { input, pos: 0, current_depth: 0 }
 }
 
 ///|
@@ -445,6 +477,18 @@ pub fn Decoder::read_element(self : Decoder) -> Element raise Asn1Error {
 }
 
 ///|
+/// Construct a child decoder for a nested SEQUENCE / SET payload, inheriting
+/// the parent's recursion depth + 1. Raises `Unsupported` if the new depth
+/// would exceed `MAX_DEPTH`.
+fn child_decoder(parent_depth : Int, payload : Bytes) -> Decoder raise Asn1Error {
+  let next_depth = parent_depth + 1
+  if next_depth > MAX_DEPTH {
+    raise Unsupported("nested too deep")
+  }
+  { input: payload, pos: 0, current_depth: next_depth }
+}
+
+///|
 fn decode_value(
   dec : Decoder,
   tag : Tag,
@@ -457,7 +501,7 @@ fn decode_value(
     // Sequence / Set handled by their universal numbers below; otherwise raw.
     match tag.number {
       16U => {
-        let inner = Decoder::new(read_bytes(dec, length))
+        let inner = child_decoder(dec.current_depth, read_bytes(dec, length))
         let items = []
         while not(inner.is_empty()) {
           items.push(inner.read_element())
@@ -465,7 +509,7 @@ fn decode_value(
         Sequence(items)
       }
       17U => {
-        let inner = Decoder::new(read_bytes(dec, length))
+        let inner = child_decoder(dec.current_depth, read_bytes(dec, length))
         let items = []
         while not(inner.is_empty()) {
           items.push(inner.read_element())
@@ -487,7 +531,26 @@ fn decode_value(
         }
         Boolean(b != 0)
       }
-      2U => Integer(read_bytes(dec, length))
+      2U => {
+        // X.690 §8.3.2: INTEGER content must be at least one octet and the
+        // most significant 9 bits cannot be all zeros or all ones (i.e. no
+        // redundant 0x00 / 0xFF padding before a same-sign next byte).
+        if length == 0 {
+          raise InvalidLength
+        }
+        let bytes = read_bytes(dec, length)
+        if length >= 2 {
+          let b0 = bytes[0].to_int()
+          let b1 = bytes[1].to_int()
+          if b0 == 0x00 && (b1 & 0x80) == 0 {
+            raise InvalidEncoding("non-canonical INTEGER (redundant 0x00 padding)")
+          }
+          if b0 == 0xFF && (b1 & 0x80) != 0 {
+            raise InvalidEncoding("non-canonical INTEGER (redundant 0xFF padding)")
+          }
+        }
+        Integer(bytes)
+      }
       4U => OctetString(read_bytes(dec, length))
       5U => {
         if length != 0 {
