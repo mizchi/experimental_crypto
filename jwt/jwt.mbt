@@ -30,6 +30,11 @@ pub(all) enum Algorithm {
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
   EdDsa(privkey~ : @ed25519.PrivateKey)
+  // RS256: RSASSA-PKCS1-v1_5 sign with SHA-256.
+  Rs256(privkey~ : @rsa.RsaPrivateKey)
+  // ES256 / ES384: ECDSA-SHA-{256,384} sign with RFC 6979 deterministic nonce.
+  Es256(privkey~ : @p256.PrivateKey)
+  Es384(privkey~ : @p384.PrivateKey)
 }
 
 ///|
@@ -188,6 +193,9 @@ fn key_alg(k : Key) -> Algorithm {
   match k {
     Hs256(..) => HS256
     EdDsa(..) => EdDSA
+    Rs256(..) => RS256
+    Es256(..) => ES256
+    Es384(..) => ES384
   }
 }
 
@@ -241,6 +249,12 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let signature : Bytes = match key {
     Hs256(secret~) => @hash.hmac_sha256(secret, signing_bytes)
     EdDsa(privkey~) => privkey.sign(signing_bytes)
+    Rs256(privkey~) =>
+      privkey.sign(signing_bytes, @rsa.HashAlg::Sha256) catch {
+        _ => abort("RS256 sign failed (modulus too small for SHA-256 padding?)")
+      }
+    Es256(privkey~) => privkey.sign(signing_bytes)
+    Es384(privkey~) => privkey.sign(signing_bytes)
   }
   signing_input + "." + base64url_encode(signature)
 }

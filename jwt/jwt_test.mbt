@@ -596,3 +596,80 @@ test "ATTACK CVE-2016-10555: alg confusion (HS256 token vs Rs256 key)" {
     other => abort("alg confusion HS256↔Rs256 NOT blocked: \{other}")
   }
 }
+
+// -----------------------------------------------------------------------------
+// JWT sign + verify roundtrip with the new private-key variants
+// -----------------------------------------------------------------------------
+
+///|
+// Minimal RSA-2048 private key (PKCS#1 DER) for JWT RS256 sign tests.
+let rs256_priv_pkcs1_der : Bytes = hex_to_bytes(
+  "308204a30201000282010100a48f36ef8cfe5dd94faba96b3abf276fde0e82f9ad0b9963955c933413bf300a4dda0287" +
+  "48590762459ddb2a4c2b9ce04e4f2d8f37ea0a1379cc9076ea17a97bad91178d7983c9e15a7f30db77268d3be00d85b9" +
+  "60db3396d24ac0bf229bbb242c72b2b4d4ae15abc51d72b372b0132e75cf92265cb5e97747e617a69a78384d99dd5136" +
+  "7575953c16e32cc45c3fbb28fdbd0064228043e39721e3bf5ee496d3fb9ced6fd4d7a0daf98fb016cfe8da87484765f9" +
+  "c35115f12e095585aba390cb27eb03900045575854e0100d19f32fac1981f6c286567c6387791e642a7941096c92e89e" +
+  "cc5cf3c934a363c5ca63f633940ce37965bcfe8b86d7ef432f799c2702030100010282010029ab461ae495e887c57fcf" +
+  "57a2b992afe607c0ac9e5fe88869e2d63782a48ff29c020f4fd8470af29c743b71fb75b3b4acbfa9e6b11ee74c453442" +
+  "848a0451db4a790a00bdfb5c1c5f4103cb1ee1b933a729656a2a9776f9c2e840e4654c0fd83a1515216b1565d168096b" +
+  "e8faaa9140db7e2320e9aafaa244a783e7a107be21a856466f50e3d697cc685e221164d83918b8cfd6f3653c9e7748cf" +
+  "ade136ed267ebab8433f9a981fd6af49c4edc149aa281fead06947fe52381009a9e6d49d63f8eb1ff94f15170929f3eb" +
+  "0d66a3ec72b0fb1f14d54792a9a5c48cb6310d60771a26344f00dcabc959bb5acc9583cd74a744aa3c079c1b7ed1c746" +
+  "7aaa115ee102818100d05869008488dbe1b9afa5c851af7f44ca1fd11f2c31ab19b014c194b32a553338c29fba82a384" +
+  "0b0735e8b30cba04ef54c0cc74752d2075f93907ba6ba0654f29872cf6fbe82808e6db11fcce997331417600d6298085" +
+  "94085d00b21ed3608e65c2d04d212494aad6edd1383c63154d758fd3145ee3e9df1724b47da56d1a1702818100ca32ef" +
+  "5ff51a550e7b5f6434f4d04a3d22a18aa89cd4d628c2b3dca129805f02360da47b5dce7cf14932f19bb4a5e368a06462" +
+  "912aa755f05913b89f4af5053fb3ecf2fdac49f636a7be5aecdd62f9aaa8b0d61976b31214b534f9d15d5648d1207e34" +
+  "78080f96fa1f2112058d22332916cd2266e15c2036aed2bdd9a19ea8710281803277a7ffb31affc03edd7857fcc97917" +
+  "adaa655a9ab6f14e48a3ce7c79a5e07b86dd4619c4b95d2bdab44948cde5657a9fda0fec89d1c392302b8b5eb1e16988" +
+  "f273470610e11c89837a3f72308d6524e249764c6a433298382a6717be75cf66cee990d18e1cb1526cbbb0b9618f52c2" +
+  "af9e862fe2086d4757f0d133ba55a2430281810088174c421ba8438361ca4c99d004b952f8921dcf6aef5dcd456ee59a" +
+  "9b624990256d7d3d835fcd7c613626a4142c6b292a7b26546a8f022aa8e9bb238bc1ea6c7bdf8994ef77407e7cdc843a" +
+  "54af9f371c1f199b3de73cce2f409ebc29c43f72721a3f9a62628bcd815232dd05a6f5243cb288eb11d77ddf103fcb84" +
+  "456192210281803ef388d592aa5e24b930ab2d434f20a41742cee683fca57a59e2bf57fd090e45158c10952e37392381" +
+  "312f139a39c3ad9c947b52e21a18bce16e6b8c0ecfec7556e277b8d34734ca3e7b9a1d95408cd976eba53406eb95905b" +
+  "a101317dc5c5fd5b21783244e1b8a8bdd5a3e2e4339fb43248e8cc61307ccd278280b058ad9be1",
+)
+
+///|
+test "JWT RS256 sign + verify roundtrip" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let claims = Map::new()
+  claims["sub"] = Json::string("rs256-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Rs256(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=sk.public_key()), opts)
+  assert_eq(v.alg, @jwt.Algorithm::RS256)
+  match v.claims.get("sub") {
+    Some(String(s)) => assert_eq(s, "rs256-roundtrip")
+    _ => abort("missing sub")
+  }
+}
+
+///|
+test "JWT ES256 sign + verify roundtrip" {
+  let scalar = hex_to_bytes(
+    "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",
+  )
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let claims = Map::new()
+  claims["sub"] = Json::string("es256-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Es256(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=sk.public_key()), opts)
+  assert_eq(v.alg, @jwt.Algorithm::ES256)
+}
+
+///|
+test "JWT ES384 sign + verify roundtrip" {
+  let scalar = hex_to_bytes(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sk = @p384.PrivateKey::from_bytes(scalar)
+  let claims = Map::new()
+  claims["sub"] = Json::string("es384-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Es384(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es384(pubkey=sk.public_key()), opts)
+  assert_eq(v.alg, @jwt.Algorithm::ES384)
+}

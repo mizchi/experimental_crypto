@@ -513,3 +513,36 @@ fn parse_attributes(
   }
   out
 }
+
+// ─── chain integration helper ────────────────────────────────────────────
+
+///|
+/// Verify a CMS detached signature AND the signer cert's chain to a
+/// trust anchor pubkey. This composes `verify_detached` with
+/// `@pkix_verify.verify_chain_with_options`. Intermediates are taken
+/// from `sd.extra_certs`. The signer cert is the leaf.
+///
+/// Returns `true` iff:
+///   1. The signature verifies cleanly via `verify_detached`, AND
+///   2. The signer cert's chain (signer cert + extra_certs + anchor) is
+///      valid at `now` per RFC 5280 §6.1 (basic constraints, key usage,
+///      validity windows, signature on every cert in the chain).
+pub fn verify_with_chain(
+  sd : CmsSignedData,
+  message : Bytes,
+  trust_anchor_pubkey : @pkix_verify.PublicKey,
+  now : String,
+) -> Bool raise CmsError {
+  if not(verify_detached(sd, message)) {
+    return false
+  }
+  @pkix_verify.verify_chain(
+    sd.signer_cert,
+    sd.extra_certs,
+    trust_anchor_pubkey,
+    now,
+  ) catch {
+    _ => return false
+  }
+  true
+}
