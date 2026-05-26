@@ -474,6 +474,50 @@ pub fn parse_private(json : String) -> Jwk raise JwkError {
   parse_inner(m, true)
 }
 
+///|
+/// A single entry inside an RFC 7517 §5 JWK Set, carrying both the parsed
+/// key material and the JOSE metadata callers need to dispatch on (kid,
+/// alg, use). Returned by `parse_set`.
+pub(all) struct JwkSetEntry {
+  jwk : Jwk
+  kid : String?
+  alg : String?
+  use_ : String?
+}
+
+///|
+/// Parse an RFC 7517 §5 JWK Set document of the form
+/// `{ "keys": [ <jwk>, <jwk>, ... ] }`. Each entry is parsed as a public
+/// JWK; private fields are tolerated but not required. The metadata
+/// fields (`kid`, `alg`, `use`) are extracted alongside so callers (e.g.
+/// `@jwt.select_verify_key`) can select a key by header `kid` + `alg`
+/// without re-parsing the JSON.
+pub fn parse_set(json : String) -> Array[JwkSetEntry] raise JwkError {
+  let m = parse_object(json)
+  let keys = match m.get("keys") {
+    Some(Array(items)) => items
+    Some(_) => raise InvalidJson("JWK Set 'keys' field must be an array")
+    None => raise MissingField("keys")
+  }
+  let out : Array[JwkSetEntry] = []
+  for k in keys {
+    let inner = match k {
+      Object(o) => o
+      _ => raise InvalidJson("JWK Set entry must be an object")
+    }
+    // Use the same parse_inner path as parse_public, accepting private
+    // material when present so a JWK Set with sign-side keys still loads.
+    let jwk = parse_inner(inner, true)
+    out.push({
+      jwk,
+      kid: get_string(inner, "kid"),
+      alg: get_string(inner, "alg"),
+      use_: get_string(inner, "use"),
+    })
+  }
+  out
+}
+
 // -----------------------------------------------------------------------------
 // serialise_public / serialise_private
 // -----------------------------------------------------------------------------

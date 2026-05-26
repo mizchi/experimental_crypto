@@ -41,10 +41,17 @@ pub(all) enum Algorithm {
 
 ///|
 pub(all) enum Key {
+  // HMAC sign (RFC 7518 §3.2). The secret length must be at least the hash
+  // output size; shorter secrets are accepted but reduce the effective
+  // strength of the MAC.
   Hs256(secret~ : Bytes)
+  Hs384(secret~ : Bytes)
+  Hs512(secret~ : Bytes)
   EdDsa(privkey~ : @ed25519.PrivateKey)
-  // RS256: RSASSA-PKCS1-v1_5 sign with SHA-256.
+  // RS256 / RS384 / RS512: RSASSA-PKCS1-v1_5 sign with SHA-{256,384,512}.
   Rs256(privkey~ : @rsa.RsaPrivateKey)
+  Rs384(privkey~ : @rsa.RsaPrivateKey)
+  Rs512(privkey~ : @rsa.RsaPrivateKey)
   // ES256 / ES384: ECDSA-SHA-{256,384} sign with RFC 6979 deterministic nonce.
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
@@ -57,11 +64,17 @@ pub(all) enum Key {
 
 ///|
 pub(all) enum VerifyKey {
+  // HMAC verify (RFC 7518 §3.2). Compared via `@hash.ct_eq` so the result is
+  // independent of how many leading tag bytes match.
   Hs256(secret~ : Bytes)
+  Hs384(secret~ : Bytes)
+  Hs512(secret~ : Bytes)
   EdDsa(pubkey~ : @ed25519.PublicKey)
-  // RS256 verify only: we hold an RSA public key but never any private
-  // material, mirroring the verify-only scope of `mizchi/rsa`.
+  // RS256 / RS384 / RS512 verify-only: we hold an RSA public key but never
+  // any private material, mirroring the verify-only scope of `mizchi/rsa`.
   Rs256(pubkey~ : @rsa.RsaPublicKey)
+  Rs384(pubkey~ : @rsa.RsaPublicKey)
+  Rs512(pubkey~ : @rsa.RsaPublicKey)
   // ES256 (ECDSA with P-256 + SHA-256, RFC 7518 §3.4). Signature is the JOSE
   // raw form r||s (64 bytes); verify-only for now.
   Es256(pubkey~ : @p256.PublicKey)
@@ -87,6 +100,16 @@ pub suberror JwtError {
   InvalidAudience
   InvalidIssuer
   ClaimsParseError(String)
+  // RFC 8725 §3.11: explicit typing. Returned when `VerifyOptions.typ_allowed`
+  // is set and the JOSE header's `typ` is absent or not in the allow-list.
+  InvalidType(String)
+  // RFC 8725 §3.10: an `iat` claim more than `clock_skew_sec` in the future
+  // is suspicious; reject so a smuggled future-issued token can't be
+  // replayed once the clock catches up.
+  IssuedInFuture
+  // JWKS helper rejections: returned by `select_verify_key`.
+  NoMatchingKey
+  AlgorithmMismatchInJwks(String)
 } derive(Debug)
 
 ///|
@@ -104,11 +127,23 @@ pub(all) struct VerifyOptions {
   require_exp : Bool
   issuer : String?
   audience : String?
+  // RFC 8725 §3.11 — if `Some(allowed)`, the JOSE header MUST carry a `typ`
+  // member whose value is in `allowed`. Use `Some(["JWT"])` for ID tokens
+  // and `Some(["at+jwt"])` for RFC 9068 access tokens. Defaults to `None`
+  // (no constraint) to preserve historic behaviour.
+  typ_allowed : Array[String]?
 } derive(Eq, Debug)
 
 ///|
 pub fn VerifyOptions::default(now : Int64) -> VerifyOptions {
-  { now, clock_skew_sec: 0L, require_exp: false, issuer: None, audience: None }
+  {
+    now,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+    typ_allowed: None,
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -204,8 +239,12 @@ fn alg_from_str(s : String) -> Algorithm raise JwtError {
 fn key_alg(k : Key) -> Algorithm {
   match k {
     Hs256(..) => HS256
+    Hs384(..) => HS384
+    Hs512(..) => HS512
     EdDsa(..) => EdDSA
     Rs256(..) => RS256
+    Rs384(..) => RS384
+    Rs512(..) => RS512
     Es256(..) => ES256
     Es384(..) => ES384
     Ps256(..) => PS256
@@ -218,8 +257,12 @@ fn key_alg(k : Key) -> Algorithm {
 fn verify_key_alg(k : VerifyKey) -> Algorithm {
   match k {
     Hs256(..) => HS256
+    Hs384(..) => HS384
+    Hs512(..) => HS512
     EdDsa(..) => EdDSA
     Rs256(..) => RS256
+    Rs384(..) => RS384
+    Rs512(..) => RS512
     Es256(..) => ES256
     Es384(..) => ES384
     Ps256(..) => PS256
@@ -268,12 +311,28 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let signing_bytes = @utf8.encode(signing_input[:])
   let signature : Bytes = match key {
     Hs256(secret~) => @hash.hmac_sha256(secret, signing_bytes)
+    Hs384(secret~) => @hash.hmac_sha384(secret, signing_bytes)
+    Hs512(secret~) => @hash.hmac_sha512(secret, signing_bytes)
     EdDsa(privkey~) => privkey.sign(signing_bytes)
     Rs256(privkey~) =>
       privkey.sign(signing_bytes, @rsa.HashAlg::Sha256) catch {
         e =>
           raise UnsupportedAlgorithm(
             "RS256 sign failed: " + @debug.to_string(e),
+          )
+      }
+    Rs384(privkey~) =>
+      privkey.sign(signing_bytes, @rsa.HashAlg::Sha384) catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "RS384 sign failed: " + @debug.to_string(e),
+          )
+      }
+    Rs512(privkey~) =>
+      privkey.sign(signing_bytes, @rsa.HashAlg::Sha512) catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "RS512 sign failed: " + @debug.to_string(e),
           )
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
@@ -402,6 +461,29 @@ pub fn verify(
     Some(_) => raise InvalidHeader("b64 header is not supported")
     None => ()
   }
+  // RFC 8725 §3.11: explicit typing. When the caller asks for a `typ`
+  // allow-list, the header MUST carry one of the listed values. This is
+  // what RFC 9068 §4 requires for `at+jwt` access tokens and what RFC
+  // 7519 IdPs use to disambiguate ID tokens from generic JWS payloads.
+  match opts.typ_allowed {
+    Some(allowed) => {
+      let actual = match get_string(header, "typ") {
+        Some(s) => s
+        None => raise InvalidType("missing typ header")
+      }
+      let mut ok = false
+      for t in allowed {
+        if t == actual {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise InvalidType("typ '" + actual + "' not in allow-list")
+      }
+    }
+    None => ()
+  }
 
   // ---- signature ----
   let signing_input = header_b64 + "." + payload_b64
@@ -410,6 +492,14 @@ pub fn verify(
   let ok = match (alg, key) {
     (HS256, Hs256(secret~)) => {
       let expected = @hash.hmac_sha256(secret, signing_bytes)
+      @hash.ct_eq(expected, provided_sig)
+    }
+    (HS384, Hs384(secret~)) => {
+      let expected = @hash.hmac_sha384(secret, signing_bytes)
+      @hash.ct_eq(expected, provided_sig)
+    }
+    (HS512, Hs512(secret~)) => {
+      let expected = @hash.hmac_sha512(secret, signing_bytes)
       @hash.ct_eq(expected, provided_sig)
     }
     (EdDSA, EdDsa(pubkey~)) =>
@@ -421,6 +511,14 @@ pub fn verify(
       // signals a wrong key); fold that into our InvalidSignature so
       // the verify boundary stays simple for callers.
       pubkey.verify(signing_bytes, provided_sig, @rsa.HashAlg::Sha256) catch {
+        _ => raise InvalidSignature
+      }
+    (RS384, Rs384(pubkey~)) =>
+      pubkey.verify(signing_bytes, provided_sig, @rsa.HashAlg::Sha384) catch {
+        _ => raise InvalidSignature
+      }
+    (RS512, Rs512(pubkey~)) =>
+      pubkey.verify(signing_bytes, provided_sig, @rsa.HashAlg::Sha512) catch {
         _ => raise InvalidSignature
       }
     (ES256, Es256(pubkey~)) =>
@@ -497,7 +595,15 @@ pub fn verify(
     _ => Map([])
   }
 
-  // ---- exp / nbf / iss / aud ----
+  // ---- iat / exp / nbf / iss / aud ----
+  // RFC 8725 §3.10: an `iat` more than `clock_skew_sec` in the future is
+  // not a legitimately-issued token. Reject so a stockpiled future-dated
+  // token can't be replayed once the clock catches up. iat is optional
+  // (RFC 7519 §4.1.6), so missing iat is fine.
+  match get_numeric_date(claims, "iat") {
+    Some(iat) => if iat > opts.now + opts.clock_skew_sec { raise IssuedInFuture }
+    None => ()
+  }
   let exp = get_numeric_date(claims, "exp")
   if opts.require_exp && exp is None {
     raise ClaimsParseError("exp claim is required")
@@ -528,4 +634,122 @@ pub fn verify(
   }
   let kid = get_string(header, "kid")
   { header, claims, alg, kid }
+}
+
+// -----------------------------------------------------------------------------
+// JWKS resolution helper
+// -----------------------------------------------------------------------------
+
+///|
+/// Pick a `VerifyKey` from an RFC 7517 §5 JWK Set that matches a JOSE
+/// header. The standard OIDC ID-token flow:
+///
+/// 1. Fetch the IdP's JWKS document, parse it with `@jwk.parse_set`.
+/// 2. Read the JWT's header (caller can pass `verify`'s `header` on a
+///    `JwtError::InvalidSignature` retry, or pre-parse via `peek_header`).
+/// 3. Hand both to `select_verify_key` to get the `VerifyKey` for `verify`.
+///
+/// Selection rules:
+/// - If the header has a `kid`, only JWKS entries whose `kid` matches are
+///   considered. If none match, `NoMatchingKey` is raised.
+/// - If the header has no `kid` and the set has exactly one entry, that
+///   one is used. Otherwise `NoMatchingKey` is raised (ambiguous).
+/// - If the JWKS entry has its own `alg` and it does not equal the JWT
+///   header's `alg`, `AlgorithmMismatchInJwks` is raised. This prevents
+///   an attacker from picking an HS256 key off a JWKS that the IdP
+///   intended only for RS256 use.
+/// - The selected `Jwk` is converted to a `VerifyKey` for the header's
+///   `alg`. Algorithm/key-type mismatches raise `UnsupportedAlgorithm`.
+pub fn select_verify_key(
+  set : Array[@jwk.JwkSetEntry],
+  header : Map[String, Json],
+) -> VerifyKey raise JwtError {
+  let alg = match get_string(header, "alg") {
+    Some(s) => alg_from_str(s)
+    None => raise InvalidHeader("missing alg")
+  }
+  let header_kid = get_string(header, "kid")
+  let candidates : Array[@jwk.JwkSetEntry] = match header_kid {
+    Some(want) => {
+      let out : Array[@jwk.JwkSetEntry] = []
+      for entry in set {
+        match entry.kid {
+          Some(k) => if k == want { out.push(entry) }
+          None => ()
+        }
+      }
+      out
+    }
+    None =>
+      if set.length() == 1 {
+        [set[0]]
+      } else {
+        raise NoMatchingKey
+      }
+  }
+  if candidates.length() == 0 {
+    raise NoMatchingKey
+  }
+  // Use the first candidate. RFC 7517 §4.5 allows multiple JWKs to share a
+  // kid (rare); we don't try to disambiguate by alg in that case — first
+  // match wins, and the alg-mismatch check below catches type confusion.
+  let entry = candidates[0]
+  match entry.alg {
+    Some(s) => {
+      let entry_alg = alg_from_str(s) catch {
+        _ => raise AlgorithmMismatchInJwks(s)
+      }
+      if entry_alg != alg {
+        raise AlgorithmMismatchInJwks(alg_to_str(alg))
+      }
+    }
+    None => ()
+  }
+  jwk_to_verify_key(entry.jwk, alg)
+}
+
+///|
+fn jwk_to_verify_key(
+  jwk : @jwk.Jwk,
+  alg : Algorithm,
+) -> VerifyKey raise JwtError {
+  match (alg, jwk) {
+    (HS256, Hmac(secret~)) => Hs256(secret~)
+    (HS384, Hmac(secret~)) => Hs384(secret~)
+    (HS512, Hmac(secret~)) => Hs512(secret~)
+    (RS256, Rsa(pubkey~, ..)) => Rs256(pubkey~)
+    (RS384, Rsa(pubkey~, ..)) => Rs384(pubkey~)
+    (RS512, Rsa(pubkey~, ..)) => Rs512(pubkey~)
+    (PS256, Rsa(pubkey~, ..)) => Ps256(pubkey~)
+    (PS384, Rsa(pubkey~, ..)) => Ps384(pubkey~)
+    (PS512, Rsa(pubkey~, ..)) => Ps512(pubkey~)
+    (ES256, EcP256(pubkey~, ..)) => Es256(pubkey~)
+    (ES384, EcP384(pubkey~, ..)) => Es384(pubkey~)
+    (EdDSA, OkpEd25519(pubkey~, ..)) => EdDsa(pubkey~)
+    _ =>
+      raise UnsupportedAlgorithm(
+        "JWKS entry kty does not match JWT alg " + alg_to_str(alg),
+      )
+  }
+}
+
+///|
+/// Peek at the JOSE header of a compact JWT without verifying or even
+/// validating it. Handy for picking a `VerifyKey` out of a JWKS before
+/// the full `verify` call. The returned map is exactly what
+/// `select_verify_key` expects.
+///
+/// Use with caution: nothing in this map is authenticated — the kid /
+/// alg an attacker put there is what you get back. Cross-check the
+/// returned `alg` against your own policy before trusting it.
+pub fn peek_header(token : String) -> Map[String, Json] raise JwtError {
+  let parts = token.split(".").to_array()
+  if parts.length() != 3 {
+    raise InvalidToken("expected 3 segments")
+  }
+  let header_bytes = base64url_decode(parts[0].to_owned())
+  let header_str = @utf8.decode(header_bytes[:]) catch {
+    _ => raise InvalidHeader("header is not valid UTF-8")
+  }
+  parse_json_object(header_str)
 }

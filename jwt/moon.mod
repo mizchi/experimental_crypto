@@ -19,6 +19,7 @@ import {
   "mizchi/p256@0.1.0",
   "mizchi/p384@0.1.0",
   "mizchi/hash@0.1.0",
+  "mizchi/jwk@0.1.0",
 }
 
 readme = "README.mbt.md"

@@ -4,6 +4,7 @@ import {
   "mizchi/p256",
   "mizchi/p384",
   "mizchi/hash",
+  "mizchi/jwk",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/debug",

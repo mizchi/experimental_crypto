@@ -75,6 +75,7 @@ test "HS256: RFC 7515 §A.1 token verifies and decodes claims" {
     require_exp: false,
     issuer: None,
     audience: None,
+    typ_allowed: None,
   }
   let v = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
   @debug.assert_eq(v.alg, @jwt.Algorithm::HS256)
@@ -231,6 +232,7 @@ test "exp: clock_skew_sec absorbs small differences" {
     require_exp: false,
     issuer: None,
     audience: None,
+    typ_allowed: None,
   }
   let v = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
   @debug.assert_eq(v.alg, @jwt.Algorithm::HS256)
@@ -263,6 +265,7 @@ test "iss: wrong issuer raises InvalidIssuer" {
     require_exp: false,
     issuer: Some("b"),
     audience: None,
+    typ_allowed: None,
   }
   try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
     InvalidIssuer => ()
@@ -285,6 +288,7 @@ test "aud: string and array forms both match" {
     require_exp: false,
     issuer: None,
     audience: Some("svc1"),
+    typ_allowed: None,
   }
   let _ = @jwt.verify(t1, @jwt.VerifyKey::Hs256(secret~), opts1)
   // array form
@@ -298,6 +302,7 @@ test "aud: string and array forms both match" {
     require_exp: false,
     issuer: None,
     audience: Some("svc2"),
+    typ_allowed: None,
   }
   let _ = @jwt.verify(t2, @jwt.VerifyKey::Hs256(secret~), opts2)
   // mismatch
@@ -307,6 +312,7 @@ test "aud: string and array forms both match" {
     require_exp: false,
     issuer: None,
     audience: Some("nope"),
+    typ_allowed: None,
   }
   try @jwt.verify(t2, @jwt.VerifyKey::Hs256(secret~), opts3) catch {
     InvalidAudience => ()
@@ -402,6 +408,7 @@ test "RS256: RFC 7515 §A.2.1 token verifies and decodes claims" {
     require_exp: false,
     issuer: None,
     audience: None,
+    typ_allowed: None,
   }
   let v = @jwt.verify(rfc7515_a2_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)
   @debug.assert_eq(v.alg, @jwt.Algorithm::RS256)
@@ -487,6 +494,7 @@ test "ES256: RFC 7515 §A.3 token verifies" {
     require_exp: false,
     issuer: None,
     audience: None,
+    typ_allowed: None,
   }
   let v = @jwt.verify(token, @jwt.VerifyKey::Es256(pubkey=pk), opts)
   @debug.assert_eq(v.alg, @jwt.Algorithm::ES256)
@@ -836,5 +844,225 @@ test "ATTACK RFC 7797: token with `b64=false` must be rejected" {
     other => abort("b64=false header NOT rejected: " + repr(other) + "")
   } noraise {
     other => abort("b64=false header NOT rejected: " + repr(other) + "")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// HS384 / HS512 / RS384 / RS512 — new algorithms (Step 2)
+// -----------------------------------------------------------------------------
+
+///|
+test "HS384: sign + verify roundtrip" {
+  let secret : Bytes = b"hs384-secret"
+  let claims : Map[String, Json] = Map([])
+  claims["sub"] = Json::string("alice")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Hs384(secret~))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Hs384(secret~), opts)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::HS384)
+}
+
+///|
+test "HS512: sign + verify roundtrip" {
+  let secret : Bytes = b"hs512-secret-which-is-fairly-long-to-match-output-size"
+  let claims : Map[String, Json] = Map([])
+  claims["sub"] = Json::string("bob")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Hs512(secret~))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Hs512(secret~), opts)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::HS512)
+}
+
+///|
+test "HS384: wrong secret fails verification" {
+  let secret : Bytes = b"hs384-secret-correct"
+  let other : Bytes = b"hs384-secret-attacker"
+  let claims : Map[String, Json] = Map([])
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Hs384(secret~))
+  let opts = @jwt.VerifyOptions::default(0L)
+  try @jwt.verify(token, @jwt.VerifyKey::Hs384(secret=other), opts) catch {
+    InvalidSignature => ()
+    e => abort("expected InvalidSignature, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidSignature, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// typ allow-list (Step 1)
+// -----------------------------------------------------------------------------
+
+///|
+test "typ: allow-list None accepts any typ" {
+  let secret : Bytes = b"any-secret"
+  let token = @jwt.sign(Json::object(Map([])), @jwt.Key::Hs256(secret~))
+  let opts = @jwt.VerifyOptions::default(0L)
+  // No typ_allowed → accept whatever sign emitted (`JWT`).
+  let _ = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
+}
+
+///|
+test "typ: allow-list matches header typ JWT" {
+  let secret : Bytes = b"any-secret"
+  let token = @jwt.sign(Json::object(Map([])), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.VerifyOptions = {
+    now: 0L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+    typ_allowed: Some(["JWT"]),
+  }
+  let _ = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
+}
+
+///|
+test "typ: typ='JWT' rejected when allow-list expects only 'at+jwt'" {
+  let secret : Bytes = b"any-secret"
+  let token = @jwt.sign(Json::object(Map([])), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.VerifyOptions = {
+    now: 0L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+    typ_allowed: Some(["at+jwt"]),
+  }
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType, got Ok")
+  }
+}
+
+// -----------------------------------------------------------------------------
+// iat future check (Step 4)
+// -----------------------------------------------------------------------------
+
+///|
+test "iat: claim in the future raises IssuedInFuture" {
+  let secret : Bytes = b"iat-future"
+  let claims : Map[String, Json] = Map([])
+  claims["iat"] = Json::number(2_000_000_000.0)
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Hs256(secret~))
+  // now is well before iat; clock skew is 0.
+  let opts = @jwt.VerifyOptions::default(1_000_000_000L)
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    IssuedInFuture => ()
+    e => abort("expected IssuedInFuture, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected IssuedInFuture, got Ok")
+  }
+}
+
+///|
+test "iat: claim slightly in the future is absorbed by clock_skew_sec" {
+  let secret : Bytes = b"iat-skew"
+  let claims : Map[String, Json] = Map([])
+  claims["iat"] = Json::number(1_000_000_030.0)
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.VerifyOptions = {
+    now: 1_000_000_000L,
+    clock_skew_sec: 60L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+    typ_allowed: None,
+  }
+  let _ = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
+}
+
+// -----------------------------------------------------------------------------
+// JWKS resolution helper (Step 3)
+// -----------------------------------------------------------------------------
+
+///|
+test "select_verify_key: single-key set with no kid" {
+  // Round-trip an HMAC JWK through @jwk's serialise → @jwk.parse_set so we
+  // exercise the public API rather than a hand-constructed entry.
+  let jwk_doc =
+    #|{ "keys": [ { "kty": "oct", "k": "c2VjcmV0", "alg": "HS256" } ] }
+  let set = @jwk.parse_set(jwk_doc)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  let vk = @jwt.select_verify_key(set, header)
+  match vk {
+    Hs256(secret~) => @debug.assert_eq(secret, b"secret")
+    _ => abort("expected Hs256 VerifyKey")
+  }
+}
+
+///|
+test "select_verify_key: kid match picks the right entry" {
+  let jwk_doc =
+    #|{ "keys": [
+    #|  { "kty": "oct", "k": "AAA", "kid": "k1", "alg": "HS256" },
+    #|  { "kty": "oct", "k": "AQE", "kid": "k2", "alg": "HS256" }
+    #|] }
+  let set = @jwk.parse_set(jwk_doc)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["kid"] = Json::string("k2")
+  let vk = @jwt.select_verify_key(set, header)
+  match vk {
+    Hs256(secret~) => {
+      // "AQE" base64url-decodes to 0x01 0x01
+      @debug.assert_eq(secret.length(), 2)
+      @debug.assert_eq(secret[0], b'\x01')
+    }
+    _ => abort("expected Hs256 VerifyKey")
+  }
+}
+
+///|
+test "select_verify_key: unknown kid raises NoMatchingKey" {
+  let jwk_doc =
+    #|{ "keys": [ { "kty": "oct", "k": "AAA", "kid": "k1", "alg": "HS256" } ] }
+  let set = @jwk.parse_set(jwk_doc)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["kid"] = Json::string("no-such-key")
+  try @jwt.select_verify_key(set, header) catch {
+    NoMatchingKey => ()
+    e => abort("expected NoMatchingKey, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected NoMatchingKey, got Ok")
+  }
+}
+
+///|
+test "select_verify_key: alg mismatch in JWKS rejected" {
+  // JWKS entry tags the key as RS256-only, but the JWT claims HS256.
+  let jwk_doc =
+    #|{ "keys": [ { "kty": "oct", "k": "AAA", "kid": "k1", "alg": "RS256" } ] }
+  let set = @jwk.parse_set(jwk_doc)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["kid"] = Json::string("k1")
+  try @jwt.select_verify_key(set, header) catch {
+    AlgorithmMismatchInJwks(_) => ()
+    e => abort("expected AlgorithmMismatchInJwks, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmMismatchInJwks, got Ok")
+  }
+}
+
+///|
+test "peek_header: returns the JOSE header without verifying" {
+  let secret : Bytes = b"peek-test"
+  let token = @jwt.sign(
+    Json::object(Map([])),
+    @jwt.Key::Hs256(secret~),
+    kid="probe",
+  )
+  let header = @jwt.peek_header(token)
+  match header.get("alg") {
+    Some(String(s)) => @debug.assert_eq(s, "HS256")
+    _ => abort("missing alg in peeked header")
+  }
+  match header.get("kid") {
+    Some(String(s)) => @debug.assert_eq(s, "probe")
+    _ => abort("missing kid in peeked header")
   }
 }
