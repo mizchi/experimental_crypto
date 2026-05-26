@@ -190,6 +190,13 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
   token, aggregated/distributed claims, Discovery, Federation, CIBA, and
   FAPI RFC 9068 policy. Current coverage via
   `moon coverage analyze -p mizchi/jwt -- -f summary`: `858/982`.
+- [x] **JWT / OIDC offensive scenario sweep**: added attacker-oriented
+  regressions for untrusted `jku` / embedded `jwk` headers, OIDC issuer
+  and audience substitution, UserInfo substitution with the same `sub`,
+  RFC 7523 client-assertion `jku`, JAR embedded `client_id` substitution,
+  JARM mix-up (`iss` / `aud`), logout `secevent+jwt` replay, encrypted
+  ID-token outer `cty` confusion and inner-issuer substitution, federation
+  subject substitution, and CIBA refresh-token substitution.
 - [ ] **JWT remaining coverage holes**: mostly unsupported or fixture-heavy
   algorithm branches (`RS384`/`RS512`/`ES512`/`PS384`/`PS512` sign/verify
   and JWKS mapping), malformed UTF-8 payload/header catch arms, and a few

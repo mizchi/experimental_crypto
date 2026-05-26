@@ -146,28 +146,25 @@ fn hmac_generic_128block(
     ipad.unsafe_set(i, (b ^ 0x36).to_byte())
     opad.unsafe_set(i, (b ^ 0x5c).to_byte())
   }
-  // inner = hash(ipad || msg)
-  let inner_input = FixedArray::make(block_size + msg.length(), b'\x00')
-  for i = 0; i < block_size; i = i + 1 {
-    inner_input.unsafe_set(i, ipad.unsafe_get(i))
-  }
-  for i = 0; i < msg.length(); i = i + 1 {
-    inner_input.unsafe_set(block_size + i, msg[i])
-  }
-  let inner_input_bytes = Bytes::makei(block_size + msg.length(), fn(j) {
-    inner_input.unsafe_get(j)
+  // inner = hash(ipad || msg). Build the concatenated Bytes directly via
+  // `Bytes::makei` to skip the intermediate FixedArray + double copy.
+  let msg_len = msg.length()
+  let inner_input_bytes = Bytes::makei(block_size + msg_len, fn(j) {
+    if j < block_size {
+      ipad.unsafe_get(j)
+    } else {
+      msg[j - block_size]
+    }
   })
   let inner_hash = hash_fn(inner_input_bytes)
   // outer = hash(opad || inner_hash)
-  let outer_input = FixedArray::make(block_size + inner_hash.length(), b'\x00')
-  for i = 0; i < block_size; i = i + 1 {
-    outer_input.unsafe_set(i, opad.unsafe_get(i))
-  }
-  for i = 0; i < inner_hash.length(); i = i + 1 {
-    outer_input.unsafe_set(block_size + i, inner_hash[i])
-  }
-  let outer_input_bytes = Bytes::makei(block_size + inner_hash.length(), fn(j) {
-    outer_input.unsafe_get(j)
+  let inner_hash_len = inner_hash.length()
+  let outer_input_bytes = Bytes::makei(block_size + inner_hash_len, fn(j) {
+    if j < block_size {
+      opad.unsafe_get(j)
+    } else {
+      inner_hash[j - block_size]
+    }
   })
   hash_fn(outer_input_bytes)
 }
@@ -195,28 +192,24 @@ fn hmac_generic_64block(
     ipad.unsafe_set(i, (b ^ 0x36).to_byte())
     opad.unsafe_set(i, (b ^ 0x5c).to_byte())
   }
-  // inner = hash(ipad || msg)
-  let inner_input = FixedArray::make(block_size + msg.length(), b'\x00')
-  for i = 0; i < block_size; i = i + 1 {
-    inner_input.unsafe_set(i, ipad.unsafe_get(i))
-  }
-  for i = 0; i < msg.length(); i = i + 1 {
-    inner_input.unsafe_set(block_size + i, msg[i])
-  }
-  let inner_input_bytes = Bytes::makei(block_size + msg.length(), fn(j) {
-    inner_input.unsafe_get(j)
+  // inner = hash(ipad || msg). Same direct-concat trick as the 128-block
+  // variant — drops two FixedArray allocations + two copies per HMAC.
+  let msg_len = msg.length()
+  let inner_input_bytes = Bytes::makei(block_size + msg_len, fn(j) {
+    if j < block_size {
+      ipad.unsafe_get(j)
+    } else {
+      msg[j - block_size]
+    }
   })
   let inner_hash = hash_fn(inner_input_bytes)
-  // outer = hash(opad || inner_hash)
-  let outer_input = FixedArray::make(block_size + inner_hash.length(), b'\x00')
-  for i = 0; i < block_size; i = i + 1 {
-    outer_input.unsafe_set(i, opad.unsafe_get(i))
-  }
-  for i = 0; i < inner_hash.length(); i = i + 1 {
-    outer_input.unsafe_set(block_size + i, inner_hash[i])
-  }
-  let outer_input_bytes = Bytes::makei(block_size + inner_hash.length(), fn(j) {
-    outer_input.unsafe_get(j)
+  let inner_hash_len = inner_hash.length()
+  let outer_input_bytes = Bytes::makei(block_size + inner_hash_len, fn(j) {
+    if j < block_size {
+      opad.unsafe_get(j)
+    } else {
+      inner_hash[j - block_size]
+    }
   })
   hash_fn(outer_input_bytes)
 }
