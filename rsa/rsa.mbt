@@ -361,11 +361,20 @@ pub fn RsaPrivateKey::from_pkcs1_der(der : Bytes) -> RsaPrivateKey raise RsaErro
   let n_bytes = expect_integer_bytes(items[1])
   let e_bytes = expect_integer_bytes(items[2])
   let d_bytes = expect_integer_bytes(items[3])
-  let n_b = strip_zero(n_bytes)
   let n = integer_to_bigint(n_bytes)
   let e = integer_to_bigint(e_bytes)
   let d = integer_to_bigint(d_bytes)
-  { n, e, d, n_bytes_len: n_b.length() }
+  // n_bytes_len = ceil(bit_length(n) / 8). Deriving from the parsed BigInt
+  // (rather than the raw DER bytes) makes the value robust against
+  // non-canonical INTEGER encodings that happen to include extra leading
+  // 0x00 bytes — the public-key constructor above does the same.
+  let n_octets = n.to_octets()
+  let mut start = 0
+  while start < n_octets.length() - 1 && n_octets[start] == b'\x00' {
+    start = start + 1
+  }
+  let n_bytes_len = n_octets.length() - start
+  { n, e, d, n_bytes_len }
 }
 
 ///|
@@ -381,6 +390,12 @@ pub fn RsaPrivateKey::public_key(self : RsaPrivateKey) -> RsaPublicKey {
 ///   s = (EM_to_integer(EMSA_PKCS1_v15(hash, message, k))) ^ d mod n
 ///
 /// where k = n_bytes_len. Returns the k-byte signature.
+///
+/// Side-channel caveat: the modexp uses `@bigint.pow`, which is
+/// variable-time on the secret `d`. We do NOT do CRT (so no
+/// CRT-fault-injection vector either), but a timing attacker who can
+/// trigger many sign operations may recover `d`. Treat this as a
+/// sign-only-on-trusted-hosts primitive.
 pub fn RsaPrivateKey::sign(
   self : RsaPrivateKey,
   message : Bytes,

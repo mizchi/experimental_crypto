@@ -46,9 +46,15 @@ pub fn verify_armor(
       if sig.pubkey_algo != algo_eddsa_legacy {
         raise UnsupportedPubkeyAlgo(sig.pubkey_algo)
       } else {
-        // Signature material: MPI r || MPI s, each 256 bits.
+        // Signature material: MPI r || MPI s, each 256 bits. Reject trailing
+        // garbage so the signature representation is strict (otherwise an
+        // attacker could create multiple armors that all verify against the
+        // same key+message, breaking non-malleability).
         let (r_bytes, r_used) = read_mpi(sig.signature_material, 0)
-        let (s_bytes, _) = read_mpi(sig.signature_material, r_used)
+        let (s_bytes, s_used) = read_mpi(sig.signature_material, r_used)
+        if r_used + s_used != sig.signature_material.length() {
+          raise InvalidMpi("trailing bytes after ed25519 (r, s)")
+        }
         let raw_sig = build_ed25519_sig(r_bytes, s_bytes)
         pk.verify(digest, raw_sig)
       }
@@ -56,7 +62,10 @@ pub fn verify_armor(
       if sig.pubkey_algo != algo_rsa_sign_or_encrypt {
         raise UnsupportedPubkeyAlgo(sig.pubkey_algo)
       }
-      let (s_bytes, _) = read_mpi(sig.signature_material, 0)
+      let (s_bytes, s_used) = read_mpi(sig.signature_material, 0)
+      if s_used != sig.signature_material.length() {
+        raise InvalidMpi("trailing bytes after RSA signature MPI")
+      }
       // Left-pad to modulus length (RSA signatures are full-block).
       let padded = pad_left(s_bytes, pk.n_bytes_len)
       // Map OpenPGP hash algo → @rsa HashAlg.
@@ -85,7 +94,10 @@ pub fn verify_armor(
         raise UnsupportedHashAlgo(sig.hash_algo)
       }
       let (r_bytes, r_used) = read_mpi(sig.signature_material, 0)
-      let (s_bytes, _) = read_mpi(sig.signature_material, r_used)
+      let (s_bytes, s_used) = read_mpi(sig.signature_material, r_used)
+      if r_used + s_used != sig.signature_material.length() {
+        raise InvalidMpi("trailing bytes after p256 (r, s)")
+      }
       let raw_sig = build_ecdsa_raw(r_bytes, s_bytes, 32)
       let pre = build_pre_hash_input(sig, message)
       @p256.verify(pk, pre, raw_sig, @p256.SignatureFormat::Raw) catch {
@@ -100,7 +112,10 @@ pub fn verify_armor(
         raise UnsupportedHashAlgo(sig.hash_algo)
       }
       let (r_bytes, r_used) = read_mpi(sig.signature_material, 0)
-      let (s_bytes, _) = read_mpi(sig.signature_material, r_used)
+      let (s_bytes, s_used) = read_mpi(sig.signature_material, r_used)
+      if r_used + s_used != sig.signature_material.length() {
+        raise InvalidMpi("trailing bytes after p384 (r, s)")
+      }
       let raw_sig = build_ecdsa_raw(r_bytes, s_bytes, 48)
       let pre = build_pre_hash_input(sig, message)
       @p384.verify(pk, pre, raw_sig, @p384.SignatureFormat::Raw) catch {

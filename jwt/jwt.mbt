@@ -251,7 +251,10 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
     EdDsa(privkey~) => privkey.sign(signing_bytes)
     Rs256(privkey~) =>
       privkey.sign(signing_bytes, @rsa.HashAlg::Sha256) catch {
-        _ => abort("RS256 sign failed (modulus too small for SHA-256 padding?)")
+        e =>
+          raise UnsupportedAlgorithm(
+            "RS256 sign failed: " + e.to_string(),
+          )
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
     Es384(privkey~) => privkey.sign(signing_bytes)

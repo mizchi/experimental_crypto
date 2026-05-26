@@ -441,6 +441,9 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 
 ///|
 /// ECDSA-SHA-384 sign with RFC 6979 deterministic nonce.
+///
+/// Side-channel caveat: see `@p256.PrivateKey::sign`. The scalar mult is
+/// variable-time on `k`; RFC 6979 only addresses nonce-bias, not timing.
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
@@ -702,6 +705,28 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P384Error {
       "expected id-ecPublicKey, got " + info.algorithm.algorithm.to_string(),
     )
   }
+  // RFC 5958 §2: validate the named-curve OID. See p256/p256.mbt for the
+  // rationale (without this, a P-256 PKCS#8 blob would silently load as
+  // P-384 whenever the scalar fits).
+  match info.algorithm.parameters {
+    Some(param_bytes) => {
+      let elem = @asn1.decode_der(param_bytes) catch { e => raise Asn1(e) }
+      let curve_oid = match elem.value {
+        Oid(o) => o.to_string()
+        _ => raise InvalidPrivateKey("PKCS#8 EC parameters not OID")
+      }
+      if curve_oid != secp384r1_named_curve_str {
+        raise InvalidPrivateKey(
+          "wrong namedCurve in PKCS#8 (expected " +
+          secp384r1_named_curve_str +
+          ", got " +
+          curve_oid +
+          ")",
+        )
+      }
+    }
+    None => raise InvalidPrivateKey("PKCS#8 EC parameters missing")
+  }
   let inner_elem = @asn1.decode_der(info.private_key) catch {
     e => raise Asn1(e)
   }
@@ -715,6 +740,31 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P384Error {
   let scalar_bytes = match items[1].value {
     OctetString(b) => b
     _ => raise InvalidPrivateKey("SEC1 privateKey not OCTET STRING")
+  }
+  for i = 2; i < items.length(); i = i + 1 {
+    let it = items[i]
+    if it.tag.class_ == @asn1.TagClass::ContextSpecific && it.tag.number == 0U {
+      let inner_param_bytes = match it.value {
+        Unknown(b) => b
+        _ => raise InvalidPrivateKey("SEC1 inner parameters: unexpected shape")
+      }
+      let inner_param_elem = @asn1.decode_der(inner_param_bytes) catch {
+        e => raise Asn1(e)
+      }
+      let inner_curve_oid = match inner_param_elem.value {
+        Oid(o) => o.to_string()
+        _ => raise InvalidPrivateKey("SEC1 inner parameters not OID")
+      }
+      if inner_curve_oid != secp384r1_named_curve_str {
+        raise InvalidPrivateKey(
+          "SEC1 inner namedCurve mismatch (expected " +
+          secp384r1_named_curve_str +
+          ", got " +
+          inner_curve_oid +
+          ")",
+        )
+      }
+    }
   }
   let padded = if scalar_bytes.length() == 48 {
     scalar_bytes

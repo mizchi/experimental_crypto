@@ -510,7 +510,14 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 ///
 /// Returns the signature in the requested format. The output is
 /// reproducible: same key + same message ⇒ same signature, no RNG needed
-/// (and so we sidestep the most common ECDSA footgun).
+/// (and so we sidestep the most common ECDSA footgun: nonce reuse / bias).
+///
+/// Side-channel caveat: RFC 6979 prevents nonce-bias attacks but does
+/// NOT make the implementation constant-time. The underlying `scalar_mult`
+/// is variable-time on the secret nonce `k` (because of `@bigint.pow`
+/// inside `mod_inverse` and the early-exit on leading-zero bits in the
+/// double-and-add ladder). Treat this as a sign-only-on-trusted-hosts
+/// primitive until we add a Montgomery-ladder fixed-time scalar mult.
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
@@ -802,6 +809,29 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P256Error {
       "expected id-ecPublicKey, got " + info.algorithm.algorithm.to_string(),
     )
   }
+  // RFC 5958 §2: AlgorithmIdentifier.parameters MUST carry the named-curve
+  // OID for id-ecPublicKey. Without this check, a PKCS#8 blob for any
+  // EC curve (P-384, P-521, …) could be silently parsed as a P-256 key
+  // whenever the inner scalar fits in 32 bytes.
+  match info.algorithm.parameters {
+    Some(param_bytes) => {
+      let elem = @asn1.decode_der(param_bytes) catch { e => raise Asn1(e) }
+      let curve_oid = match elem.value {
+        Oid(o) => o.to_string()
+        _ => raise InvalidPrivateKey("PKCS#8 EC parameters not OID")
+      }
+      if curve_oid != secp256r1_named_curve_str {
+        raise InvalidPrivateKey(
+          "wrong namedCurve in PKCS#8 (expected " +
+          secp256r1_named_curve_str +
+          ", got " +
+          curve_oid +
+          ")",
+        )
+      }
+    }
+    None => raise InvalidPrivateKey("PKCS#8 EC parameters missing")
+  }
   // The inner SEC1 ECPrivateKey is in info.private_key.
   let inner_elem = @asn1.decode_der(info.private_key) catch {
     e => raise Asn1(e)
@@ -817,6 +847,33 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P256Error {
   let scalar_bytes = match items[1].value {
     OctetString(b) => b
     _ => raise InvalidPrivateKey("SEC1 privateKey not OCTET STRING")
+  }
+  // If the SEC1 inner carries its own `parameters [0]` named-curve OID,
+  // it MUST agree with the outer one (RFC 5915 §3 / RFC 5958 §2).
+  for i = 2; i < items.length(); i = i + 1 {
+    let it = items[i]
+    if it.tag.class_ == @asn1.TagClass::ContextSpecific && it.tag.number == 0U {
+      let inner_param_bytes = match it.value {
+        Unknown(b) => b
+        _ => raise InvalidPrivateKey("SEC1 inner parameters: unexpected shape")
+      }
+      let inner_param_elem = @asn1.decode_der(inner_param_bytes) catch {
+        e => raise Asn1(e)
+      }
+      let inner_curve_oid = match inner_param_elem.value {
+        Oid(o) => o.to_string()
+        _ => raise InvalidPrivateKey("SEC1 inner parameters not OID")
+      }
+      if inner_curve_oid != secp256r1_named_curve_str {
+        raise InvalidPrivateKey(
+          "SEC1 inner namedCurve mismatch (expected " +
+          secp256r1_named_curve_str +
+          ", got " +
+          inner_curve_oid +
+          ")",
+        )
+      }
+    }
   }
   // Some emitters omit leading zeros; left-pad to 32 bytes.
   let padded = if scalar_bytes.length() == 32 {

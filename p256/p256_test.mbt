@@ -379,3 +379,22 @@ test "p256: from_pkcs8_pem loads an openssl-generated PEM" {
   let sig = sk.sign(msg)
   assert_true(@p256.verify(pk, msg, sig, Raw))
 }
+
+///|
+test "ATTACK: p256.from_pkcs8_pem rejects a P-384 key blob (curve-OID downgrade)" {
+  // PKCS#8 with id-ecPublicKey + secp384r1 namedCurve OID + SEC1 ECPrivateKey
+  // body. The fixture below is a real openssl-generated P-384 key in PEM.
+  // We verify @p256 rejects rather than silently treating it as a P-256.
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDB5tCYMSWNSIeCO+xAm
+    #|D78GjwMnnnCp4nT74NUF6KaXNB8Bzzc4lOL01OqDD3oLnEihZANiAARWQ04gZkVe
+    #|wHRhBlYjUd2NWqlqcc1QPABBoo5HuHj7sNHEDfgQ8aGzPpQkLDPDC6mxbLh8LDpD
+    #|EQAdR3rdJ6X8/E1RoyA5pPaAg3yWcAuY9eOoyU1bU0POSI3JlmuamJg=
+    #|-----END PRIVATE KEY-----
+  match (try? @p256.PrivateKey::from_pkcs8_pem(pem_text)) {
+    Err(InvalidPrivateKey(_)) => () // expected — wrong namedCurve
+    Ok(_) => abort("P-384 key silently loaded as P-256")
+    Err(other) => abort("expected InvalidPrivateKey, got \{other}")
+  }
+}
