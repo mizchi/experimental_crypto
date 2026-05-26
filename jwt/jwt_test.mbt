@@ -1066,3 +1066,220 @@ test "peek_header: returns the JOSE header without verifying" {
     _ => abort("missing kid in peeked header")
   }
 }
+
+// -----------------------------------------------------------------------------
+// RFC 9068 — JWT Profile for OAuth 2.0 Access Tokens
+// -----------------------------------------------------------------------------
+
+///|
+fn rfc9068_test_claims(now : Int64, iss : String, aud : Json) -> Json {
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string(iss)
+  m["sub"] = Json::string("user-42")
+  m["aud"] = aud
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("c0ffee-id")
+  m["client_id"] = Json::string("s6BhdRkqt3")
+  m["scope"] = Json::string("openid profile email")
+  Json::object(m)
+}
+
+///|
+test "rfc9068: happy path with at+jwt typ" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now + 10L,
+    "https://as.example.com/",
+    "https://rs.example.com/",
+  )
+  let t = @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  @debug.assert_eq(t.sub, "user-42")
+  @debug.assert_eq(t.client_id, "s6BhdRkqt3")
+  @debug.assert_eq(t.aud, ["https://rs.example.com/"])
+  @debug.assert_eq(t.scope, Some(["openid", "profile", "email"]))
+}
+
+///|
+test "rfc9068: aud as JSON array containing the resource indicator" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let aud = Json::array([
+    Json::string("https://rs1.example.com/"),
+    Json::string("https://rs2.example.com/"),
+  ])
+  let payload = rfc9068_test_claims(now, "https://as.example.com/", aud)
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now,
+    "https://as.example.com/",
+    "https://rs2.example.com/",
+  )
+  let t = @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  @debug.assert_eq(t.aud.length(), 2)
+}
+
+///|
+test "rfc9068: missing typ rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  // typ defaults to "JWT", not "at+jwt" — RFC 9068 must reject.
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now,
+    "https://as.example.com/",
+    "https://rs.example.com/",
+  )
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType, got Ok")
+  }
+}
+
+///|
+test "rfc9068: missing client_id raises MissingRequiredClaim" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["sub"] = Json::string("u")
+  m["aud"] = Json::string("https://rs.example.com/")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("j1")
+  // client_id intentionally omitted
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now,
+    "https://as.example.com/",
+    "https://rs.example.com/",
+  )
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    MissingRequiredClaim(c) => @debug.assert_eq(c, "client_id")
+    e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+}
+
+///|
+test "rfc9068: client_id mismatch" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts : @jwt.Rfc9068VerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    audience: "https://rs.example.com/",
+    expected_client_id: Some("different-client"),
+    required_scopes: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClientIdMismatch => ()
+    e => abort("expected ClientIdMismatch, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected ClientIdMismatch, got Ok")
+  }
+}
+
+///|
+test "rfc9068: required scope missing" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt")
+  let opts : @jwt.Rfc9068VerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    audience: "https://rs.example.com/",
+    expected_client_id: None,
+    // Token has openid/profile/email but no "admin".
+    required_scopes: Some(["admin"]),
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    MissingScopes(missing) => @debug.assert_eq(missing, ["admin"])
+    e => abort("expected MissingScopes, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingScopes, got Ok")
+  }
+}
+
+///|
+test "rfc9068: algorithm allow-list rejects non-listed alg" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt")
+  // Pin to EdDSA only — token is HS256, expect AlgorithmNotAllowed.
+  let opts : @jwt.Rfc9068VerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    audience: "https://rs.example.com/",
+    expected_client_id: None,
+    required_scopes: None,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    AlgorithmNotAllowed(_) => ()
+    e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
+///|
+test "rfc9068: verify_rfc9068_jwks (round-trip via JWKS)" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jwks-route-secret"
+  let payload = rfc9068_test_claims(
+    now,
+    "https://as.example.com/",
+    Json::string("https://rs.example.com/"),
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~), typ="at+jwt", kid="k1")
+  // "anvrcy1yb3V0ZS1zZWNyZXQ" decodes to b"jwks-route-secret"
+  let jwks =
+    #|{ "keys": [ { "kty": "oct", "kid": "k1", "alg": "HS256",
+    #|              "k": "andrcy1yb3V0ZS1zZWNyZXQ" } ] }
+  let set = @jwk.parse_set(jwks)
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now,
+    "https://as.example.com/",
+    "https://rs.example.com/",
+  )
+  let t = @jwt.verify_rfc9068_jwks(token, set, opts)
+  @debug.assert_eq(t.client_id, "s6BhdRkqt3")
+  @debug.assert_eq(t.sub, "user-42")
+}

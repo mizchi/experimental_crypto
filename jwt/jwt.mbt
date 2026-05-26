@@ -110,6 +110,13 @@ pub suberror JwtError {
   // JWKS helper rejections: returned by `select_verify_key`.
   NoMatchingKey
   AlgorithmMismatchInJwks(String)
+  // RFC 9068 (OAuth 2.0 access tokens) extra failures. The base error
+  // family covers structural / signature / iss / aud / exp / nbf / iat
+  // checks; these surface the 9068-specific gates.
+  MissingRequiredClaim(String)
+  AlgorithmNotAllowed(String)
+  ClientIdMismatch
+  MissingScopes(Array[String])
 } derive(Debug)
 
 ///|
@@ -272,13 +279,13 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
 }
 
 ///|
-fn build_header_json(alg : Algorithm, kid : String?) -> Json {
+fn build_header_json(alg : Algorithm, kid : String?, typ : String) -> Json {
   // Header order is irrelevant for verification (the signing input is the
   // exact base64url-encoded bytes we produce here), so we just emit the
   // fields we care about.
   let m : Map[String, Json] = Map([])
   m["alg"] = Json::string(alg_to_str(alg))
-  m["typ"] = Json::string("JWT")
+  m["typ"] = Json::string(typ)
   match kid {
     Some(k) => m["kid"] = Json::string(k)
     None => ()
@@ -298,9 +305,18 @@ fn json_to_compact_string(j : Json) -> String {
 // -----------------------------------------------------------------------------
 
 ///|
-pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
+pub fn sign(
+  payload : Json,
+  key : Key,
+  kid? : String,
+  typ? : String = "JWT",
+) -> String raise JwtError {
+  // RFC 8725 §3.11: a producer SHOULD set `typ` to a value other than
+  // "JWT" when the JWS is consumed in a context that has a specific
+  // type (e.g., RFC 9068 access tokens use `"at+jwt"`). Default stays
+  // "JWT" so existing callers keep working.
   let alg = key_alg(key)
-  let header = build_header_json(alg, kid)
+  let header = build_header_json(alg, kid, typ)
   let header_b64 = base64url_encode(
     @utf8.encode(json_to_compact_string(header)[:]),
   )
@@ -752,4 +768,287 @@ pub fn peek_header(token : String) -> Map[String, Json] raise JwtError {
     _ => raise InvalidHeader("header is not valid UTF-8")
   }
   parse_json_object(header_str)
+}
+
+// -----------------------------------------------------------------------------
+// RFC 9068 — JWT Profile for OAuth 2.0 Access Tokens
+// -----------------------------------------------------------------------------
+//
+// Per RFC 9068 §2, an access token MUST carry:
+//   * a `typ` header of "at+jwt" (or "application/at+jwt")
+//   * the claims `iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `client_id`
+//
+// Per §4 the resource server MUST validate signature + iss + aud + exp + nbf
+// + iat, and reject `none` / unexpected algorithms.
+
+///|
+/// Caller policy for `verify_rfc9068`. `issuer` and `audience` are
+/// mandatory per the RFC (the AS issuer and the resource indicator the
+/// RS expects to find in `aud`). The optional fields layer on extra
+/// gates the deployment may want.
+pub(all) struct Rfc9068VerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  // Expected AS issuer URL. The token's `iss` claim must equal this.
+  issuer : String
+  // Resource indicator the RS expects in `aud`. The token's `aud` claim
+  // must contain this value (either as a JSON string or inside the
+  // JSON array form of `aud`).
+  audience : String
+  // If `Some(c)`, the token's `client_id` must equal `c`. None permits
+  // any client_id (the claim is still required to be present).
+  expected_client_id : String?
+  // If `Some(s)`, each scope in `s` must appear in the token's space-
+  // separated `scope` claim. RFC 8693 §4.2 / RFC 9068 §2.2.3.
+  required_scopes : Array[String]?
+  // If `Some(algs)`, the JWT's `alg` must be one of these. Use this to
+  // pin to e.g. ES256 only. RFC 9068 §4 step 7 — the RS rejects tokens
+  // signed with an algorithm outside its policy. `none` is always
+  // rejected regardless (no typed VerifyKey variant exists for it).
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, Debug)
+
+///|
+pub fn Rfc9068VerifyOptions::default(
+  now : Int64,
+  issuer : String,
+  audience : String,
+) -> Rfc9068VerifyOptions {
+  {
+    now,
+    clock_skew_sec: 0L,
+    issuer,
+    audience,
+    expected_client_id: None,
+    required_scopes: None,
+    allowed_algorithms: None,
+  }
+}
+
+///|
+/// Result of a successful RFC 9068 verify. Required claims are hoisted
+/// out for direct field access; optional standard claims (`nbf`,
+/// `auth_time`, `acr`, `amr`, `scope`) are exposed as `Option`. Anything
+/// else the IdP put in the payload is still accessible via `jwt.claims`.
+pub(all) struct Rfc9068Token {
+  iss : String
+  sub : String
+  aud : Array[String]
+  exp : Int64
+  iat : Int64
+  jti : String
+  client_id : String
+  nbf : Int64?
+  auth_time : Int64?
+  acr : String?
+  amr : Array[String]?
+  scope : Array[String]?
+  jwt : VerifiedJwt
+}
+
+///|
+/// Verify a JWT against the RFC 9068 OAuth 2.0 access-token profile and
+/// return the structured token. Performs every check `verify` does plus
+/// the 9068-required claim presence, audience semantics, and the
+/// optional policy gates from `opts`.
+pub fn verify_rfc9068(
+  token : String,
+  key : VerifyKey,
+  opts : Rfc9068VerifyOptions,
+) -> Rfc9068Token raise JwtError {
+  let base : VerifyOptions = {
+    now: opts.now,
+    clock_skew_sec: opts.clock_skew_sec,
+    require_exp: true,
+    issuer: Some(opts.issuer),
+    audience: Some(opts.audience),
+    typ_allowed: Some(["at+jwt", "application/at+jwt"]),
+  }
+  let v = verify(token, key, base)
+  finalise_rfc9068(v, opts)
+}
+
+///|
+/// JWKS-driven variant. Picks the verify key out of the set using the
+/// token's header (per `select_verify_key`), then runs the 9068
+/// validation pipeline.
+pub fn verify_rfc9068_jwks(
+  token : String,
+  set : Array[@jwk.JwkSetEntry],
+  opts : Rfc9068VerifyOptions,
+) -> Rfc9068Token raise JwtError {
+  let header = peek_header(token)
+  let key = select_verify_key(set, header)
+  verify_rfc9068(token, key, opts)
+}
+
+///|
+fn finalise_rfc9068(
+  v : VerifiedJwt,
+  opts : Rfc9068VerifyOptions,
+) -> Rfc9068Token raise JwtError {
+  // Algorithm allow-list. The signature already verified under whatever
+  // `alg` the JWS declared, so this is an *additional* policy gate. We
+  // run it after verify() so we never accept-then-reject — verify()
+  // itself would have refused unknown algorithms.
+  match opts.allowed_algorithms {
+    Some(allowed) => {
+      let mut ok = false
+      for a in allowed {
+        if a == v.alg {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  let iss = require_string_claim(v.claims, "iss")
+  let sub = require_string_claim(v.claims, "sub")
+  let aud = extract_aud(v.claims)
+  let exp = require_numeric_claim(v.claims, "exp")
+  let iat = require_numeric_claim(v.claims, "iat")
+  let jti = require_string_claim(v.claims, "jti")
+  let client_id = require_string_claim(v.claims, "client_id")
+  match opts.expected_client_id {
+    Some(want) => if want != client_id { raise ClientIdMismatch }
+    None => ()
+  }
+  let scope = match get_string(v.claims, "scope") {
+    Some(s) => Some(split_space(s))
+    None => None
+  }
+  match opts.required_scopes {
+    Some(required) => {
+      let have = match scope {
+        Some(s) => s
+        None => []
+      }
+      let missing : Array[String] = []
+      for need in required {
+        let mut found = false
+        for h in have {
+          if h == need {
+            found = true
+            break
+          }
+        }
+        if !found {
+          missing.push(need)
+        }
+      }
+      if missing.length() > 0 {
+        raise MissingScopes(missing)
+      }
+    }
+    None => ()
+  }
+  {
+    iss,
+    sub,
+    aud,
+    exp,
+    iat,
+    jti,
+    client_id,
+    nbf: get_numeric_date(v.claims, "nbf"),
+    auth_time: get_numeric_date(v.claims, "auth_time"),
+    acr: get_string(v.claims, "acr"),
+    amr: extract_string_array(v.claims, "amr"),
+    scope,
+    jwt: v,
+  }
+}
+
+///|
+fn require_string_claim(
+  m : Map[String, Json],
+  key : String,
+) -> String raise JwtError {
+  match m.get(key) {
+    Some(String(s)) => s
+    Some(_) => raise ClaimsParseError("claim '" + key + "' is not a string")
+    None => raise MissingRequiredClaim(key)
+  }
+}
+
+///|
+fn require_numeric_claim(
+  m : Map[String, Json],
+  key : String,
+) -> Int64 raise JwtError {
+  match get_numeric_date(m, key) {
+    Some(n) => n
+    None => raise MissingRequiredClaim(key)
+  }
+}
+
+///|
+fn extract_aud(m : Map[String, Json]) -> Array[String] raise JwtError {
+  // RFC 7519 §4.1.3: `aud` is either a String or an Array of strings.
+  // Normalise to Array[String] for uniform handling.
+  match m.get("aud") {
+    Some(String(s)) => [s]
+    Some(Array(items)) => {
+      let out : Array[String] = []
+      for it in items {
+        match it {
+          String(s) => out.push(s)
+          _ => raise ClaimsParseError("aud array entry not a string")
+        }
+      }
+      out
+    }
+    Some(_) => raise ClaimsParseError("aud is neither string nor array")
+    None => raise MissingRequiredClaim("aud")
+  }
+}
+
+///|
+fn extract_string_array(
+  m : Map[String, Json],
+  key : String,
+) -> Array[String]? {
+  match m.get(key) {
+    Some(Array(items)) => {
+      let out : Array[String] = []
+      for it in items {
+        match it {
+          String(s) => out.push(s)
+          // Skip non-strings rather than fail — these are optional claims.
+          _ => ()
+        }
+      }
+      Some(out)
+    }
+    _ => None
+  }
+}
+
+///|
+fn split_space(s : String) -> Array[String] {
+  // RFC 6749 §3.3 / RFC 8693 §4.2: scope values are space-separated. Empty
+  // tokens (consecutive spaces, leading/trailing space) are dropped.
+  let out : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut have = false
+  for c in s {
+    if c == ' ' {
+      if have {
+        out.push(buf.to_string())
+        buf.reset()
+        have = false
+      }
+    } else {
+      buf.write_char(c)
+      have = true
+    }
+  }
+  if have {
+    out.push(buf.to_string())
+  }
+  out
 }
