@@ -1,0 +1,47 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pkix_verify"
+
+import {
+  "mizchi/asn1",
+  "mizchi/ed25519",
+  "mizchi/pkix",
+  "mizchi/rsa",
+}
+
+// Values
+pub fn extract_public_key(@pkix.SubjectPublicKeyInfo) -> PublicKey raise PkixVerifyError
+
+pub fn verify_certificate(@pkix.Certificate, PublicKey, String) -> Unit raise PkixVerifyError
+
+pub fn verify_chain(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String) -> Unit raise PkixVerifyError
+
+pub fn verify_signature(Bytes, @pkix.AlgorithmIdentifier, @asn1.BitString, PublicKey) -> Unit raise PkixVerifyError
+
+// Errors
+pub suberror PkixVerifyError {
+  UnsupportedSignatureAlgorithm(@asn1.ObjectIdentifier)
+  UnsupportedPublicKeyAlgorithm(@asn1.ObjectIdentifier)
+  SignatureMismatch
+  NotYetValid
+  Expired
+  NotACA
+  PathLengthExceeded
+  IssuerSubjectMismatch
+  EmptyChain
+  MalformedExtension(String)
+  Pkix(@pkix.PkixError)
+  Rsa(@rsa.RsaError)
+  Ed25519(@ed25519.Ed25519Error)
+  Asn1(@asn1.Asn1Error)
+} derive(Show)
+
+// Types and methods
+pub(all) enum PublicKey {
+  Ed25519(@ed25519.PublicKey)
+  Rsa(@rsa.RsaPublicKey)
+}
+
+// Type aliases
+
+// Traits
+

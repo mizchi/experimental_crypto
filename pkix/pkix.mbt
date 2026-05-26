@@ -586,7 +586,7 @@ fn wrap_context_implicit_bit_string(
 }
 
 ///|
-fn tbs_certificate_to_element(
+pub fn tbs_certificate_to_element(
   tbs : TbsCertificate,
 ) -> @asn1.Element raise PkixError {
   let items : Array[@asn1.Element] = []

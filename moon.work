@@ -15,4 +15,5 @@ members = [
   "./jwt",
   "./naclbox",
   "./rsa",
+  "./pkix_verify",
 ]

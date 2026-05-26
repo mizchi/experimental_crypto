@@ -22,6 +22,8 @@ pub fn serialize_name(Name) -> Bytes
 
 pub fn serialize_subject_public_key_info(SubjectPublicKeyInfo) -> Bytes
 
+pub fn tbs_certificate_to_element(TbsCertificate) -> @asn1.Element raise PkixError
+
 // Errors
 pub suberror PkixError {
   Asn1(@asn1.Asn1Error)
