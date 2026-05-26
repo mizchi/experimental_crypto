@@ -14,6 +14,8 @@ pub fn encode_simple(String, Bytes) -> String
 
 pub let pem_max_input_size : Int
 
+pub let pem_max_line_length : Int
+
 // Errors
 pub suberror PemError {
   InvalidFormat(String)

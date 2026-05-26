@@ -1,13 +1,26 @@
 // JWT (RFC 7519) over JWS (RFC 7515) compact serialization.
 //
 // Supported algorithms:
-//   - sign + verify: HS256, EdDSA (RFC 8037 §3.1)
-//   - verify-only:   RS256 (RFC 7515 §3.3, RFC 8017 PKCS#1 v1.5)
-// Everything else (ES256, HS384/512, RS384/512, ES384/512, PS256/384/512)
-// is recognized in `Algorithm` for completeness but raises
-// `UnsupportedAlgorithm` at sign / verify time. Adding a new alg is a
-// matter of extending `Key` / `VerifyKey` and a `match` arm in
-// `sign` / `verify`.
+//   - sign + verify: HS256, EdDSA (RFC 8037 §3.1), RS256, ES256, ES384,
+//                    PS256, PS384, PS512 (RFC 7518 §3.5)
+// Everything else (HS384/512, RS384/512, ES512) is recognized in
+// `Algorithm` for completeness but raises `UnsupportedAlgorithm` at sign
+// / verify time. Adding a new alg is a matter of extending `Key` /
+// `VerifyKey` and a `match` arm in `sign` / `verify`.
+//
+// PSx caveat: RFC 7518 §3.5 requires sLen = hLen for PS256 / PS384 / PS512,
+// but the workspace does not yet expose a vetted RNG for the JWT layer.
+// To keep the roundtrip self-consistent without a hidden non-deterministic
+// dependency, both `sign` and `verify` for PSx use **deterministic PSS with
+// sLen = 0** (allowed by RFC 8017 §A.2.3). This means:
+//   * tokens we produce will NOT verify under strict RFC 7518 verifiers
+//     (which expect sLen = hLen);
+//   * tokens produced by strict RFC 7518 verifiers will NOT verify here.
+// Callers that need either direction of RFC 7518 interop should call
+// `@rsa.RsaPrivateKey::sign_pss` / `@rsa.RsaPublicKey::verify_pss`
+// directly with a real RNG-supplied salt and assemble or split the
+// compact JWS by hand. The defaults here are an interop-bug-resistant
+// closed loop, not an RFC 7518 implementation.
 
 ///|
 pub(all) enum Algorithm {
@@ -35,6 +48,11 @@ pub(all) enum Key {
   // ES256 / ES384: ECDSA-SHA-{256,384} sign with RFC 6979 deterministic nonce.
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
+  // PS256 / PS384 / PS512: RSASSA-PSS sign with deterministic empty salt.
+  // See the module comment for the sLen = 0 caveat vs RFC 7518 §3.5.
+  Ps256(privkey~ : @rsa.RsaPrivateKey)
+  Ps384(privkey~ : @rsa.RsaPrivateKey)
+  Ps512(privkey~ : @rsa.RsaPrivateKey)
 }
 
 ///|
@@ -49,6 +67,12 @@ pub(all) enum VerifyKey {
   Es256(pubkey~ : @p256.PublicKey)
   // ES384 (ECDSA with P-384 + SHA-384, RFC 7518 §3.4). JOSE raw r||s = 96B.
   Es384(pubkey~ : @p384.PublicKey)
+  // PS256 / PS384 / PS512: RSASSA-PSS verify with sLen = 0 (matches our
+  // sign path, NOT the RFC 7518 sLen = hLen convention — see module
+  // comment for the interop tradeoff).
+  Ps256(pubkey~ : @rsa.RsaPublicKey)
+  Ps384(pubkey~ : @rsa.RsaPublicKey)
+  Ps512(pubkey~ : @rsa.RsaPublicKey)
 }
 
 ///|
@@ -196,6 +220,9 @@ fn key_alg(k : Key) -> Algorithm {
     Rs256(..) => RS256
     Es256(..) => ES256
     Es384(..) => ES384
+    Ps256(..) => PS256
+    Ps384(..) => PS384
+    Ps512(..) => PS512
   }
 }
 
@@ -207,6 +234,9 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     Rs256(..) => RS256
     Es256(..) => ES256
     Es384(..) => ES384
+    Ps256(..) => PS256
+    Ps384(..) => PS384
+    Ps512(..) => PS512
   }
 }
 
@@ -258,6 +288,28 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
     Es384(privkey~) => privkey.sign(signing_bytes)
+    // PSS with sLen = 0 (deterministic) — see module comment.
+    Ps256(privkey~) =>
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, b"") catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS256 sign failed: " + e.to_string(),
+          )
+      }
+    Ps384(privkey~) =>
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha384, b"") catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS384 sign failed: " + e.to_string(),
+          )
+      }
+    Ps512(privkey~) =>
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha512, b"") catch {
+        e =>
+          raise UnsupportedAlgorithm(
+            "PS512 sign failed: " + e.to_string(),
+          )
+      }
   }
   signing_input + "." + base64url_encode(signature)
 }
@@ -389,6 +441,19 @@ pub fn verify(
     (ES384, Es384(pubkey~)) =>
       // r||s, 96 bytes total for ES384.
       @p384.verify(pubkey, signing_bytes, provided_sig, @p384.SignatureFormat::Raw) catch {
+        _ => raise InvalidSignature
+      }
+    // PSS verify with sLen = 0 (matches the sign path; see module comment).
+    (PS256, Ps256(pubkey~)) =>
+      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha256, salt_len=0) catch {
+        _ => raise InvalidSignature
+      }
+    (PS384, Ps384(pubkey~)) =>
+      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha384, salt_len=0) catch {
+        _ => raise InvalidSignature
+      }
+    (PS512, Ps512(pubkey~)) =>
+      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha512, salt_len=0) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>

@@ -23,4 +23,5 @@ members = [
   "./git_object",
   "./pgp",
   "./cms",
+  "./secp256k1",
 ]

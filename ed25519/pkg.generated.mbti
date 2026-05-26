@@ -16,6 +16,8 @@ pub impl Show for Ed25519Error
 pub(all) struct PrivateKey {
   seed : FixedArray[Byte]
 }
+pub fn PrivateKey::from_pkcs8_der(Bytes) -> Self raise Ed25519Error
+pub fn PrivateKey::from_pkcs8_pem(String) -> Self raise Ed25519Error
 pub fn PrivateKey::from_seed(Bytes) -> Self raise Ed25519Error
 pub fn PrivateKey::public_key(Self) -> PublicKey
 pub fn PrivateKey::seed_bytes(Self) -> Bytes

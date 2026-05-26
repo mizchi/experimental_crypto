@@ -1,0 +1,50 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/secp256k1"
+
+import {
+  "mizchi/asn1",
+  "moonbitlang/core/bigint",
+}
+
+// Values
+pub fn verify(PublicKey, Bytes, Bytes, SignatureFormat) -> Bool raise Secp256k1Error
+
+// Errors
+pub suberror Secp256k1Error {
+  InvalidPublicKeyLength(Int)
+  InvalidSignatureLength(Int)
+  InvalidPointEncoding(String)
+  PointNotOnCurve
+  InvalidDerSignature(String)
+  UnexpectedSpkiOid(String)
+  InvalidPrivateKey(String)
+  Asn1(@asn1.Asn1Error)
+} derive(Show)
+
+// Types and methods
+type Point
+
+pub struct PrivateKey {
+  d : @bigint.BigInt
+}
+pub fn PrivateKey::from_bytes(Bytes) -> Self raise Secp256k1Error
+pub fn PrivateKey::public_key(Self) -> PublicKey
+pub fn PrivateKey::sign(Self, Bytes, format? : SignatureFormat) -> Bytes
+pub fn PrivateKey::sign_no_low_s(Self, Bytes, format? : SignatureFormat) -> Bytes
+
+pub struct PublicKey {
+  point : Point
+}
+pub fn PublicKey::from_spki_der(Bytes) -> Self raise Secp256k1Error
+pub fn PublicKey::from_uncompressed(Bytes) -> Self raise Secp256k1Error
+pub fn PublicKey::to_uncompressed(Self) -> Bytes
+
+pub(all) enum SignatureFormat {
+  Raw
+  Der
+} derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+

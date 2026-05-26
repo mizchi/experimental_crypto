@@ -1,0 +1,139 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/ssh"
+
+import {
+  "mizchi/ed25519",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/rsa",
+}
+
+// Values
+pub fn compute_signed_data(String, String, Bytes) -> Bytes raise SshError
+
+pub fn decode_sshsig_armor(String) -> Bytes raise SshError
+
+pub fn decode_sshsig_blob(Bytes) -> SshSignature raise SshError
+
+pub let ecdsa_p256_algo : String
+
+pub let ecdsa_p384_algo : String
+
+pub let ed25519_algo : String
+
+pub fn encode_sshsig_armor(Bytes) -> String
+
+pub fn find_signers(Array[AllowedSigner], String) -> Array[AllowedSigner]
+
+pub fn format_ssh_pubkey_text(@ed25519.PublicKey, comment? : String) -> String
+
+pub fn parse_allowed_signers(String) -> Array[AllowedSigner] raise SshError
+
+pub fn parse_ecdsa_pubkey(Bytes) -> SshPublicKey raise SshError
+
+pub fn parse_ed25519_pubkey(Bytes) -> @ed25519.PublicKey raise SshError
+
+pub fn parse_rsa_pubkey(Bytes) -> @rsa.RsaPublicKey raise SshError
+
+pub fn parse_ssh_pubkey_text(String) -> SshPublicKeyText raise SshError
+
+pub let rsa_sha256_algo : String
+
+pub let rsa_sha512_algo : String
+
+pub fn serialize_ed25519_pubkey(@ed25519.PublicKey) -> Bytes
+
+pub fn sign_armor(@ed25519.PrivateKey, Bytes, namespace? : String, hash_algorithm? : String) -> String raise SshError
+
+pub fn sign_armor_with(SshPrivateKey, Bytes, namespace? : String, hash_algorithm? : String) -> String raise SshError
+
+pub let sshsig_begin : String
+
+pub let sshsig_end : String
+
+pub let sshsig_magic : Bytes
+
+pub let sshsig_pem_label : String
+
+pub let sshsig_version : UInt
+
+pub fn verify_armor(String, Bytes, @ed25519.PublicKey, namespace? : String) -> Bool raise SshError
+
+pub fn verify_armor_anonymous(String, Bytes, namespace? : String) -> (SshPublicKey, String) raise SshError
+
+pub fn verify_armor_with(String, Bytes, SshPublicKey, namespace? : String) -> Bool raise SshError
+
+pub fn verify_with_allowed_signers(String, String, String, Bytes, namespace? : String) -> Bool raise SshError
+
+// Errors
+pub suberror SshError {
+  TruncatedInput(String)
+  InvalidEncoding(String)
+  UnsupportedAlgorithm(String)
+  PreambleMismatch
+  UnsupportedSigVersion(UInt)
+  HashAlgorithmMismatch(String)
+  InvalidSignature
+} derive(Show)
+
+// Types and methods
+pub(all) struct AllowedSigner {
+  principals : Array[String]
+  namespaces : Array[String]?
+  pubkey : SshPublicKey
+}
+
+pub(all) enum SshPrivateKey {
+  Ed25519(@ed25519.PrivateKey)
+  P256(@p256.PrivateKey)
+  P384(@p384.PrivateKey)
+  Rsa(@rsa.RsaPrivateKey)
+}
+
+pub(all) enum SshPublicKey {
+  Ed25519(@ed25519.PublicKey)
+  P256(@p256.PublicKey)
+  P384(@p384.PublicKey)
+  Rsa(@rsa.RsaPublicKey)
+}
+
+pub(all) struct SshPublicKeyText {
+  algorithm : String
+  blob : Bytes
+  comment : String?
+} derive(Show)
+
+pub(all) struct SshSignature {
+  publickey : SshPublicKey
+  namespace : String
+  hash_algorithm : String
+  signature_blob : Bytes
+}
+
+pub struct WireReader {
+  buf : Bytes
+  mut pos : Int
+}
+pub fn WireReader::is_empty(Self) -> Bool
+pub fn WireReader::new(Bytes) -> Self
+pub fn WireReader::read_bytes(Self, Int) -> Bytes raise SshError
+pub fn WireReader::read_string(Self) -> Bytes raise SshError
+pub fn WireReader::read_string_ascii(Self) -> String raise SshError
+pub fn WireReader::read_uint32(Self) -> UInt raise SshError
+pub fn WireReader::remaining(Self) -> Int
+
+pub struct WireWriter {
+  buf : Array[Byte]
+}
+pub fn WireWriter::new() -> Self
+pub fn WireWriter::to_bytes(Self) -> Bytes
+pub fn WireWriter::write_byte(Self, Byte) -> Unit
+pub fn WireWriter::write_bytes_raw(Self, Bytes) -> Unit
+pub fn WireWriter::write_string(Self, Bytes) -> Unit
+pub fn WireWriter::write_string_ascii(Self, String) -> Unit
+pub fn WireWriter::write_uint32(Self, UInt) -> Unit
+
+// Type aliases
+
+// Traits
+

@@ -3,6 +3,8 @@ package "mizchi/jwt"
 
 import {
   "mizchi/ed25519",
+  "mizchi/p256",
+  "mizchi/p384",
   "mizchi/rsa",
 }
 
@@ -42,11 +44,15 @@ pub(all) enum Algorithm {
   EdDSA
 } derive(Eq, Show)
 
-type HmacSha256Ctx
-
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
   EdDsa(privkey~ : @ed25519.PrivateKey)
+  Rs256(privkey~ : @rsa.RsaPrivateKey)
+  Es256(privkey~ : @p256.PrivateKey)
+  Es384(privkey~ : @p384.PrivateKey)
+  Ps256(privkey~ : @rsa.RsaPrivateKey)
+  Ps384(privkey~ : @rsa.RsaPrivateKey)
+  Ps512(privkey~ : @rsa.RsaPrivateKey)
 }
 
 pub(all) struct VerifiedJwt {
@@ -60,6 +66,11 @@ pub(all) enum VerifyKey {
   Hs256(secret~ : Bytes)
   EdDsa(pubkey~ : @ed25519.PublicKey)
   Rs256(pubkey~ : @rsa.RsaPublicKey)
+  Es256(pubkey~ : @p256.PublicKey)
+  Es384(pubkey~ : @p384.PublicKey)
+  Ps256(pubkey~ : @rsa.RsaPublicKey)
+  Ps384(pubkey~ : @rsa.RsaPublicKey)
+  Ps512(pubkey~ : @rsa.RsaPublicKey)
 }
 
 pub(all) struct VerifyOptions {

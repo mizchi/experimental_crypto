@@ -1,0 +1,34 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/hash"
+
+// Values
+pub fn ct_eq(Bytes, Bytes) -> Bool
+
+pub fn hmac_sha256(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha256_compute(HmacSha256Ctx, Bytes) -> Bytes
+
+pub fn hmac_sha256_init(Bytes) -> HmacSha256Ctx
+
+pub fn hmac_sha384(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha512(Bytes, Bytes) -> Bytes
+
+pub fn sha256(Bytes) -> Bytes
+
+pub fn sha384(Bytes) -> Bytes
+
+pub fn sha512(Bytes) -> Bytes
+
+// Errors
+
+// Types and methods
+pub struct HmacSha256Ctx {
+  inner_state : FixedArray[UInt]
+  outer_state : FixedArray[UInt]
+}
+
+// Type aliases
+
+// Traits
+

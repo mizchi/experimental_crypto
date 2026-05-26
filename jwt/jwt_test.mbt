@@ -647,6 +647,81 @@ test "JWT RS256 sign + verify roundtrip" {
 }
 
 ///|
+test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
+  // Internal sign / verify use deterministic PSS (sLen = 0). This matches
+  // the closed-loop behaviour described in the jwt module comment; it is
+  // NOT RFC 7518 §3.5 interoperable.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let claims = Map::new()
+  claims["sub"] = Json::string("ps256-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Ps256(pubkey=sk.public_key()), opts)
+  assert_eq(v.alg, @jwt.Algorithm::PS256)
+  match v.claims.get("sub") {
+    Some(String(s)) => assert_eq(s, "ps256-roundtrip")
+    _ => abort("missing sub")
+  }
+}
+
+///|
+test "JWT PS384 sign + verify roundtrip" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let claims = Map::new()
+  claims["sub"] = Json::string("ps384-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps384(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Ps384(pubkey=sk.public_key()), opts)
+  assert_eq(v.alg, @jwt.Algorithm::PS384)
+}
+
+///|
+test "JWT PS512 sign + verify roundtrip" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let claims = Map::new()
+  claims["sub"] = Json::string("ps512-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps512(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Ps512(pubkey=sk.public_key()), opts)
+  assert_eq(v.alg, @jwt.Algorithm::PS512)
+}
+
+///|
+test "JWT PS256: KeyAlgorithmMismatch when alg=HS256 but key is Ps256" {
+  let secret : Bytes = b"k"
+  let m : Map[String, Json] = Map::new()
+  m["sub"] = Json::string("x")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Ps256(pubkey=pk), opts)) {
+    Err(KeyAlgorithmMismatch) => ()
+    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  }
+}
+
+///|
+test "JWT PS256: tampered payload fails signature check" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let claims = Map::new()
+  claims["sub"] = Json::string("original")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
+  // Swap the payload segment for a different valid base64url.
+  let parts = token.split(".").to_array()
+  let bad_token = parts[0].to_string() +
+    "." +
+    "eyJzdWIiOiJ0YW1wZXJlZCJ9" +  // base64url({"sub":"tampered"})
+    "." +
+    parts[2].to_string()
+  let opts = @jwt.VerifyOptions::default(0L)
+  match
+    (try? @jwt.verify(bad_token, @jwt.VerifyKey::Ps256(pubkey=sk.public_key()), opts)) {
+    Err(InvalidSignature) => ()
+    other => abort("expected InvalidSignature, got \{other}")
+  }
+}
+
+///|
 test "JWT ES256 sign + verify roundtrip" {
   let scalar = hex_to_bytes(
     "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721",

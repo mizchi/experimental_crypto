@@ -444,3 +444,298 @@ pub fn RsaPrivateKey::from_pkcs8_pem(pem_str : String) -> RsaPrivateKey raise Rs
   }
   RsaPrivateKey::from_pkcs8_der(block.data)
 }
+
+// ─── RSASSA-PSS (RFC 8017 §8.1 / §9.1) ───────────────────────────────────
+//
+// PSS adds a randomised (or deterministic-with-empty-salt) variant of RSA
+// signing, which TLS 1.3 and modern JWS (PS256/384/512) prefer over
+// PKCS#1 v1.5. The encoding (EMSA-PSS) lives in §9.1; the signature scheme
+// (RSASSA-PSS-SIGN / -VERIFY) in §8.1. We hardcode the same hash for the
+// message hash (mHash) and the MGF1 hash, which is the common — and JWA
+// §3.5-mandated — choice.
+
+///|
+// MGF1 (RFC 8017 §B.2.1). Generates `mask_len` bytes by hashing
+// `seed || I2OSP(counter, 4)` for counter = 0, 1, 2, ... and concatenating
+// the results until `mask_len` bytes have been produced.
+//
+// The "ceil(mask_len / hLen)" upper bound is enforced implicitly via the
+// loop termination check `out.length() >= mask_len`.
+fn mgf1(hash : HashAlg, seed : Bytes, mask_len : Int) -> Bytes raise RsaError {
+  let h_len = digest_length(hash)
+  let out = FixedArray::make(mask_len, b'\x00')
+  let mut written = 0
+  let mut counter = 0
+  while written < mask_len {
+    // I2OSP(counter, 4) — 4-byte big-endian counter.
+    let c0 = ((counter >> 24) & 0xff).to_byte()
+    let c1 = ((counter >> 16) & 0xff).to_byte()
+    let c2 = ((counter >> 8) & 0xff).to_byte()
+    let c3 = (counter & 0xff).to_byte()
+    // seed || counter (4 bytes) — assemble into a single Bytes for the hash.
+    let input = Bytes::makei(seed.length() + 4, fn(i) {
+      if i < seed.length() {
+        seed[i]
+      } else if i == seed.length() {
+        c0
+      } else if i == seed.length() + 1 {
+        c1
+      } else if i == seed.length() + 2 {
+        c2
+      } else {
+        c3
+      }
+    })
+    let block = hash_message(hash, input)
+    // Append up to (mask_len - written) bytes of `block`.
+    let need = mask_len - written
+    let take = if need < h_len { need } else { h_len }
+    for i = 0; i < take; i = i + 1 {
+      out.unsafe_set(written + i, block[i])
+    }
+    written = written + take
+    counter = counter + 1
+    // I2OSP guard: counter would overflow at 2^32 — for h_len ≥ 32 we'd
+    // need mask_len ≥ 2^37 bytes, which is far outside Bytes' capacity, so
+    // we don't bother with an explicit ceiling check.
+  }
+  Bytes::makei(mask_len, fn(j) { out.unsafe_get(j) })
+}
+
+///|
+// Compute `EM = EMSA-PSS-ENCODE(mHash, salt, emBits, hash)` per RFC 8017
+// §9.1.1. The caller supplies the salt bytes (so the salt RNG dependency
+// stays at the API edge — see the doc comment on `sign_pss`).
+//
+// Returns the `em_len`-byte encoded message. `em_len = ceil(emBits / 8)`.
+fn emsa_pss_encode(
+  hash : HashAlg,
+  m_hash : Bytes,
+  salt : Bytes,
+  em_bits : Int,
+) -> Bytes raise RsaError {
+  let h_len = digest_length(hash)
+  let s_len = salt.length()
+  // (8*emLen - emBits) is the count of leftmost bits we have to mask off
+  // in maskedDB[0]. For modBits = 2048 this is 1 (emBits = 2047, emLen = 256).
+  let em_len = (em_bits + 7) / 8
+  // §9.1.1 step 3: if emLen < hLen + sLen + 2, encoding error.
+  if em_len < h_len + s_len + 2 {
+    raise ModulusTooSmall
+  }
+  if m_hash.length() != h_len {
+    raise InvalidEncoding("mHash length mismatch")
+  }
+  // §9.1.1 step 5: M' = (0x00 * 8) || mHash || salt; H = H(M').
+  let m_prime = Bytes::makei(8 + h_len + s_len, fn(i) {
+    if i < 8 {
+      b'\x00'
+    } else if i < 8 + h_len {
+      m_hash[i - 8]
+    } else {
+      salt[i - 8 - h_len]
+    }
+  })
+  let h = hash_message(hash, m_prime)
+  // §9.1.1 step 7-8: DB = PS || 0x01 || salt, where PS is
+  // (emLen - sLen - hLen - 2) zero bytes. DB length = emLen - hLen - 1.
+  let db_len = em_len - h_len - 1
+  let ps_len = em_len - s_len - h_len - 2
+  let db = FixedArray::make(db_len, b'\x00')
+  // PS is already zero-filled by FixedArray::make. Just write 0x01 then salt.
+  db.unsafe_set(ps_len, b'\x01')
+  for i = 0; i < s_len; i = i + 1 {
+    db.unsafe_set(ps_len + 1 + i, salt[i])
+  }
+  // §9.1.1 step 9-10: dbMask = MGF(H, emLen - hLen - 1), maskedDB = DB XOR dbMask.
+  let db_mask = mgf1(hash, h, db_len)
+  let masked_db = FixedArray::make(db_len, b'\x00')
+  for i = 0; i < db_len; i = i + 1 {
+    masked_db.unsafe_set(
+      i,
+      (db.unsafe_get(i).to_int() ^ db_mask[i].to_int()).to_byte(),
+    )
+  }
+  // §9.1.1 step 11: zero the leftmost (8*emLen - emBits) bits of maskedDB[0].
+  let zero_bits = 8 * em_len - em_bits
+  if zero_bits > 0 {
+    let keep_mask = (0xff >> zero_bits).to_byte()
+    masked_db.unsafe_set(
+      0,
+      (masked_db.unsafe_get(0).to_int() & keep_mask.to_int()).to_byte(),
+    )
+  }
+  // §9.1.1 step 12: EM = maskedDB || H || 0xBC.
+  Bytes::makei(em_len, fn(i) {
+    if i < db_len {
+      masked_db.unsafe_get(i)
+    } else if i < db_len + h_len {
+      h[i - db_len]
+    } else {
+      b'\xbc'
+    }
+  })
+}
+
+///|
+// `EMSA-PSS-VERIFY(mHash, EM, sLen, emBits, hash)` per RFC 8017 §9.1.2.
+// Returns `true` iff the decoding is consistent with `mHash` under salt
+// length `s_len`.
+fn emsa_pss_verify(
+  hash : HashAlg,
+  m_hash : Bytes,
+  em : Bytes,
+  s_len : Int,
+  em_bits : Int,
+) -> Bool raise RsaError {
+  let h_len = digest_length(hash)
+  let em_len = (em_bits + 7) / 8
+  // §9.1.2 step 3: emLen < hLen + sLen + 2 → inconsistent.
+  if em_len < h_len + s_len + 2 {
+    return false
+  }
+  if em.length() != em_len {
+    return false
+  }
+  // §9.1.2 step 4: last byte of EM must be 0xBC.
+  if em[em_len - 1] != b'\xbc' {
+    return false
+  }
+  // maskedDB = EM[0 .. emLen - hLen - 1], H = EM[emLen - hLen - 1 .. emLen - 1].
+  let db_len = em_len - h_len - 1
+  // §9.1.2 step 6: top (8*emLen - emBits) bits of maskedDB[0] must be zero.
+  let zero_bits = 8 * em_len - em_bits
+  if zero_bits > 0 {
+    let high_mask = (0xff << (8 - zero_bits)) & 0xff
+    if (em[0].to_int() & high_mask) != 0 {
+      return false
+    }
+  }
+  let h = Bytes::makei(h_len, fn(i) { em[db_len + i] })
+  // §9.1.2 step 7-8: dbMask = MGF(H, db_len), DB = maskedDB XOR dbMask.
+  let db_mask = mgf1(hash, h, db_len)
+  let db = FixedArray::make(db_len, b'\x00')
+  for i = 0; i < db_len; i = i + 1 {
+    db.unsafe_set(i, (em[i].to_int() ^ db_mask[i].to_int()).to_byte())
+  }
+  // §9.1.2 step 9: zero the leftmost (8*emLen - emBits) bits of DB[0].
+  if zero_bits > 0 {
+    let keep_mask = (0xff >> zero_bits).to_byte()
+    db.unsafe_set(0, (db.unsafe_get(0).to_int() & keep_mask.to_int()).to_byte())
+  }
+  // §9.1.2 step 10: DB = PS || 0x01 || salt where PS = (em_len - s_len - h_len - 2)
+  // zero bytes. We expect the 0x01 marker at position (db_len - s_len - 1) — and
+  // every preceding byte must be 0x00.
+  let ps_len = em_len - s_len - h_len - 2
+  for i = 0; i < ps_len; i = i + 1 {
+    if db.unsafe_get(i) != b'\x00' {
+      return false
+    }
+  }
+  if db.unsafe_get(ps_len) != b'\x01' {
+    return false
+  }
+  // §9.1.2 step 12: salt = DB[db_len - sLen .. db_len].
+  let salt = Bytes::makei(s_len, fn(i) { db.unsafe_get(ps_len + 1 + i) })
+  // §9.1.2 step 13: M' = (0x00 * 8) || mHash || salt, H' = H(M').
+  let m_prime = Bytes::makei(8 + h_len + s_len, fn(i) {
+    if i < 8 {
+      b'\x00'
+    } else if i < 8 + h_len {
+      m_hash[i - 8]
+    } else {
+      salt[i - 8 - h_len]
+    }
+  })
+  let h_prime = hash_message(hash, m_prime)
+  // §9.1.2 step 14: H = H' ?
+  ct_eq(h, h_prime)
+}
+
+///|
+// Compute modBits = bit length of n. We need this both for sign and verify
+// to derive emBits = modBits - 1.
+fn mod_bits(n : BigInt) -> Int {
+  n.bit_length()
+}
+
+///|
+/// RSASSA-PSS sign (RFC 8017 §8.1.1).
+///
+/// `salt` is supplied by the caller — pass `b""` for deterministic /
+/// no-salt PSS (RFC 8017 §A.2.3 permits sLen = 0, which yields a
+/// PKCS#1-v1.5-like deterministic signature). For randomised PSS, pass a
+/// freshly-sampled `salt_len`-byte string (typically `salt_len = hLen` per
+/// FIPS 186-4 / JWA §3.5).
+///
+/// The hash is used both for the message hash and for MGF1, matching every
+/// real-world deployment (TLS 1.3, JWA, PKCS#1 v2.2 default).
+///
+/// Side-channel caveat: the modexp uses `@bigint.pow`, which is
+/// variable-time on the secret `d` (same as the PKCS#1 v1.5 sign path).
+pub fn RsaPrivateKey::sign_pss(
+  self : RsaPrivateKey,
+  message : Bytes,
+  hash : HashAlg,
+  salt : Bytes,
+) -> Bytes raise RsaError {
+  // §8.1.1 step 1: EMSA-PSS-ENCODE.
+  let em_bits = mod_bits(self.n) - 1
+  let m_hash = hash_message(hash, message)
+  let em = emsa_pss_encode(hash, m_hash, salt, em_bits)
+  // §8.1.1 step 2: OS2IP(EM) → m; s = m^d mod n.
+  let m = BigInt::from_octets(em[:])
+  let s = m.pow(self.d, modulus=self.n)
+  // §8.1.1 step 3: I2OSP(s, k) → k-byte signature.
+  s.to_octets(length=self.n_bytes_len)
+}
+
+///|
+/// RSASSA-PSS verify (RFC 8017 §8.1.2).
+///
+/// Returns `true` iff the signature is valid for `message` under `self`
+/// with the given `hash` and salt length.
+///
+/// - `salt_len = -1` → use `hLen` (the digest length of `hash`) as the
+///   expected salt length. This matches RFC 7518 §3.5 (JWS PS256/384/512)
+///   and FIPS 186-4 §5.5.
+/// - `salt_len ≥ 0` → require exactly that many salt bytes.
+///
+/// Raises `InvalidSignatureLength` if `signature.length() ≠ k`. Returns
+/// `false` on any encoding inconsistency (last byte ≠ 0xBC, high-bit
+/// nonzero, PS bytes nonzero, recomputed H mismatch).
+///
+/// Side-channel caveat: the verify path is variable-time on the candidate
+/// signature contents (same as the PKCS#1 v1.5 verify path — public
+/// operation, so timing leaks the signature but not the key).
+pub fn RsaPublicKey::verify_pss(
+  self : RsaPublicKey,
+  message : Bytes,
+  signature : Bytes,
+  hash : HashAlg,
+  salt_len~ : Int = -1,
+) -> Bool raise RsaError {
+  // §8.1.2 step 1: signature length must equal k.
+  if signature.length() != self.n_bytes_len {
+    raise InvalidSignatureLength
+  }
+  let h_len = digest_length(hash)
+  let s_len = if salt_len < 0 { h_len } else { salt_len }
+  let em_bits = mod_bits(self.n) - 1
+  let em_len = (em_bits + 7) / 8
+  // §8.1.2 step 2a: OS2IP(signature) → s; check 0 ≤ s < n.
+  let s = BigInt::from_octets(signature[:])
+  if s.compare(self.n) >= 0 {
+    return false
+  }
+  // §8.1.2 step 2b: m = s^e mod n.
+  let m = s.pow(self.e, modulus=self.n)
+  // §8.1.2 step 2c: EM = I2OSP(m, emLen). If m doesn't fit in emLen bytes,
+  // I2OSP fails. We get this for free from `to_octets(length=)` since it
+  // pads / fails consistently — but in the emLen < k case we must encode
+  // to emLen, not k. Same emBits ≡ 8*emLen − 0..7 bits invariant holds.
+  let em = m.to_octets(length=em_len)
+  // §8.1.2 step 3: EMSA-PSS-VERIFY(mHash, EM, sLen, emBits).
+  let m_hash = hash_message(hash, message)
+  emsa_pss_verify(hash, m_hash, em, s_len, em_bits)
+}

@@ -23,6 +23,12 @@ pub suberror Pkcs8Error {
   Pem(@pem.PemError)
   InvalidVersion(Int)
   UnexpectedStructure(String)
+  // PBES2 (RFC 8018) decryption errors. See pbes2.mbt.
+  UnsupportedKdf(@asn1.ObjectIdentifier)
+  UnsupportedCipher(@asn1.ObjectIdentifier)
+  InvalidPadding
+  Pbkdf2(@pbkdf2.Pbkdf2Error)
+  Aead(@aead.AeadError)
 } derive(Show)
 
 ///|

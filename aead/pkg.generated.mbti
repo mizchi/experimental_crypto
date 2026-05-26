@@ -2,6 +2,10 @@
 package "mizchi/aead"
 
 // Values
+pub fn aes_cbc_decrypt(Bytes, Bytes, Bytes) -> Bytes raise AeadError
+
+pub fn aes_cbc_encrypt(Bytes, Bytes, Bytes) -> Bytes raise AeadError
+
 pub fn hchacha20(Bytes, Bytes) -> Bytes
 
 pub fn open(Algorithm, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError

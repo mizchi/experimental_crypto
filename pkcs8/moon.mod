@@ -17,6 +17,8 @@ import {
   "mizchi/asn1@0.1.0",
   "mizchi/pkix@0.1.0",
   "mizchi/pem@0.1.0",
+  "mizchi/pbkdf2@0.1.0",
+  "mizchi/aead@0.1.0",
 }
 
 readme = "README.mbt.md"

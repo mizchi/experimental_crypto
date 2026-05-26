@@ -4,16 +4,22 @@ package "mizchi/pkix_verify"
 import {
   "mizchi/asn1",
   "mizchi/ed25519",
+  "mizchi/p256",
+  "mizchi/p384",
   "mizchi/pkix",
   "mizchi/rsa",
 }
 
 // Values
+pub fn extract_dns_san(@pkix.Certificate) -> Array[String] raise PkixVerifyError
+
 pub fn extract_public_key(@pkix.SubjectPublicKeyInfo) -> PublicKey raise PkixVerifyError
 
 pub fn verify_certificate(@pkix.Certificate, PublicKey, String) -> Unit raise PkixVerifyError
 
 pub fn verify_chain(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String) -> Unit raise PkixVerifyError
+
+pub fn verify_chain_with_options(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String, VerifyChainOptions) -> Unit raise PkixVerifyError
 
 pub fn verify_signature(Bytes, @pkix.AlgorithmIdentifier, @asn1.BitString, PublicKey) -> Unit raise PkixVerifyError
 
@@ -29,9 +35,15 @@ pub suberror PkixVerifyError {
   IssuerSubjectMismatch
   EmptyChain
   MalformedExtension(String)
+  UnknownCriticalExtension(@asn1.ObjectIdentifier)
+  KeyUsageMissingCertSign
+  NameConstraintViolation(String)
+  ExtendedKeyUsageMissing(@asn1.ObjectIdentifier)
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
+  P256(@p256.P256Error)
+  P384(@p384.P384Error)
   Asn1(@asn1.Asn1Error)
 } derive(Show)
 
@@ -39,7 +51,14 @@ pub suberror PkixVerifyError {
 pub(all) enum PublicKey {
   Ed25519(@ed25519.PublicKey)
   Rsa(@rsa.RsaPublicKey)
+  P256(@p256.PublicKey)
+  P384(@p384.PublicKey)
 }
+
+pub(all) struct VerifyChainOptions {
+  required_eku : @asn1.ObjectIdentifier?
+}
+pub fn VerifyChainOptions::default() -> Self
 
 // Type aliases
 

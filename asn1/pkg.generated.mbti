@@ -90,6 +90,7 @@ pub struct ObjectIdentifier {
   arcs : Array[UInt]
 } derive(Eq, Hash, Show)
 pub fn ObjectIdentifier::from_arcs(Array[UInt]) -> Self
+pub fn ObjectIdentifier::from_arcs_checked(Array[UInt]) -> Self raise Asn1Error
 pub fn ObjectIdentifier::from_string(String) -> Self raise Asn1Error
 pub fn ObjectIdentifier::to_string(Self) -> String
 

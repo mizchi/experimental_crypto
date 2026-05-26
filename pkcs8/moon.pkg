@@ -2,6 +2,8 @@ import {
   "mizchi/asn1",
   "mizchi/pkix",
   "mizchi/pem",
+  "mizchi/pbkdf2",
+  "mizchi/aead",
 }
 
 import {

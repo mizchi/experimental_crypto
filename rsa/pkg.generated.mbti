@@ -26,6 +26,19 @@ pub(all) enum HashAlg {
   Sha512
 } derive(Eq, Show)
 
+pub(all) struct RsaPrivateKey {
+  n : @bigint.BigInt
+  e : @bigint.BigInt
+  d : @bigint.BigInt
+  n_bytes_len : Int
+}
+pub fn RsaPrivateKey::from_pkcs1_der(Bytes) -> Self raise RsaError
+pub fn RsaPrivateKey::from_pkcs8_der(Bytes) -> Self raise RsaError
+pub fn RsaPrivateKey::from_pkcs8_pem(String) -> Self raise RsaError
+pub fn RsaPrivateKey::public_key(Self) -> RsaPublicKey
+pub fn RsaPrivateKey::sign(Self, Bytes, HashAlg) -> Bytes raise RsaError
+pub fn RsaPrivateKey::sign_pss(Self, Bytes, HashAlg, Bytes) -> Bytes raise RsaError
+
 pub(all) struct RsaPublicKey {
   n : @bigint.BigInt
   e : @bigint.BigInt
@@ -34,6 +47,7 @@ pub(all) struct RsaPublicKey {
 pub fn RsaPublicKey::from_pkcs1_der(Bytes) -> Self raise RsaError
 pub fn RsaPublicKey::from_spki_der(Bytes) -> Self raise RsaError
 pub fn RsaPublicKey::verify(Self, Bytes, Bytes, HashAlg) -> Bool raise RsaError
+pub fn RsaPublicKey::verify_pss(Self, Bytes, Bytes, HashAlg, salt_len? : Int) -> Bool raise RsaError
 
 // Type aliases
 

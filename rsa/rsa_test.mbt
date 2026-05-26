@@ -344,6 +344,168 @@ test "rsa: tampered message verifies as false" {
 // PKCS#8 PEM loader
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// RSASSA-PSS (RFC 8017 §8.1, EMSA-PSS §9.1)
+//
+// We don't have a real RNG in the workspace yet, so all PSS tests either
+// use deterministic PSS (salt = b"", sLen = 0) or pass a fixed pseudo-random
+// salt and feed the same salt to verify. We do NOT use deterministic-salt
+// signatures with `salt_len = -1` (which defaults to hLen) on the verify
+// side — that mismatch is itself one of the tests below.
+// -----------------------------------------------------------------------------
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-256, empty salt (deterministic)" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pss-deterministic-roundtrip"
+  let sig = sk.sign_pss(msg, Sha256, b"")
+  assert_eq(sig.length(), pk.n_bytes_len)
+  // salt_len = 0 must be passed explicitly — the default of -1 (hLen = 32)
+  // would not match the empty salt we signed with.
+  assert_true(pk.verify_pss(msg, sig, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-256, 32-byte salt (hLen default)" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  // Fixed pseudo-random salt — we don't actually need entropy, just a fresh
+  // byte string the verifier doesn't see directly.
+  let salt = hex(
+    "0123456789abcdeffedcba9876543210cafebabe0badcafedeadbeefdecafbad",
+  )
+  let msg : Bytes = b"pss-randomised-roundtrip"
+  let sig = sk.sign_pss(msg, Sha256, salt)
+  // salt_len defaults to -1 → hLen = 32, matching our salt length.
+  assert_true(pk.verify_pss(msg, sig, Sha256))
+}
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-384" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let salt = hex(
+    "00112233445566778899aabbccddeeff" +
+    "00112233445566778899aabbccddeeff" +
+    "00112233445566778899aabbccddeeff",
+  )
+  // SHA-384 hLen = 48 bytes; salt is 48 bytes.
+  let msg : Bytes = b"pss-sha384-roundtrip"
+  let sig = sk.sign_pss(msg, Sha384, salt)
+  assert_true(pk.verify_pss(msg, sig, Sha384))
+}
+
+///|
+test "rsa-pss: sign + verify roundtrip with SHA-512, empty salt" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let msg : Bytes = b"pss-sha512-roundtrip"
+  let sig = sk.sign_pss(msg, Sha512, b"")
+  assert_true(pk.verify_pss(msg, sig, Sha512, salt_len=0))
+}
+
+///|
+test "rsa-pss: tampered message rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"original-message", Sha256, b"")
+  assert_false(pk.verify_pss(b"tampered-message", sig, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: wrong salt_len rejects valid signature" {
+  // A signature made with sLen = 0 cannot be verified with sLen = 32 — the
+  // PS / 0x01 marker would land at the wrong position.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"hello", Sha256, b"")
+  // Default salt_len = -1 → hLen = 32 ≠ 0.
+  assert_false(pk.verify_pss(b"hello", sig, Sha256))
+  // And the inverse: a randomised-32-byte signature can't be verified as sLen=0.
+  let salt32 = hex(
+    "1111111111111111111111111111111111111111111111111111111111111111",
+  )
+  let sig2 = sk.sign_pss(b"hello", Sha256, salt32)
+  assert_false(pk.verify_pss(b"hello", sig2, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: tampered last byte (not 0xBC) rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"x", Sha256, b"")
+  // Flip a single bit in the signature — after modexp the EM trailer is
+  // overwhelmingly likely to no longer end in 0xBC, hitting the §9.1.2
+  // step-4 fast-reject path.
+  let bad = Bytes::makei(sig.length(), fn(i) {
+    if i == sig.length() - 1 {
+      (sig[i].to_int() ^ 0x01).to_byte()
+    } else {
+      sig[i]
+    }
+  })
+  assert_false(pk.verify_pss(b"x", bad, Sha256, salt_len=0))
+}
+
+///|
+test "rsa-pss: tampered signature middle byte rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let salt = hex(
+    "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  )
+  let sig = sk.sign_pss(b"a message", Sha256, salt)
+  let bad = Bytes::makei(sig.length(), fn(i) {
+    if i == 100 {
+      (sig[i].to_int() ^ 0x55).to_byte()
+    } else {
+      sig[i]
+    }
+  })
+  assert_false(pk.verify_pss(b"a message", bad, Sha256))
+}
+
+///|
+test "rsa-pss: wrong signature length raises InvalidSignatureLength" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let short_sig = Bytes::makei(128, fn(_) { b'\x00' })
+  let raised = try {
+    let _ = pk.verify_pss(b"m", short_sig, Sha256)
+    false
+  } catch {
+    InvalidSignatureLength => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "rsa-pss: cross-hash rejection" {
+  // Sign with SHA-256, verify with SHA-384 — emBits is the same but mHash
+  // and the MGF differ.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let sig = sk.sign_pss(b"hash-mismatch", Sha256, b"")
+  // For SHA-384, hLen = 48. Setting salt_len = 0 to keep PS / 0x01 marker
+  // position predictable.
+  assert_false(pk.verify_pss(b"hash-mismatch", sig, Sha384, salt_len=0))
+}
+
+///|
+test "rsa-pss: sign with hLen-length salt verifies under explicit salt_len" {
+  // Same as the "32-byte salt" roundtrip, but exercises the explicit
+  // `salt_len = hLen` branch instead of the -1 default.
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let salt = hex(
+    "f0e1d2c3b4a5968778695a4b3c2d1e0fdeadbeefcafebabe0123456789abcdef",
+  )
+  let sig = sk.sign_pss(b"explicit salt_len", Sha256, salt)
+  assert_true(pk.verify_pss(b"explicit salt_len", sig, Sha256, salt_len=32))
+}
+
 ///|
 test "rsa: from_pkcs8_pem loads an openssl-generated PEM" {
   let pem_text =
