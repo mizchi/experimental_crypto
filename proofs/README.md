@@ -47,9 +47,27 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 
 ## Per-library proof sub-packages
 
-| Package | Property |
-|---|---|
-| `pem/wrap/pem_next_chunk_len` | RFC 7468 §3 strict-mode line cap; `encode`'s wrap loop never emits a line longer than 64 chars, and terminates as long as `cap > 0` |
+| Package | Function | Property |
+|---|---|---|
+| `pem/wrap` | `pem_next_chunk_len(remaining, cap)` | RFC 7468 §3 strict line cap; `encode`'s wrap loop never emits a line longer than 64 chars, and terminates as long as `cap > 0` |
+| `aead/wrap` | `ghash_zero_pad_len(len, block_size)` | NIST SP 800-38D §6.5 GHASH zero-pad length ∈ [0, block_size) — wired into `aead.poly1305_aead_tag` |
+| `aead/wrap` | `pkcs7_pad_len(plaintext_len, block_size)` | RFC 5652 §6.3 PKCS#7 padding length ∈ [1, block_size] — spec for future encrypt-side wiring |
+| `hkdf/wrap` | `hkdf_block_count(L, hash_len)` | RFC 5869 §2.3 block count ∈ [1, 255] given L ≤ 255·HashLen — wired into `hkdf.expand` |
+| `asn1/wrap` | `der_length_prefix_size(n)` | X.690 §8.1.3 DER length-prefix octet count ∈ [1, 5] — spec for `asn1.write_length` |
+
+The two "spec" entries (`pkcs7_pad_len`, `der_length_prefix_size`) are
+helpers the host library hasn't called yet — the proof anchors the
+contract any future caller will rely on.
+
+### Known SMT limitations
+
+Block-alignment postconditions of the form `(x + result) % block_size == 0`
+time out in Z3 4.15.4 even though the property holds (the Why3 driver
+lowers Int `%` to `mod_` while the model uses `mod`, and Z3 doesn't
+bridge them via the Euclidean axiom within the default time budget).
+The range invariants are what we get for free; the alignment is covered
+by the runtime tests in each host library. Re-attempting once CVC5 or
+Alt-Ergo is wired through opam is a small follow-up.
 
 ## Setup
 

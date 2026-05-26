@@ -41,16 +41,21 @@ constant-time sign-side operations.
 CSPRNG bridge. Platform backends: `crypto.getRandomValues` on JS,
 `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native.
 
-### `mizchi/proofs`, `mizchi/pem/wrap`
-**Tests**: 14 (proofs) + 0 (pem/wrap). **Proof goals**: 5 + 1 = 6
-discharged via `moon prove` + Why3 + Z3.
+### `mizchi/proofs` + `<lib>/wrap` sub-packages
+**Proof goals**: 5 (proofs) + 1 (pem/wrap) + 2 (aead/wrap) + 1 (hkdf/wrap)
++ 1 (asn1/wrap) = **10**, all discharged via `moon prove` + Why3 + Z3.
 
-Proof-carrying leaf functions. Two homes:
+Proof-carrying leaf functions split between two patterns:
 
 * `proofs/` for cross-cutting primitives with no single caller (`abs`,
   `mod_pos`, `hex_value`, `ct_select`, `reduce_once`).
-* `<lib>/<name>/` for library-specific invariants. Currently `pem/wrap/`
-  with `pem_next_chunk_len` (RFC 7468 §3 line cap).
+* `<lib>/wrap/` for library-specific invariants. Current set:
+  * `pem/wrap`: `pem_next_chunk_len` — RFC 7468 §3 line cap
+  * `aead/wrap`: `ghash_zero_pad_len` (wired into GCM) +
+    `pkcs7_pad_len` (RFC 5652 §6.3 spec)
+  * `hkdf/wrap`: `hkdf_block_count` (wired into HKDF-Expand)
+  * `asn1/wrap`: `der_length_prefix_size` (X.690 §8.1.3 spec for
+    `write_length`)
 
 Per-library is the default — `moon prove` lowers the whole package to
 Why3, so any package using `Array` / complex sums / `BigInt` in public

@@ -36,4 +36,7 @@ members = [
   "./totp",
   "./proofs",
   "./pem/wrap",
+  "./aead/wrap",
+  "./hkdf/wrap",
+  "./asn1/wrap",
 ]

@@ -174,8 +174,8 @@ test "RFC 8439 §2.8.2 mac_data matches expected layout" {
     "6116",
   )
   // Reconstruct mac_data the same way poly1305_aead_tag does and inspect it.
-  let aad_pad = (16 - aad.length() % 16) % 16
-  let ct_pad = (16 - ct.length() % 16) % 16
+  let aad_pad = @wrap.ghash_zero_pad_len(aad.length(), 16)
+  let ct_pad = @wrap.ghash_zero_pad_len(ct.length(), 16)
   let total = aad.length() + aad_pad + ct.length() + ct_pad + 8 + 8
   let aad_len_off = aad.length() + aad_pad + ct.length() + ct_pad
   let ct_len_off = aad_len_off + 8

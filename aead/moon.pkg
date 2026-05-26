@@ -1,4 +1,8 @@
 import {
+  "mizchi/aead/wrap",
+}
+
+import {
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
 } for "test"
