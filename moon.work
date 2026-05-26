@@ -22,4 +22,5 @@ members = [
   "./ssh",
   "./git_object",
   "./pgp",
+  "./cms",
 ]
