@@ -969,9 +969,16 @@ fn ed_point_double(p : EdPoint) -> EdPoint {
 ///|
 fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
   // Double-and-add over the bits of `scalar`, MSB to LSB so we can use
-  // the dedicated doubling formula. Variable time.
+  // the dedicated doubling formula. Variable time -- see
+  // security_review.md finding 10. A constant-time rewrite is on the
+  // roadmap; two prior attempts (always-add with @bigint bit extraction
+  // and with 32-byte LE bit extraction, both using HWCD point cmov)
+  // produced deterministically wrong public keys despite paper
+  // verification, pointing at a subtlety in the HWCD addition formula
+  // when the left summand has a non-canonical projective representation
+  // (e.g. `(0, -1, -1, 0)` produced by doubling the identity). Needs
+  // dedicated debug session.
   let s = (scalar % ed_l + ed_l) % ed_l
-  // Determine the bit length of s.
   let mut bitlen = 0
   let mut tmp = s
   let zero = BigInt::from_int(0)
