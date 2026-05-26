@@ -233,3 +233,75 @@ test "p256: DER signature round (re-encode A.3 r/s as SEQUENCE)" {
   let msg = rfc7515_a3_signing_input()
   assert_true(@p256.verify(pk, msg, seq, Der))
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
+  let pk = rfc7515_a3_pubkey()
+  let msg = rfc7515_a3_signing_input()
+  // r = original r, s = 0. The Java vulnerability accepted this because the
+  // verifier skipped the `1 <= s < n` range check.
+  let sig = rfc7515_a3_signature()
+  let bad = Bytes::makei(64, fn(i) {
+    if i < 32 {
+      sig[i]
+    } else {
+      b'\x00'
+    }
+  })
+  assert_false(@p256.verify(pk, msg, bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2022-21449: r=s=0 must be rejected" {
+  let pk = rfc7515_a3_pubkey()
+  let msg = rfc7515_a3_signing_input()
+  let bad = Bytes::makei(64, fn(_i) { b'\x00' })
+  assert_false(@p256.verify(pk, msg, bad, Raw))
+}
+
+///|
+test "ATTACK: s = n (boundary, must reject)" {
+  let pk = rfc7515_a3_pubkey()
+  let msg = rfc7515_a3_signing_input()
+  // n (P-256 order) as 32-byte BE. Spec says 1 <= s < n, so s = n is invalid.
+  let n_hex = "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+  let r = rfc7515_a3_signature()
+  let s_eq_n = hex(n_hex)
+  let bad = Bytes::makei(64, fn(i) {
+    if i < 32 {
+      r[i]
+    } else {
+      s_eq_n[i - 32]
+    }
+  })
+  assert_false(@p256.verify(pk, msg, bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2020-0601 (Curveball)-style: off-curve pubkey rejected at parse" {
+  // Curveball relied on accepting an attacker-supplied EC point that's NOT
+  // on the named curve. We assert from_uncompressed catches this.
+  let off_curve = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 32 {
+      b'\x01'
+    } else if i == 64 {
+      b'\x02'
+    } else {
+      b'\x00'
+    }
+  })
+  let raised = try {
+    let _ = @p256.PublicKey::from_uncompressed(off_curve)
+    false
+  } catch {
+    PointNotOnCurve => true
+    _ => false
+  }
+  assert_true(raised)
+}

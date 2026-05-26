@@ -88,3 +88,32 @@ test "x25519: PrivateKey::from_random is alias for from_bytes" {
   let sk_b = @x25519.PrivateKey::from_random(seed)
   assert_eq(sk_a.to_bytes(), sk_b.to_bytes())
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK X25519 small-subgroup: pubkey=all-zero must raise AllZeroSharedSecret" {
+  // All-zero is one of the small-subgroup points. Per RFC 7748 §6.1 the
+  // resulting shared secret is all-zero and must be detected/rejected.
+  let sk = @x25519.PrivateKey::from_bytes(Bytes::makei(32, fn(_) { b'\x42' }))
+  let pk_bytes = Bytes::makei(32, fn(_) { b'\x00' })
+  let pk = @x25519.PublicKey::from_bytes(pk_bytes)
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(AllZeroSharedSecret) => ()
+    other => abort("small-subgroup pubkey=0 NOT detected: \{other}")
+  }
+}
+
+///|
+test "ATTACK X25519 small-subgroup: pubkey=1 (low-order) must raise AllZeroSharedSecret" {
+  // Another known low-order point: u=1.
+  let sk = @x25519.PrivateKey::from_bytes(Bytes::makei(32, fn(_) { b'\x42' }))
+  let pk_bytes = Bytes::makei(32, fn(i) { if i == 0 { b'\x01' } else { b'\x00' } })
+  let pk = @x25519.PublicKey::from_bytes(pk_bytes)
+  match (try? @x25519.diffie_hellman(sk, pk)) {
+    Err(AllZeroSharedSecret) => ()
+    other => abort("small-subgroup pubkey=1 NOT detected: \{other}")
+  }
+}

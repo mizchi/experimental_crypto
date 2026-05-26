@@ -214,3 +214,62 @@ test "p384: SignatureFormat Show" {
   inspect(@p384.SignatureFormat::Raw, content="Raw")
   inspect(@p384.SignatureFormat::Der, content="Der")
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2022-21449 (Psychic Signatures): s=0 must be rejected" {
+  let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
+  let sig = vec_sig_raw()
+  let bad = Bytes::makei(96, fn(i) {
+    if i < 48 {
+      sig[i]
+    } else {
+      b'\x00'
+    }
+  })
+  assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2022-21449: r=s=0 must be rejected" {
+  let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
+  let bad = Bytes::makei(96, fn(_i) { b'\x00' })
+  assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
+}
+
+///|
+test "ATTACK: s = n (P-384 order, boundary) must reject" {
+  let pk = @p384.PublicKey::from_uncompressed(vec_uncompressed())
+  // P-384 group order n.
+  let n_hex = "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973"
+  let n = hex(n_hex)
+  let r = vec_sig_raw()
+  let bad = Bytes::makei(96, fn(i) { if i < 48 { r[i] } else { n[i - 48] } })
+  assert_false(@p384.verify(pk, vec_msg(), bad, Raw))
+}
+
+///|
+test "ATTACK CVE-2020-0601 (Curveball)-style on P-384: off-curve pubkey rejected" {
+  let off_curve = Bytes::makei(97, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 48 {
+      b'\x01'
+    } else if i == 96 {
+      b'\x02'
+    } else {
+      b'\x00'
+    }
+  })
+  let raised = try {
+    let _ = @p384.PublicKey::from_uncompressed(off_curve)
+    false
+  } catch {
+    PointNotOnCurve => true
+    _ => false
+  }
+  assert_true(raised)
+}

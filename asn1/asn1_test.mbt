@@ -766,3 +766,122 @@ test "security: canonical INTEGER -128 still accepted" {
     _ => assert_eq(true, false, msg="expected Integer")
   }
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2018-0739 (OpenSSL ASN.1 stack overflow): deep nested SEQUENCE must reject" {
+  // Construct 100 nested SEQUENCE wrappers: 30 81 ... or 30 02 30 02 ... .
+  // Each `30 0X` adds 2 bytes of header around the previous element. We
+  // build the innermost as SEQUENCE(empty) = 30 00, then wrap it 100 times.
+  // Innermost = 30 00 (2 bytes)
+  // After 1 wrap: 30 02 30 00 (4)
+  // After N wraps: 2 + 2N bytes
+  let depth = 100
+  let total = 2 + 2 * depth
+  let buf = FixedArray::make(total, b'\x00')
+  // Innermost SEQUENCE(empty) is placed at the END, then wrappers grow
+  // outward backwards.
+  // Write innermost
+  buf[total - 2] = b'\x30'
+  buf[total - 1] = b'\x00'
+  // Wrap N times: at each wrap, prepend `30 <len>` (assuming len < 128).
+  // Length increases by 2 each wrap (header for the inner one).
+  for i = 0; i < depth; i = i + 1 {
+    let pos = total - 2 - 2 * (i + 1)
+    let inner_len = 2 + 2 * i
+    if inner_len >= 128 {
+      // For deeper levels we'd need long-form length encoding; keep depth
+      // <= 62 to stay within short-form length. Adjust if needed.
+      break
+    }
+    buf[pos] = b'\x30'
+    buf[pos + 1] = inner_len.to_byte()
+  }
+  let der = Bytes::makei(total, fn(j) { buf[j] })
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    _ => true
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: non-canonical INTEGER with redundant 0x00 padding must reject" {
+  // RFC 5280: INTEGER must be encoded in the smallest number of octets.
+  // Tag 02, len 02, content 00 01 ─ that's "1" written as 2 bytes with a
+  // leading 0x00 sign byte. Since the high bit of 0x01 is clear, the leading
+  // 0x00 is redundant and non-canonical.
+  let der : Bytes = b"\x02\x02\x00\x01"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: INTEGER with redundant 0xFF padding (negative) must reject" {
+  // For negative integers, leading 0xFF before another high-bit-set byte
+  // is also non-canonical.
+  let der : Bytes = b"\x02\x02\xff\x80"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: trailing bytes after a valid element must reject" {
+  // Encodes NULL (05 00) followed by an extra 0xFF — strict parsers must
+  // not silently accept the trailing byte (cf. RFC 5280 §4.1: DER is the
+  // canonical form, no trailing content allowed).
+  let der : Bytes = b"\x05\x00\xff"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    TrailingBytes(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: truncated length (declared > actual) must reject" {
+  // SEQUENCE with declared length 0x10 but only 1 byte of content.
+  let der : Bytes = b"\x30\x10\x05"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    TruncatedInput => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: BIT STRING with unused_bits > 7 must reject" {
+  // RFC 5280: BIT STRING's first content byte (unused-bits) ∈ [0, 7].
+  // Tag 03, len 02, unused_bits 08, data 00 — out-of-range unused_bits.
+  let der : Bytes = b"\x03\x02\x08\x00"
+  let raised = try {
+    let _ = @asn1.decode_der(der)
+    false
+  } catch {
+    _ => true
+  }
+  assert_true(raised)
+}

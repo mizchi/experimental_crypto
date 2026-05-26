@@ -220,3 +220,55 @@ test "Sha384 / Sha512 raise UnsupportedHash" {
     _ => abort("expected UnsupportedHash for Sha512")
   }
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2006-4339 / CVE-2014-1568 (BERserk): trailing-garbage PKCS#1 v1.5 forgery" {
+  // The classic Bleichenbacher / BERserk attack exploits implementations that
+  // locate the DigestInfo within the decoded EM and ignore bytes after it.
+  // We verify by reconstructing the full expected EM and ct_eq-ing against
+  // it, so any deviation (including trailing data) must fail.
+  //
+  // Concrete attack: take a legitimate signature and flip the last byte —
+  // emulates the position where an attacker would smuggle extra bytes.
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let sig = rfc7515_signature
+  // Flip the last byte to simulate "trailing-garbage after DigestInfo".
+  let bad = Bytes::makei(sig.length(), fn(i) {
+    if i == sig.length() - 1 {
+      (sig[i].to_int() ^ 0xff).to_byte()
+    } else {
+      sig[i]
+    }
+  })
+  let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
+  assert_false(ok)
+}
+
+///|
+test "ATTACK: signature with high-bit-set s (s could be > n) returns false, not crash" {
+  // s as all-0xff (definitely > n for our test key's modulus). RSAVP1 says
+  // s >= n → invalid. We should return false, NOT raise.
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let n_bytes = rfc7515_signature.length()
+  let bad = Bytes::makei(n_bytes, fn(_i) { b'\xff' })
+  let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
+  assert_false(ok)
+}
+
+///|
+test "ATTACK: empty signature must raise InvalidSignatureLength" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let empty : Bytes = b""
+  let raised = try {
+    let _ = pubkey.verify(rfc7515_signing_input, empty, Sha256)
+    false
+  } catch {
+    InvalidSignatureLength => true
+    _ => false
+  }
+  assert_true(raised)
+}

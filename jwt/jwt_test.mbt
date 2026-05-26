@@ -545,3 +545,54 @@ test "ES384: tampered signature fails" {
     other => abort("expected InvalidSignature, got \{other}")
   }
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests — these are exploits from well-known JWT CVEs.
+// Each test asserts the implementation REJECTS the attack. A passing test
+// means the attack was successfully blocked.
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK CVE-2015-9235: alg=none token must be rejected" {
+  // Header: {"alg":"none","typ":"JWT"} payload: {"sub":"admin"}
+  // Empty signature, classic alg=none bypass.
+  let token = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiJ9."
+  let opts = @jwt.VerifyOptions::default(0L)
+  let secret : Bytes = b"any"
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
+    Err(UnsupportedAlgorithm(s)) => assert_eq(s, "none")
+    Err(KeyAlgorithmMismatch) => ()  // also acceptable
+    Err(InvalidToken(_)) => ()  // rejected at token shape
+    other => abort("alg=none NOT rejected: \{other}")
+  }
+}
+
+///|
+test "ATTACK alg=None (titlecase variant) must be rejected" {
+  // Same idea with mixed-case "None" — must not match.
+  let token = "eyJhbGciOiJOb25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiJ9."
+  let opts = @jwt.VerifyOptions::default(0L)
+  let secret : Bytes = b"any"
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)) {
+    Err(UnsupportedAlgorithm(_)) => ()
+    Err(KeyAlgorithmMismatch) => ()
+    Err(InvalidToken(_)) => ()
+    other => abort("alg=None NOT rejected: \{other}")
+  }
+}
+
+///|
+test "ATTACK CVE-2016-10555: alg confusion (HS256 token vs Rs256 key)" {
+  // Take an RSA token-shaped header (HS256) and try to verify with an Rs256
+  // key. Library must refuse to verify because the alg in the header does
+  // not match the static key type — otherwise an attacker who controls the
+  // alg field can choose HS256 and use the RSA public key bytes as the HMAC
+  // secret.
+  let token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhdHRhY2tlciJ9.AAAA"
+  let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)) {
+    Err(KeyAlgorithmMismatch) => ()
+    other => abort("alg confusion HS256↔Rs256 NOT blocked: \{other}")
+  }
+}

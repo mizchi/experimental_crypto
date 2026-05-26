@@ -193,3 +193,53 @@ test "PublicKey::from_bytes roundtrip and external verify" {
   assert_eq(bytes_to_hex(pk.to_bytes()), pk_hex)
   assert_true(pk.verify(b"", hex_to_bytes(sig_hex)))
 }
+
+// -----------------------------------------------------------------------------
+// Security attack tests
+// -----------------------------------------------------------------------------
+
+///|
+test "ATTACK Ed25519 malleability: verify_strict must reject S >= L (non-canonical S)" {
+  // RFC 8032 §5.1.7: "verifiers MUST verify ... that 0 <= s < L". Sign
+  // anything and forge a copy whose S = S + L (still mod L, still a valid
+  // ECDSA-equivalent but encoded non-canonically). The strict verifier must
+  // reject the second copy.
+  let sk_seed = Bytes::makei(32, fn(_) { b'\x42' })
+  let sk = @ed25519.PrivateKey::from_seed(sk_seed)
+  let pk = sk.public_key()
+  let msg : Bytes = b"hello"
+  let sig = sk.sign(msg)
+  // L = 2^252 + 27742317777372353535851937790883648493 (little-endian).
+  // Bytes BE high → low: 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  //                      14 de f9 de a2 f7 9c d6 58 12 63 1a 5c f5 d3 ed
+  // Little-endian bytes: ed d3 f5 5c 1a 63 12 58 d6 9c f7 a2 de f9 de 14
+  //                      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 10
+  let l_le : Bytes = b"\xed\xd3\xf5\x5c\x1a\x63\x12\x58\xd6\x9c\xf7\xa2\xde\xf9\xde\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10"
+  // forged_sig = R || (S + L) as little-endian 32-byte addition.
+  let s_le = FixedArray::make(32, b'\x00')
+  for i = 0; i < 32; i = i + 1 {
+    s_le[i] = sig[32 + i]
+  }
+  let mut carry = 0
+  for i = 0; i < 32; i = i + 1 {
+    let sum = s_le[i].to_int() + l_le[i].to_int() + carry
+    s_le[i] = (sum & 0xff).to_byte()
+    carry = sum >> 8
+  }
+  let forged = Bytes::makei(64, fn(i) {
+    if i < 32 {
+      sig[i]
+    } else {
+      s_le[i - 32]
+    }
+  })
+  // The strict verifier MUST reject the forged signature.
+  let raised = try {
+    let _ = pk.verify_strict(msg, forged)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
