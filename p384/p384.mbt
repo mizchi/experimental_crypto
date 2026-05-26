@@ -385,7 +385,7 @@ pub fn verify(
   }
   // e = SHA-384(M). FIPS 186-5 §6.4.2 step 4: qlen = 384 here, so the full
   // 48-byte digest IS e (no truncation, no zero-padding).
-  let e_bytes = sha384(message)
+  let e_bytes = @hash.sha384(message)
   let e = BigInt::from_octets(e_bytes[:])
   let w = mod_inverse(s, n)
   let u1 = e * w % n

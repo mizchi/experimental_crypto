@@ -1,3 +1,4 @@
 import {
   "mizchi/asn1" @asn1,
+  "mizchi/hash" @hash,
 }

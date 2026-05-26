@@ -74,7 +74,7 @@
 - bench file は `<mod>_bench_test.mbt`。`@bench` を `for "test"` import する。
 - bench closure の中で raise する場合は前述の `catch { _ => abort(...) }` 形。
 
-## 13 module の関係 (依存方向)
+## module の関係 (依存方向)
 
 ```
 asn1 ────► pkix ────► pkcs8
@@ -82,11 +82,23 @@ asn1 ────► pkix ────► pkcs8
   └──────────────┴── pem
                           (pem は asn1 と独立、pkcs8 / pkix-test が依存)
 
-hkdf / pbkdf2 ───► moonbitlang/x/crypto
+hkdf / pbkdf2 ───► moonbitlang/x/crypto      (pbkdf2 は SHA-256 を内製 — 内ループ最適化)
 scrypt ───────► pbkdf2 ───► moonbitlang/x/crypto
 
+hash (SHA-256 / SHA-384 / SHA-512 + HMAC-SHA256 + ct_eq)
+  ▲
+  ├── rsa, p256, p384  (ECDSA / RSA verify が digest を必要とする)
+  └── jwt              (HS256 + ES256/384 + RS256/EdDSA で利用)
+
 ed25519 (sha512 self-impl, @bigint Edwards 曲線)
+        (incremental + FixedArray 入力を多用するので @hash には統合せず内製を維持)
 x25519  (10-limb field, @bigint dep なし)
+
+p256   (BigInt affine, @hash.sha256 利用)
+p384   (BigInt affine, @hash.sha384 利用)
+
+pkix_verify (Ed25519 + RSA-SHA256 + ECDSA-{P-256,P-384}-SHA{256,384} の chain dispatch)
+jwt        (HS256 / RS256 / EdDSA / ES256 / ES384)
 
 aead   (ChaCha20-Poly1305 + AES-GCM、moonbitlang/x/crypto, aes.mbt, gcm.mbt)
 argon2 (BLAKE2b self-impl、deps なし)

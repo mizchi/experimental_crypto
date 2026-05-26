@@ -1,35 +1,17 @@
-// SHA-384 (FIPS 180-4) — SHA-512 inner loop with a different IV and a 48-byte
-// truncated output. Self-contained, NOT constant-time. Used internally by
-// p384 verify.
+// SHA-512 (FIPS 180-4). Self-contained, NOT constant-time.
 //
-// Big-endian 64-bit words, 1024-bit (128-byte) block, 384-bit (48-byte) digest.
+// Big-endian 64-bit words, 1024-bit (128-byte) block, 512-bit (64-byte) digest.
+// SHA-384 reuses the inner block-processing routine with a different IV and
+// a 48-byte truncated output; both live in this package.
 
 ///|
-priv struct SHA384 {
-  reg : FixedArray[UInt64]
-  mut len : UInt64
-  mut len_hi : UInt64
-  buf : FixedArray[Byte]
-  mut buf_index : Int
-}
+let sha512_h0 : FixedArray[UInt64] = [
+  0x6a09e667f3bcc908UL, 0xbb67ae8584caa73bUL, 0x3c6ef372fe94f82bUL, 0xa54ff53a5f1d36f1UL,
+  0x510e527fade682d1UL, 0x9b05688c2b3e6c1fUL, 0x1f83d9abfb41bd6bUL, 0x5be0cd19137e2179UL,
+]
 
 ///|
-fn SHA384::new() -> SHA384 {
-  // FIPS 180-4 §5.3.4 initial hash values for SHA-384.
-  {
-    reg: [
-      0xcbbb9d5dc1059ed8UL, 0x629a292a367cd507UL, 0x9159015a3070dd17UL, 0x152fecd8f70e5939UL,
-      0x67332667ffc00b31UL, 0x8eb44a8768581511UL, 0xdb0c2e0d64f98fa7UL, 0x47b5481dbefa4fa4UL,
-    ],
-    len: 0UL,
-    len_hi: 0UL,
-    buf: FixedArray::make(128, b'\x00'),
-    buf_index: 0,
-  }
-}
-
-///|
-let sha384_k : FixedArray[UInt64] = [
+let sha512_k : FixedArray[UInt64] = [
   0x428a2f98d728ae22UL, 0x7137449123ef65cdUL, 0xb5c0fbcfec4d3b2fUL, 0xe9b5dba58189dbbcUL,
   0x3956c25bf348b538UL, 0x59f111f1b605d019UL, 0x923f82a4af194f9bUL, 0xab1c5ed5da6d8118UL,
   0xd807aa98a3030242UL, 0x12835b0145706fbeUL, 0x243185be4ee4b28cUL, 0x550c7dc3d5ffb4e2UL,
@@ -53,12 +35,12 @@ let sha384_k : FixedArray[UInt64] = [
 ]
 
 ///|
-fn rotr64_(x : UInt64, n : Int) -> UInt64 {
+fn rotr64(x : UInt64, n : Int) -> UInt64 {
   (x >> n) | (x << (64 - n))
 }
 
 ///|
-fn u8_to_u64be_(x : FixedArray[Byte], i : Int) -> UInt64 {
+fn u8_to_u64be(x : FixedArray[Byte], i : Int) -> UInt64 {
   let b0 = x[i].to_uint64()
   let b1 = x[i + 1].to_uint64()
   let b2 = x[i + 2].to_uint64()
@@ -78,7 +60,7 @@ fn u8_to_u64be_(x : FixedArray[Byte], i : Int) -> UInt64 {
 }
 
 ///|
-fn u64_to_u8be_(x : UInt64, buf : FixedArray[Byte], offset : Int) -> Unit {
+fn u64_to_u8be(x : UInt64, buf : FixedArray[Byte], offset : Int) -> Unit {
   buf[offset + 0] = (x >> 56).to_byte()
   buf[offset + 1] = (x >> 48).to_byte()
   buf[offset + 2] = (x >> 40).to_byte()
@@ -90,14 +72,14 @@ fn u64_to_u8be_(x : UInt64, buf : FixedArray[Byte], offset : Int) -> Unit {
 }
 
 ///|
-fn SHA384::transform(data : FixedArray[Byte], reg : FixedArray[UInt64]) -> Unit {
+fn sha512_transform(data : FixedArray[Byte], reg : FixedArray[UInt64]) -> Unit {
   let w = FixedArray::make(80, 0UL)
   for i = 0; i < 16; i = i + 1 {
-    w[i] = u8_to_u64be_(data, 8 * i)
+    w[i] = u8_to_u64be(data, 8 * i)
   }
   for i = 16; i < 80; i = i + 1 {
-    let s0 = rotr64_(w[i - 15], 1) ^ rotr64_(w[i - 15], 8) ^ (w[i - 15] >> 7)
-    let s1 = rotr64_(w[i - 2], 19) ^ rotr64_(w[i - 2], 61) ^ (w[i - 2] >> 6)
+    let s0 = rotr64(w[i - 15], 1) ^ rotr64(w[i - 15], 8) ^ (w[i - 15] >> 7)
+    let s1 = rotr64(w[i - 2], 19) ^ rotr64(w[i - 2], 61) ^ (w[i - 2] >> 6)
     w[i] = w[i - 16] + s0 + w[i - 7] + s1
   }
   let mut a = reg[0]
@@ -109,10 +91,10 @@ fn SHA384::transform(data : FixedArray[Byte], reg : FixedArray[UInt64]) -> Unit 
   let mut g = reg[6]
   let mut h = reg[7]
   for i = 0; i < 80; i = i + 1 {
-    let big_s1 = rotr64_(e, 14) ^ rotr64_(e, 18) ^ rotr64_(e, 41)
+    let big_s1 = rotr64(e, 14) ^ rotr64(e, 18) ^ rotr64(e, 41)
     let ch = (e & f) ^ (e.lnot() & g)
-    let t1 = h + big_s1 + ch + sha384_k[i] + w[i]
-    let big_s0 = rotr64_(a, 28) ^ rotr64_(a, 34) ^ rotr64_(a, 39)
+    let t1 = h + big_s1 + ch + sha512_k[i] + w[i]
+    let big_s0 = rotr64(a, 28) ^ rotr64(a, 34) ^ rotr64(a, 39)
     let maj = (a & b) ^ (a & c) ^ (b & c)
     let t2 = big_s0 + maj
     h = g
@@ -135,67 +117,58 @@ fn SHA384::transform(data : FixedArray[Byte], reg : FixedArray[UInt64]) -> Unit 
 }
 
 ///|
-fn SHA384::update_bytes(self : SHA384, data : Bytes) -> Unit {
+// Process `data` into the supplied state register. Used by both sha512 (with
+// the standard IV) and sha384 (with the SHA-384 IV).
+fn sha512_core_hash(data : Bytes, state : FixedArray[UInt64]) -> Unit {
+  let n = data.length()
+  let block = FixedArray::make(128, b'\x00')
   let mut offset = 0
-  while offset < data.length() {
-    let remaining = data.length() - offset
-    let space = 128 - self.buf_index
-    let n = if space <= remaining { space } else { remaining }
-    for i = 0; i < n; i = i + 1 {
-      self.buf[self.buf_index + i] = data[offset + i]
-    }
-    self.buf_index += n
-    if self.buf_index == 128 {
-      let old = self.len
-      self.len = self.len + 1024UL
-      if self.len < old {
-        self.len_hi = self.len_hi + 1UL
-      }
-      SHA384::transform(self.buf, self.reg)
-      self.buf_index = 0
-    }
-    offset += n
-  }
-}
-
-///|
-fn SHA384::finalize(self : SHA384) -> Bytes {
-  let bits_in_buf = (self.buf_index * 8).to_uint64()
-  let old = self.len
-  let total_lo = self.len + bits_in_buf
-  let mut total_hi = self.len_hi
-  if total_lo < old {
-    total_hi = total_hi + 1UL
-  }
-  let data = FixedArray::make(128, b'\x00')
-  for i = 0; i < self.buf_index; i = i + 1 {
-    data[i] = self.buf[i]
-  }
-  let mut cnt = self.buf_index
-  data[cnt] = b'\x80'
-  cnt = cnt + 1
-  let reg = self.reg.copy()
-  if cnt > 112 {
-    SHA384::transform(data, reg)
+  while offset + 128 <= n {
     for i = 0; i < 128; i = i + 1 {
-      data[i] = b'\x00'
+      block[i] = data[offset + i]
     }
+    sha512_transform(block, state)
+    offset += 128
   }
-  // 128-bit big-endian length
-  u64_to_u8be_(total_hi, data, 112)
-  u64_to_u8be_(total_lo, data, 120)
-  SHA384::transform(data, reg)
-  // SHA-384 output = first 6 words (48 bytes) of the SHA-512-style state.
-  let out = FixedArray::make(48, b'\x00')
-  for i = 0; i < 6; i = i + 1 {
-    u64_to_u8be_(reg[i], out, i * 8)
+  // Tail + 0x80 + 128-bit length, possibly spanning 2 blocks.
+  let tail_len = n - offset
+  for i = 0; i < 128; i = i + 1 {
+    block[i] = b'\x00'
   }
-  Bytes::makei(48, fn(j) { out[j] })
+  for i = 0; i < tail_len; i = i + 1 {
+    block[i] = data[offset + i]
+  }
+  block[tail_len] = b'\x80'
+  let pad_end = if tail_len + 1 + 16 <= 128 { 128 } else { 256 }
+  if pad_end == 128 {
+    // 128-bit BE length in the high 16 bytes; total bits fit in 64-bit lo.
+    let total_bits_lo = n.to_uint64() * 8UL
+    u64_to_u8be(0UL, block, 112)
+    u64_to_u8be(total_bits_lo, block, 120)
+    sha512_transform(block, state)
+  } else {
+    sha512_transform(block, state)
+    for i = 0; i < 128; i = i + 1 {
+      block[i] = b'\x00'
+    }
+    let total_bits_lo = n.to_uint64() * 8UL
+    u64_to_u8be(0UL, block, 112)
+    u64_to_u8be(total_bits_lo, block, 120)
+    sha512_transform(block, state)
+  }
 }
 
 ///|
-fn sha384(data : Bytes) -> Bytes {
-  let ctx = SHA384::new()
-  ctx.update_bytes(data)
-  ctx.finalize()
+/// SHA-512 of `data`. Returns the 64-byte digest.
+pub fn sha512(data : Bytes) -> Bytes {
+  let state = FixedArray::make(8, 0UL)
+  for i = 0; i < 8; i = i + 1 {
+    state[i] = sha512_h0[i]
+  }
+  sha512_core_hash(data, state)
+  let out = FixedArray::make(64, b'\x00')
+  for i = 0; i < 8; i = i + 1 {
+    u64_to_u8be(state[i], out, i * 8)
+  }
+  Bytes::makei(64, fn(j) { out[j] })
 }

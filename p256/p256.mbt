@@ -448,7 +448,7 @@ pub fn verify(
   }
   // e = SHA-256(M). P-256 / FIPS 186-5 §6.4.2 step 4: take the leftmost
   // qlen bits — qlen = 256, so for SHA-256 the digest IS e (no truncation).
-  let e_bytes = sha256(message)
+  let e_bytes = @hash.sha256(message)
   let e = BigInt::from_octets(e_bytes[:])
   let w = mod_inverse(s, n)
   let u1 = e * w % n

@@ -1,9 +1,6 @@
-// SHA-256 (FIPS 180-4) — small self-impl used only to compute the
-// message digest required by PKCS#1 v1.5 signature verification.
+// SHA-256 (FIPS 180-4). Self-contained, NOT constant-time.
 //
-// This is the third copy in the workspace (pbkdf2/jwt also hand-roll
-// SHA-256 to keep their PRF / HMAC ipad/opad fast paths inline). When
-// a shared `mizchi/hash` module exists we will collapse them.
+// Big-endian 32-bit words, 512-bit block, 256-bit (32-byte) digest.
 
 ///|
 let sha256_h0 : FixedArray[UInt] = [
@@ -26,7 +23,7 @@ let sha256_k : FixedArray[UInt] = [
 ]
 
 ///|
-fn rotr(x : UInt, n : Int) -> UInt {
+fn rotr32(x : UInt, n : Int) -> UInt {
   (x >> n) | (x << (32 - n))
 }
 
@@ -35,8 +32,8 @@ fn sha256_compress(state : FixedArray[UInt], w : FixedArray[UInt]) -> Unit {
   for i = 16; i < 64; i = i + 1 {
     let w15 = w.unsafe_get(i - 15)
     let w2 = w.unsafe_get(i - 2)
-    let s0 = rotr(w15, 7) ^ rotr(w15, 18) ^ (w15 >> 3)
-    let s1 = rotr(w2, 17) ^ rotr(w2, 19) ^ (w2 >> 10)
+    let s0 = rotr32(w15, 7) ^ rotr32(w15, 18) ^ (w15 >> 3)
+    let s1 = rotr32(w2, 17) ^ rotr32(w2, 19) ^ (w2 >> 10)
     w.unsafe_set(i, w.unsafe_get(i - 16) + s0 + w.unsafe_get(i - 7) + s1)
   }
   let mut a = state.unsafe_get(0)
@@ -48,10 +45,10 @@ fn sha256_compress(state : FixedArray[UInt], w : FixedArray[UInt]) -> Unit {
   let mut g = state.unsafe_get(6)
   let mut h = state.unsafe_get(7)
   for i = 0; i < 64; i = i + 1 {
-    let s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+    let s1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25)
     let ch = (e & f) ^ (e.lnot() & g)
     let t1 = h + s1 + ch + sha256_k.unsafe_get(i) + w.unsafe_get(i)
-    let s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+    let s0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22)
     let mj = (a & b) ^ (a & c) ^ (b & c)
     let t2 = s0 + mj
     h = g
@@ -90,15 +87,60 @@ fn load_block_be(
 }
 
 ///|
-// Hash `data` and return a 32-byte digest.
-fn sha256(data : Bytes) -> Bytes {
+fn sha256_one_block(state : FixedArray[UInt], block : FixedArray[Byte]) -> Unit {
+  let w = FixedArray::make(64, 0U)
+  load_block_be(block, 0, w)
+  sha256_compress(state, w)
+}
+
+///|
+fn sha256_finalize_with_tail(
+  state : FixedArray[UInt],
+  tail : FixedArray[Byte],
+  tail_len : Int,
+  prefix_bits : UInt64,
+  out : FixedArray[Byte],
+) -> Unit {
+  let total_bits = prefix_bits + tail_len.to_uint64() * 8UL
+  let buf = FixedArray::make(128, b'\x00')
+  for i = 0; i < tail_len; i = i + 1 {
+    buf.unsafe_set(i, tail.unsafe_get(i))
+  }
+  buf.unsafe_set(tail_len, b'\x80')
+  let pad_end = if tail_len + 1 + 8 <= 64 { 64 } else { 128 }
+  buf.unsafe_set(pad_end - 8, (total_bits >> 56).to_byte())
+  buf.unsafe_set(pad_end - 7, (total_bits >> 48).to_byte())
+  buf.unsafe_set(pad_end - 6, (total_bits >> 40).to_byte())
+  buf.unsafe_set(pad_end - 5, (total_bits >> 32).to_byte())
+  buf.unsafe_set(pad_end - 4, (total_bits >> 24).to_byte())
+  buf.unsafe_set(pad_end - 3, (total_bits >> 16).to_byte())
+  buf.unsafe_set(pad_end - 2, (total_bits >> 8).to_byte())
+  buf.unsafe_set(pad_end - 1, total_bits.to_byte())
+  let w = FixedArray::make(64, 0U)
+  load_block_be(buf, 0, w)
+  sha256_compress(state, w)
+  if pad_end == 128 {
+    load_block_be(buf, 64, w)
+    sha256_compress(state, w)
+  }
+  for i = 0; i < 8; i = i + 1 {
+    let v = state.unsafe_get(i)
+    out.unsafe_set(i * 4, (v >> 24).to_byte())
+    out.unsafe_set(i * 4 + 1, (v >> 16).to_byte())
+    out.unsafe_set(i * 4 + 2, (v >> 8).to_byte())
+    out.unsafe_set(i * 4 + 3, v.to_byte())
+  }
+}
+
+///|
+fn sha256_hash_bytes(data : Bytes, out : FixedArray[Byte]) -> Unit {
   let state = FixedArray::make(8, 0U)
   for i = 0; i < 8; i = i + 1 {
     state.unsafe_set(i, sha256_h0.unsafe_get(i))
   }
   let n = data.length()
   let w = FixedArray::make(64, 0U)
-  // Consume full 64-byte blocks first.
+  let block = FixedArray::make(64, b'\x00')
   let mut offset = 0
   while offset + 64 <= n {
     for i = 0; i < 16; i = i + 1 {
@@ -112,36 +154,23 @@ fn sha256(data : Bytes) -> Bytes {
     sha256_compress(state, w)
     offset += 64
   }
-  // Pad the tail. Worst case: tail + 0x80 + 8 length bytes spans 2 blocks.
   let tail_len = n - offset
-  let buf = FixedArray::make(128, b'\x00')
   for i = 0; i < tail_len; i = i + 1 {
-    buf.unsafe_set(i, data[offset + i])
+    block.unsafe_set(i, data[offset + i])
   }
-  buf.unsafe_set(tail_len, b'\x80')
-  let pad_end = if tail_len + 1 + 8 <= 64 { 64 } else { 128 }
-  let total_bits = n.to_uint64() * 8UL
-  buf.unsafe_set(pad_end - 8, (total_bits >> 56).to_byte())
-  buf.unsafe_set(pad_end - 7, (total_bits >> 48).to_byte())
-  buf.unsafe_set(pad_end - 6, (total_bits >> 40).to_byte())
-  buf.unsafe_set(pad_end - 5, (total_bits >> 32).to_byte())
-  buf.unsafe_set(pad_end - 4, (total_bits >> 24).to_byte())
-  buf.unsafe_set(pad_end - 3, (total_bits >> 16).to_byte())
-  buf.unsafe_set(pad_end - 2, (total_bits >> 8).to_byte())
-  buf.unsafe_set(pad_end - 1, total_bits.to_byte())
-  load_block_be(buf, 0, w)
-  sha256_compress(state, w)
-  if pad_end == 128 {
-    load_block_be(buf, 64, w)
-    sha256_compress(state, w)
-  }
+  sha256_finalize_with_tail(
+    state,
+    block,
+    tail_len,
+    offset.to_uint64() * 8UL,
+    out,
+  )
+}
+
+///|
+/// SHA-256 of `data`. Returns the 32-byte digest.
+pub fn sha256(data : Bytes) -> Bytes {
   let out = FixedArray::make(32, b'\x00')
-  for i = 0; i < 8; i = i + 1 {
-    let v = state.unsafe_get(i)
-    out.unsafe_set(i * 4, (v >> 24).to_byte())
-    out.unsafe_set(i * 4 + 1, (v >> 16).to_byte())
-    out.unsafe_set(i * 4 + 2, (v >> 8).to_byte())
-    out.unsafe_set(i * 4 + 3, v.to_byte())
-  }
+  sha256_hash_bytes(data, out)
   Bytes::makei(32, fn(j) { out.unsafe_get(j) })
 }

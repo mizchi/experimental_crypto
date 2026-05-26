@@ -239,7 +239,7 @@ pub fn sign(payload : Json, key : Key, kid? : String) -> String raise JwtError {
   let signing_input = header_b64 + "." + payload_b64
   let signing_bytes = @utf8.encode(signing_input[:])
   let signature : Bytes = match key {
-    Hs256(secret~) => hmac_sha256(secret, signing_bytes)
+    Hs256(secret~) => @hash.hmac_sha256(secret, signing_bytes)
     EdDsa(privkey~) => privkey.sign(signing_bytes)
   }
   signing_input + "." + base64url_encode(signature)
@@ -333,8 +333,8 @@ pub fn verify(
   let provided_sig = base64url_decode(sig_b64)
   let ok = match (alg, key) {
     (HS256, Hs256(secret~)) => {
-      let expected = hmac_sha256(secret, signing_bytes)
-      ct_eq(expected, provided_sig)
+      let expected = @hash.hmac_sha256(secret, signing_bytes)
+      @hash.ct_eq(expected, provided_sig)
     }
     (EdDSA, EdDsa(pubkey~)) =>
       // Ed25519 verification is itself constant-time over the signature
