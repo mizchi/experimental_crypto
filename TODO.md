@@ -30,6 +30,27 @@ Status of `mizchi/moonbit-crypto` after the T1+T2 sweep
 
 ## Still open
 
+### Current concerns after warning cleanup
+
+- [ ] Review the public API diff from `moon info`. Warning cleanup removed or
+  hid several currently-unused public error variants / helpers; confirm these
+  are acceptable breaking changes before committing.
+- [ ] Re-check generated `pkg.generated.mbti` churn. The current diff touches
+  many packages because `Show`/`Debug`, error variants, and public signatures
+  changed; keep only intentional API movement.
+- [ ] Audit code paths where diagnostic formatting was weakened to avoid
+  deprecated `Show` usage. Tests should still report enough context for parser
+  and verifier failures.
+- [ ] Decide whether unused error variants should stay as documented future API
+  instead of being removed. `--deny-warn` currently forces removal unless the
+  API is exercised or redesigned.
+- [ ] Keep `moon check --deny-warn` in the regular verification loop so future
+  deprecated MoonBit APIs (`to_string` on `StringView`, `match (try? ...)`,
+  implicit core imports, etc.) do not accumulate again.
+- [ ] Investigate the native test runner noise:
+  `warning: unhandled Platform key FamilyDisplayName`. Tests pass, but CI logs
+  may become noisy or mask real native-target warnings.
+
 ### ASN.1 / PEM security review follow-up
 
 - [x] Reject non-canonical ASN.1 high-tag-number forms, including low tag
