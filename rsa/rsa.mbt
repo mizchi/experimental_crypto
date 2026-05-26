@@ -1,0 +1,311 @@
+// RSA PKCS#1 v1.5 signature verification (RFC 8017).
+//
+// Verify-only: there is no sign / decrypt / key generation path because
+// this module exists to unlock RS256 in `mizchi/jwt` and OAuth / OIDC
+// JWKS-style verification flows. Adding sign requires a CRT private-key
+// path and side-channel discipline that is intentionally deferred.
+
+///|
+// Hash algorithm tag carried in the public API. Only Sha256 is wired
+// today; Sha384 / Sha512 surface as `UnsupportedHash` so that callers
+// can detect the gap explicitly instead of getting a verification
+// false-negative.
+pub(all) enum HashAlg {
+  Sha256
+  Sha384
+  Sha512
+} derive(Eq, Show)
+
+///|
+pub suberror RsaError {
+  // ASN.1 / DER parse failure (PKCS#1 RSAPublicKey or SPKI wrapper).
+  InvalidEncoding(String)
+  // SPKI algorithm OID was not rsaEncryption (1.2.840.113549.1.1.1).
+  UnsupportedAlgorithm(String)
+  // Signature byte length did not equal the modulus byte length, which
+  // RFC 8017 §8.2.2 step 1 demands. Returned before any modular math
+  // happens. A mismatched modulus / signature size almost always means
+  // the caller wired the wrong key, so we surface it as a typed error
+  // rather than rolling it into the boolean return.
+  InvalidSignatureLength
+  // Hash variant is recognized in `HashAlg` but not implemented here.
+  UnsupportedHash(HashAlg)
+  // Modulus too small to fit the PKCS#1 v1.5 padding for the chosen
+  // hash. RFC 8017 §9.2 step 3: emLen must be ≥ tLen + 11.
+  ModulusTooSmall
+  // Underlying ASN.1 decoder rejected the bytes (truncated, bad tag, …).
+  Asn1(@asn1.Asn1Error)
+} derive(Show)
+
+///|
+// RSA public key (modulus + public exponent). `n_bytes_len` is cached
+// because RFC 8017's I2OSP / EMSA-PKCS1-v1_5 steps all operate on the
+// modulus's fixed byte length, and recomputing `(n.bit_length() + 7) / 8`
+// per verify is wasteful when callers verify many tokens against the
+// same key.
+pub(all) struct RsaPublicKey {
+  n : BigInt
+  e : BigInt
+  n_bytes_len : Int
+}
+
+// ─── decoders ────────────────────────────────────────────────────────────
+
+///|
+fn expect_sequence(elem : @asn1.Element) -> Array[@asn1.Element] raise RsaError {
+  match elem.value {
+    Sequence(items) =>
+      if elem.tag == @asn1.tag_sequence {
+        items
+      } else {
+        raise InvalidEncoding("expected universal SEQUENCE tag")
+      }
+    _ => raise InvalidEncoding("expected SEQUENCE")
+  }
+}
+
+///|
+fn expect_integer_bytes(elem : @asn1.Element) -> Bytes raise RsaError {
+  match elem.value {
+    Integer(b) => b
+    _ => raise InvalidEncoding("expected INTEGER")
+  }
+}
+
+///|
+// Decode a DER INTEGER (which may have a leading 0x00 sign byte) into a
+// non-negative BigInt. RSA n and e are always non-negative, so we just
+// strip a single 0x00 sign byte if present.
+fn integer_to_bigint(bytes : Bytes) -> BigInt raise RsaError {
+  if bytes.length() == 0 {
+    raise InvalidEncoding("empty INTEGER")
+  }
+  // Negative DER INTEGERs would have the MSB of the first byte set without
+  // a 0x00 prefix — never legal for RSA public-key fields.
+  if (bytes[0].to_int() & 0x80) != 0 {
+    raise InvalidEncoding("negative INTEGER not permitted")
+  }
+  // BigInt::from_octets defaults to positive (signum=1) and takes a
+  // BytesView. Strip an optional 0x00 leading byte (DER's sign byte) so
+  // that the BigInt does not unnecessarily widen.
+  let start = if bytes.length() > 1 && bytes[0] == b'\x00' { 1 } else { 0 }
+  BigInt::from_octets(bytes[start:])
+}
+
+///|
+fn decode_one(der : Bytes) -> @asn1.Element raise RsaError {
+  @asn1.decode_der(der) catch {
+    e => raise Asn1(e)
+  }
+}
+
+///|
+// Parse a single RSAPublicKey SEQUENCE { n, e } element (without the
+// SPKI wrapper). Used by both `from_pkcs1_der` and `from_spki_der`.
+fn parse_rsa_public_key_elem(elem : @asn1.Element) -> RsaPublicKey raise RsaError {
+  let items = expect_sequence(elem)
+  if items.length() != 2 {
+    raise InvalidEncoding("RSAPublicKey must have 2 entries")
+  }
+  let n_bytes = expect_integer_bytes(items[0])
+  let e_bytes = expect_integer_bytes(items[1])
+  let n = integer_to_bigint(n_bytes)
+  let e = integer_to_bigint(e_bytes)
+  if n.compare_int(0) <= 0 {
+    raise InvalidEncoding("modulus must be positive")
+  }
+  if e.compare_int(0) <= 0 {
+    raise InvalidEncoding("public exponent must be positive")
+  }
+  let n_bytes_len = (n.bit_length() + 7) / 8
+  { n, e, n_bytes_len }
+}
+
+///|
+/// Decode a PKCS#1 RSAPublicKey DER blob (RFC 8017 §A.1.1):
+///   RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }
+pub fn RsaPublicKey::from_pkcs1_der(der : Bytes) -> RsaPublicKey raise RsaError {
+  parse_rsa_public_key_elem(decode_one(der))
+}
+
+///|
+// rsaEncryption OID — 1.2.840.113549.1.1.1 (RFC 8017 §A.1).
+let rsa_encryption_oid_str : String = "1.2.840.113549.1.1.1"
+
+///|
+/// Decode a SubjectPublicKeyInfo DER blob (RFC 5280 §4.1.2.7):
+///   SubjectPublicKeyInfo ::= SEQUENCE {
+///     algorithm        AlgorithmIdentifier,
+///     subjectPublicKey BIT STRING        -- contains PKCS#1 RSAPublicKey
+///   }
+/// The algorithm OID must be rsaEncryption (1.2.840.113549.1.1.1).
+pub fn RsaPublicKey::from_spki_der(der : Bytes) -> RsaPublicKey raise RsaError {
+  let elem = decode_one(der)
+  let items = expect_sequence(elem)
+  if items.length() != 2 {
+    raise InvalidEncoding("SubjectPublicKeyInfo must have 2 entries")
+  }
+  // AlgorithmIdentifier
+  let alg_items = expect_sequence(items[0])
+  if alg_items.length() < 1 || alg_items.length() > 2 {
+    raise InvalidEncoding("AlgorithmIdentifier arity")
+  }
+  let oid = match alg_items[0].value {
+    Oid(o) => o
+    _ => raise InvalidEncoding("expected OID")
+  }
+  if oid.to_string() != rsa_encryption_oid_str {
+    raise UnsupportedAlgorithm(oid.to_string())
+  }
+  // subjectPublicKey is a BIT STRING wrapping a DER RSAPublicKey.
+  let bs = match items[1].value {
+    BitString(bs) => bs
+    _ => raise InvalidEncoding("expected BIT STRING")
+  }
+  if bs.unused_bits != 0 {
+    raise InvalidEncoding("SPKI BIT STRING must have 0 unused bits")
+  }
+  parse_rsa_public_key_elem(decode_one(bs.bytes))
+}
+
+// ─── EMSA-PKCS1-v1_5 ─────────────────────────────────────────────────────
+
+///|
+// DigestInfo DER prefixes from RFC 8017 §9.2 note 1. These are pre-encoded
+// so the verify path never has to construct an ASN.1 SEQUENCE — we just
+// concat with the raw hash. Each prefix includes the leading SEQUENCE tag
+// and the DigestInfo header that immediately precedes the H bytes.
+let digest_info_prefix_sha256 : Bytes = b"\x30\x31\x30\x0d\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01\x05\x00\x04\x20"
+
+///|
+fn digest_info_prefix(hash : HashAlg) -> Bytes raise RsaError {
+  match hash {
+    Sha256 => digest_info_prefix_sha256
+    _ => raise UnsupportedHash(hash)
+  }
+}
+
+///|
+fn digest_length(hash : HashAlg) -> Int raise RsaError {
+  match hash {
+    Sha256 => 32
+    _ => raise UnsupportedHash(hash)
+  }
+}
+
+///|
+fn hash_message(hash : HashAlg, msg : Bytes) -> Bytes raise RsaError {
+  match hash {
+    Sha256 => sha256(msg)
+    _ => raise UnsupportedHash(hash)
+  }
+}
+
+///|
+// EMSA-PKCS1-v1_5 encode (RFC 8017 §9.2). Build an `em_len`-byte block:
+//   0x00 || 0x01 || PS || 0x00 || T
+// where T = DigestInfo prefix || H(M) and PS is `em_len − tLen − 3` 0xFF
+// bytes (must be ≥ 8, so `em_len ≥ tLen + 11`).
+fn emsa_pkcs1_v1_5_encode(
+  hash : HashAlg,
+  msg : Bytes,
+  em_len : Int,
+) -> Bytes raise RsaError {
+  let prefix = digest_info_prefix(hash)
+  let h_len = digest_length(hash)
+  let t_len = prefix.length() + h_len
+  // RFC 8017 §9.2 step 3.
+  if em_len < t_len + 11 {
+    raise ModulusTooSmall
+  }
+  let h = hash_message(hash, msg)
+  let ps_len = em_len - t_len - 3
+  let out = FixedArray::make(em_len, b'\x00')
+  out.unsafe_set(0, b'\x00')
+  out.unsafe_set(1, b'\x01')
+  for i = 0; i < ps_len; i = i + 1 {
+    out.unsafe_set(2 + i, b'\xff')
+  }
+  out.unsafe_set(2 + ps_len, b'\x00')
+  for i = 0; i < prefix.length(); i = i + 1 {
+    out.unsafe_set(3 + ps_len + i, prefix[i])
+  }
+  for i = 0; i < h_len; i = i + 1 {
+    out.unsafe_set(3 + ps_len + prefix.length() + i, h[i])
+  }
+  Bytes::makei(em_len, fn(j) { out.unsafe_get(j) })
+}
+
+///|
+// Constant-time byte-sequence equality (OR-of-XORs over the full length).
+// We compare two same-length blocks (em_len bytes), so the length-mismatch
+// early return below is just a defensive guard.
+fn ct_eq(a : Bytes, b : Bytes) -> Bool {
+  if a.length() != b.length() {
+    return false
+  }
+  let mut diff = 0
+  for i = 0; i < a.length(); i = i + 1 {
+    diff = diff | (a[i].to_int() ^ b[i].to_int())
+  }
+  diff == 0
+}
+
+// ─── verify ──────────────────────────────────────────────────────────────
+
+///|
+/// RSASSA-PKCS1-v1_5 verification (RFC 8017 §8.2.2).
+///
+/// Returns `true` iff the signature is valid for `message` under `pubkey`
+/// with the given `hash`. Returns `false` on any of:
+/// - signature integer ≥ modulus (RSAVP1),
+/// - the recovered representative does not match the EMSA-PKCS1-v1_5
+///   encoding of `H(message)`.
+///
+/// Raises:
+/// - `InvalidSignatureLength` if `signature.length() ≠ modulus byte length`,
+/// - `UnsupportedHash` if `hash` is Sha384 / Sha512 (not wired yet),
+/// - `ModulusTooSmall` if the modulus is too short for the chosen hash's
+///   DigestInfo + minimum padding.
+pub fn RsaPublicKey::verify(
+  self : RsaPublicKey,
+  message : Bytes,
+  signature : Bytes,
+  hash : HashAlg,
+) -> Bool raise RsaError {
+  // Step 1: signature must be exactly `k` bytes where `k` is the modulus
+  // byte length. RFC 8017 §8.2.2 step 1 says "if the length of the
+  // signature S is not k octets, output 'invalid signature'". We surface
+  // it as a typed error rather than `false` because it usually means the
+  // caller wired the wrong key.
+  if signature.length() != self.n_bytes_len {
+    raise InvalidSignatureLength
+  }
+  // Step 2a: OS2IP — interpret signature bytes as a big-endian integer.
+  let s = BigInt::from_octets(signature[:])
+  // RSAVP1: 0 ≤ s < n. If s ≥ n, signature is invalid (don't raise, just
+  // return false — could be attacker-supplied garbage).
+  if s.compare(self.n) >= 0 {
+    return false
+  }
+  // Step 2b: m = s^e mod n (modular exponentiation via BigInt::pow with
+  // modulus parameter — single mod-exp, e is typically 65537 so cheap).
+  let m = s.pow(self.e, modulus=self.n)
+  // Step 2c: I2OSP — encode m as `k` big-endian bytes.
+  let em = m.to_octets(length=self.n_bytes_len)
+  // Step 3: compare against the expected EMSA-PKCS1-v1_5 encoding.
+  let expected = emsa_pkcs1_v1_5_encode(hash, message, self.n_bytes_len)
+  ct_eq(em, expected)
+}
+
+///|
+/// Convenience wrapper kept for symmetry with other crypto modules
+/// (sign / verify free functions in `ed25519`, etc).
+pub fn verify(
+  pubkey : RsaPublicKey,
+  message : Bytes,
+  signature : Bytes,
+  hash : HashAlg,
+) -> Bool raise RsaError {
+  pubkey.verify(message, signature, hash)
+}

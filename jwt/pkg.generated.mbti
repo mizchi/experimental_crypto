@@ -3,6 +3,7 @@ package "mizchi/jwt"
 
 import {
   "mizchi/ed25519",
+  "mizchi/rsa",
 }
 
 // Values
@@ -58,6 +59,7 @@ pub(all) struct VerifiedJwt {
 pub(all) enum VerifyKey {
   Hs256(secret~ : Bytes)
   EdDsa(pubkey~ : @ed25519.PublicKey)
+  Rs256(pubkey~ : @rsa.RsaPublicKey)
 }
 
 pub(all) struct VerifyOptions {

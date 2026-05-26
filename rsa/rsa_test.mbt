@@ -1,0 +1,222 @@
+// Blackbox tests for mizchi/rsa.
+//
+// Vectors:
+// 1. RFC 7515 §A.2.1 (JWS RS256 example). JWK n / e + the signing input
+//    + signature taken straight from the RFC; the PKCS#1 / SPKI DER
+//    blobs are constructed mechanically from those n / e bytes so that
+//    we exercise both decoders against a fully known-good public key.
+// 2. A fresh openssl-generated RSA-2048 + SHA-256 vector for an
+//    independent SPKI / PKCS#1 path that does not share n / e with (1).
+//
+// Negative tests: tampered message, tampered signature, wrong key,
+// truncated DER, wrong-algorithm SPKI.
+
+// ─── hex helpers (lifted from jwt/jwt_test.mbt) ────────────────────────
+
+///|
+fn hex_nibble(c : Int) -> Int {
+  if c >= '0'.to_int() && c <= '9'.to_int() {
+    c - '0'.to_int()
+  } else if c >= 'a'.to_int() && c <= 'f'.to_int() {
+    c - 'a'.to_int() + 10
+  } else if c >= 'A'.to_int() && c <= 'F'.to_int() {
+    c - 'A'.to_int() + 10
+  } else {
+    -1
+  }
+}
+
+///|
+fn hex(s : String) -> Bytes {
+  let n = s.length() / 2
+  let arr = FixedArray::make(n, b'\x00')
+  for i = 0; i < n; i = i + 1 {
+    let hi = hex_nibble(s.code_unit_at(i * 2).to_int())
+    let lo = hex_nibble(s.code_unit_at(i * 2 + 1).to_int())
+    arr[i] = ((hi << 4) | lo).to_byte()
+  }
+  Bytes::makei(n, fn(j) { arr[j] })
+}
+
+// ─── RFC 7515 §A.2.1 vectors ──────────────────────────────────────────
+
+// JWS signing input (header.payload, US-ASCII): the exact bytes whose
+// SHA-256 the RFC computes.
+//
+// header  = `eyJhbGciOiJSUzI1NiJ9`
+// payload = `eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ`
+///|
+let rfc7515_signing_input : Bytes = hex(
+  "65794a68624763694f694a53557a49314e694a392e65794a7063334d694f694a71623255694c41304b49434a6c654841694f6a457a4d4441344d546b7a4f44417344516f67496d6830644841364c79396c654746746347786c4c6d4e76625339706331397962323930496a7030636e566c6651",
+)
+
+///|
+let rfc7515_signature : Bytes = hex(
+  "702e218943e88fd11eb5d82dbf7845f34106ae1b81fff7731116add1717d83656d420afd3c96eedd73a2663e5166687b000b87226e0187ed1073f945e582adfcef16d85a798ee8c66ddb3db8975b17d09402beedd5d9d97007108db28160d5f8040ca7445762b81fbe7ff9d92e0ae76f24f25b33bbe6f44ae61eb1040acb20044d3ef9128ed40130795bd4bd3b41eecad066ab651981fde48df77f372dc38b9fafdd3befb18b5da3cc3c2eb02f9e3a41d612caad15911273a05f23b9e838faaf849d698429ef5a1e88798236c3d40e604522a544c8f27a7a2db80663d16cf7caea56de405cb2215a45b2c25566b55ac1a748a070dfc8a32a469543d019eefb47",
+)
+
+///|
+// PKCS#1 RSAPublicKey DER built from the RFC 7515 §A.2.1 JWK n / e.
+let rfc7515_pkcs1_der : Bytes = hex(
+  "3082010a0282010100a1f8160ae2e3c9b465ce8d2d656263362b927dbe29e1f02477fc1625cc90a136e38bd93497c5b6ea63dd7711e67c7429f956b0fb8a8f089adc4b69893cc1333f53edd019b87784252fec914fe4857769594bea4280d32c0f55bf62944f130396bc6e9bdf6ebdd2bda3678eeca0c668f701b38dbffb38c8342ce2fe6d27fade4a5a4874979dd4b9cf9adec4c75b05852c2c0f5ef8a5c1750392f944e8ed64c110c6b647609aa4783aeb9c6c9ad755313050638b83665c6f6f7a82a396702a1f641b82d3ebf2392219491fb686872c5716f50af8358d9a8b9d17c340728f7f87d89a18d8fcab67ad84590c2ecf759339363c07034d6f606f9e21e05456cae5e9a10203010001",
+)
+
+///|
+// SubjectPublicKeyInfo DER (SPKI) wrapping the same RSA public key.
+let rfc7515_spki_der : Bytes = hex(
+  "30820122300d06092a864886f70d01010105000382010f003082010a0282010100a1f8160ae2e3c9b465ce8d2d656263362b927dbe29e1f02477fc1625cc90a136e38bd93497c5b6ea63dd7711e67c7429f956b0fb8a8f089adc4b69893cc1333f53edd019b87784252fec914fe4857769594bea4280d32c0f55bf62944f130396bc6e9bdf6ebdd2bda3678eeca0c668f701b38dbffb38c8342ce2fe6d27fade4a5a4874979dd4b9cf9adec4c75b05852c2c0f5ef8a5c1750392f944e8ed64c110c6b647609aa4783aeb9c6c9ad755313050638b83665c6f6f7a82a396702a1f641b82d3ebf2392219491fb686872c5716f50af8358d9a8b9d17c340728f7f87d89a18d8fcab67ad84590c2ecf759339363c07034d6f606f9e21e05456cae5e9a10203010001",
+)
+
+///|
+test "RFC 7515 §A.2.1: RS256 verify via PKCS#1 DER" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  assert_eq(pubkey.n_bytes_len, 256)
+  let ok = pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha256)
+  assert_eq(ok, true)
+}
+
+///|
+test "RFC 7515 §A.2.1: RS256 verify via SPKI DER" {
+  let pubkey = @rsa.RsaPublicKey::from_spki_der(rfc7515_spki_der)
+  assert_eq(pubkey.n_bytes_len, 256)
+  let ok = @rsa.verify(pubkey, rfc7515_signing_input, rfc7515_signature, Sha256)
+  assert_eq(ok, true)
+}
+
+///|
+test "RFC 7515 §A.2.1: tampered message rejects" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  // Flip a single byte in the signing input — H(M) changes, EMSA mismatch.
+  let bad = Bytes::makei(rfc7515_signing_input.length(), fn(i) {
+    if i == 0 {
+      (rfc7515_signing_input[0].to_int() ^ 0x01).to_byte()
+    } else {
+      rfc7515_signing_input[i]
+    }
+  })
+  let ok = pubkey.verify(bad, rfc7515_signature, Sha256)
+  assert_eq(ok, false)
+}
+
+///|
+test "RFC 7515 §A.2.1: tampered signature rejects" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let bad = Bytes::makei(rfc7515_signature.length(), fn(i) {
+    if i == 100 {
+      (rfc7515_signature[100].to_int() ^ 0x01).to_byte()
+    } else {
+      rfc7515_signature[i]
+    }
+  })
+  let ok = pubkey.verify(rfc7515_signing_input, bad, Sha256)
+  assert_eq(ok, false)
+}
+
+///|
+test "wrong signature length raises InvalidSignatureLength" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let short_sig = Bytes::makei(128, fn(_) { b'\x00' })
+  let result = try? pubkey.verify(rfc7515_signing_input, short_sig, Sha256)
+  match result {
+    Err(InvalidSignatureLength) => ()
+    _ => abort("expected InvalidSignatureLength")
+  }
+}
+
+// ─── openssl-generated RSA-2048 / SHA-256 vector ──────────────────────
+
+///|
+let openssl_spki_der : Bytes = hex(
+  "30820122300d06092a864886f70d01010105000382010f003082010a0282010100b741a01469b8cc6cdad246f29f8ee0ac4f4d57e448f2116ff61f00e373fc4a03c49f8e48e582590b6fea9177b611aecc9a622c58746d142ab7b6ec986dfb87aa04381aa7852163f0deb57301ba309dc089cc7e93434e3c67e5ba812bdff006f8cc8394b163c86577fcafbd078c8749f3f1bb89e5ed1b78a8c8dfe1d99b5acbf545470d9f993a3a7c4492e5ad59fbcdc07ec702cabd23c01ac4b4379c41d170ce4058a8ac65ea5f5a145c3139eb2096d03d806fb58e237e3ade187349d0de043c74b4567a400fe2575e5094c95a245499b2a75fc9d4879d351279d60cb2b1fc030ef2bcc8184e98f94d677b2dbbefac4fc550a7e7a8be48fea13cbb944c78d4490203010001",
+)
+
+///|
+let openssl_pkcs1_der : Bytes = hex(
+  "3082010a0282010100b741a01469b8cc6cdad246f29f8ee0ac4f4d57e448f2116ff61f00e373fc4a03c49f8e48e582590b6fea9177b611aecc9a622c58746d142ab7b6ec986dfb87aa04381aa7852163f0deb57301ba309dc089cc7e93434e3c67e5ba812bdff006f8cc8394b163c86577fcafbd078c8749f3f1bb89e5ed1b78a8c8dfe1d99b5acbf545470d9f993a3a7c4492e5ad59fbcdc07ec702cabd23c01ac4b4379c41d170ce4058a8ac65ea5f5a145c3139eb2096d03d806fb58e237e3ade187349d0de043c74b4567a400fe2575e5094c95a245499b2a75fc9d4879d351279d60cb2b1fc030ef2bcc8184e98f94d677b2dbbefac4fc550a7e7a8be48fea13cbb944c78d4490203010001",
+)
+
+///|
+// "The quick brown fox jumps over the lazy dog"
+let openssl_message : Bytes = hex(
+  "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+)
+
+///|
+let openssl_signature : Bytes = hex(
+  "1a22776e3d951378edb2235b08adb850653ecfa47a0444c53b833f3e29a28b515d58e45b51a58ffac1b00da04be16f392765a8b2eaa67a7e29d683a64e27ff0383a849d0f9eb982d15fd246e7c70e1e1e6dcc5cc9c3e38c90377a57f11d002cdc8d6d1399fff0af823fb7832be3845b3d544ad0800700b01e52383e5f1bb12ba83ce4a1b3a26b9ae2b440acefd412f611b7f3c9cdeb7316701ea99912386c7723d69d5ca2f2a01805d3ba7703fcc4ffe080cd5b8598313552a9dd793f43924cd14826b8e0240c7a466c8ed4a7d9e8b2928720e9cd283e533936575d04ef6f32a5deb4720d24d652fa565a278154b0f5c940ae141a535dd22f19b737212e21cd1",
+)
+
+///|
+test "openssl-generated: RSA-2048 SHA-256 verify via SPKI" {
+  let pubkey = @rsa.RsaPublicKey::from_spki_der(openssl_spki_der)
+  assert_eq(pubkey.n_bytes_len, 256)
+  let ok = pubkey.verify(openssl_message, openssl_signature, Sha256)
+  assert_eq(ok, true)
+}
+
+///|
+test "openssl-generated: RSA-2048 SHA-256 verify via PKCS#1" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(openssl_pkcs1_der)
+  let ok = pubkey.verify(openssl_message, openssl_signature, Sha256)
+  assert_eq(ok, true)
+}
+
+///|
+test "cross-key rejection: openssl key cannot verify RFC 7515 signature" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(openssl_pkcs1_der)
+  let ok = pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha256)
+  assert_eq(ok, false)
+}
+
+// ─── decoder negative tests ────────────────────────────────────────────
+
+///|
+test "from_spki_der: truncated DER raises Asn1" {
+  // Take the first 10 bytes — definitely not a complete SEQUENCE.
+  let trunc = Bytes::makei(10, fn(i) { openssl_spki_der[i] })
+  let result = try? @rsa.RsaPublicKey::from_spki_der(trunc)
+  match result {
+    Err(_) => () // any RsaError is acceptable
+    Ok(_) => abort("expected truncated DER to fail")
+  }
+}
+
+///|
+test "from_spki_der: wrong algorithm OID rejected" {
+  // SPKI with id-ecPublicKey (1.2.840.10045.2.1) instead of rsaEncryption.
+  //   SEQUENCE { SEQUENCE { OID 1.2.840.10045.2.1, NULL }, BIT STRING { 0 } }
+  let bad = hex("3010300b06072a8648ce3d02010500030100")
+  let result = try? @rsa.RsaPublicKey::from_spki_der(bad)
+  match result {
+    Err(UnsupportedAlgorithm(_)) => ()
+    _ => abort("expected UnsupportedAlgorithm")
+  }
+}
+
+///|
+test "from_pkcs1_der: not a sequence rejected" {
+  // INTEGER 0 — single element, not a SEQUENCE.
+  let bad = hex("020100")
+  let result = try? @rsa.RsaPublicKey::from_pkcs1_der(bad)
+  match result {
+    Err(_) => ()
+    Ok(_) => abort("expected non-sequence to fail")
+  }
+}
+
+// ─── sanity: HashAlg ergonomics ────────────────────────────────────────
+
+///|
+test "Sha384 / Sha512 raise UnsupportedHash" {
+  let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
+  let r1 = try? pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha384)
+  match r1 {
+    Err(UnsupportedHash(_)) => ()
+    _ => abort("expected UnsupportedHash for Sha384")
+  }
+  let r2 = try? pubkey.verify(rfc7515_signing_input, rfc7515_signature, Sha512)
+  match r2 {
+    Err(UnsupportedHash(_)) => ()
+    _ => abort("expected UnsupportedHash for Sha512")
+  }
+}

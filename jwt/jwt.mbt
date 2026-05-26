@@ -1,10 +1,13 @@
 // JWT (RFC 7519) over JWS (RFC 7515) compact serialization.
 //
-// Supported algorithms: HS256, EdDSA (RFC 8037 §3.1). Everything else
-// (RS256, ES256, HS384/512, ES384/512, PS256/384/512) is recognized in
-// `Algorithm` for completeness but raises `UnsupportedAlgorithm` at
-// sign / verify time. Adding a new alg is a matter of extending `Key`
-// / `VerifyKey` and a `match` arm in `sign` / `verify`.
+// Supported algorithms:
+//   - sign + verify: HS256, EdDSA (RFC 8037 §3.1)
+//   - verify-only:   RS256 (RFC 7515 §3.3, RFC 8017 PKCS#1 v1.5)
+// Everything else (ES256, HS384/512, RS384/512, ES384/512, PS256/384/512)
+// is recognized in `Algorithm` for completeness but raises
+// `UnsupportedAlgorithm` at sign / verify time. Adding a new alg is a
+// matter of extending `Key` / `VerifyKey` and a `match` arm in
+// `sign` / `verify`.
 
 ///|
 pub(all) enum Algorithm {
@@ -33,6 +36,9 @@ pub(all) enum Key {
 pub(all) enum VerifyKey {
   Hs256(secret~ : Bytes)
   EdDsa(pubkey~ : @ed25519.PublicKey)
+  // RS256 verify only: we hold an RSA public key but never any private
+  // material, mirroring the verify-only scope of `mizchi/rsa`.
+  Rs256(pubkey~ : @rsa.RsaPublicKey)
 }
 
 ///|
@@ -185,6 +191,7 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
   match k {
     Hs256(..) => HS256
     EdDsa(..) => EdDSA
+    Rs256(..) => RS256
   }
 }
 
@@ -326,8 +333,15 @@ pub fn verify(
       // Ed25519 verification is itself constant-time over the signature
       // bytes, so we can call straight through.
       pubkey.verify(signing_bytes, provided_sig)
+    (RS256, Rs256(pubkey~)) =>
+      // mizchi/rsa raises on signature-length mismatch (which usually
+      // signals a wrong key); fold that into our InvalidSignature so
+      // the verify boundary stays simple for callers.
+      pubkey.verify(signing_bytes, provided_sig, @rsa.HashAlg::Sha256) catch {
+        _ => raise InvalidSignature
+      }
     (_, _) =>
-      // Either alg is a recognized-but-unsupported value (RS256, etc) or
+      // Either alg is a recognized-but-unsupported value (RS384, etc) or
       // we hit a key shape we never wired up. Both are spec-side gaps.
       raise UnsupportedAlgorithm(alg_to_str(alg))
   }

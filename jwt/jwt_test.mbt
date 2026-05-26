@@ -359,3 +359,77 @@ test "KeyAlgorithmMismatch: HS256 token with EdDSA verify key" {
     other => abort("expected KeyAlgorithmMismatch, got \{other}")
   }
 }
+
+// -----------------------------------------------------------------------------
+// RS256: RFC 7515 §A.2.1 verify
+// -----------------------------------------------------------------------------
+
+///|
+// PKCS#1 RSAPublicKey DER built mechanically from the RFC 7515 §A.2.1 JWK
+// (n, e) so that we can hand the byte stream straight to
+// `@rsa.RsaPublicKey::from_pkcs1_der`. See rsa/rsa_test.mbt for the same
+// blob expressed as raw n / e (and the SPKI variant).
+let rfc7515_a2_pkcs1_der : Bytes = hex_to_bytes(
+  "3082010a0282010100a1f8160ae2e3c9b465ce8d2d656263362b927dbe29e1f02477fc1625cc90a136e38bd93497c5b6ea63dd7711e67c7429f956b0fb8a8f089adc4b69893cc1333f53edd019b87784252fec914fe4857769594bea4280d32c0f55bf62944f130396bc6e9bdf6ebdd2bda3678eeca0c668f701b38dbffb38c8342ce2fe6d27fade4a5a4874979dd4b9cf9adec4c75b05852c2c0f5ef8a5c1750392f944e8ed64c110c6b647609aa4783aeb9c6c9ad755313050638b83665c6f6f7a82a396702a1f641b82d3ebf2392219491fb686872c5716f50af8358d9a8b9d17c340728f7f87d89a18d8fcab67ad84590c2ecf759339363c07034d6f606f9e21e05456cae5e9a10203010001",
+)
+
+///|
+// The RFC 7515 §A.2.1 JWS token (header.payload.signature).
+let rfc7515_a2_token : String = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.cC4hiUPoj9Eetdgtv3hF80EGrhuB__dzERat0XF9g2VtQgr9PJbu3XOiZj5RZmh7AAuHIm4Bh-0Qc_lF5YKt_O8W2Fp5jujGbds9uJdbF9CUAr7t1dnZcAcQjbKBYNX4BAynRFdiuB--f_nZLgrnbyTyWzO75vRK5h6xBArLIARNPvkSjtQBMHlb1L07Qe7K0GarZRmB_eSN9383LcOLn6_dO--xi12jzDwusC-eOkHWEsqtFZESc6BfI7noOPqvhJ1phCnvWh6IeYI2w9QOYEUipUTI8np6LbgGY9Fs98rqVt5AXLIhWkWywlVmtVrBp0igcN_IoypGlUPQGe77Rw"
+
+///|
+test "RS256: RFC 7515 §A.2.1 token verifies and decodes claims" {
+  let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
+  // exp claim is 1300819380 (long past) — set `now` before it so the time
+  // check does not fire; we want to assert the signature path here.
+  let opts : @jwt.VerifyOptions = {
+    now: 1300819300L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+  }
+  let v = @jwt.verify(rfc7515_a2_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)
+  assert_eq(v.alg, @jwt.Algorithm::RS256)
+  match v.claims.get("iss") {
+    Some(String(s)) => assert_eq(s, "joe")
+    _ => abort("missing iss")
+  }
+}
+
+///|
+test "RS256: tampered payload fails signature check" {
+  let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
+  // Replace the payload segment with a different base64url-valid payload
+  // that decodes to a different JSON document. The signature was bound to
+  // the original signing input, so the RSA verify must reject it.
+  // Original payload: "eyJpc3M..." (= {"iss":"joe",...})
+  // Replacement   :   base64url("{\"iss\":\"jon\"}") = "eyJpc3MiOiJqb24ifQ"
+  let parts = rfc7515_a2_token.split(".").to_array()
+  let bad_token = parts[0].to_string() +
+    "." +
+    "eyJpc3MiOiJqb24ifQ" +
+    "." +
+    parts[2].to_string()
+  let opts = @jwt.VerifyOptions::default(1300819300L)
+  match (try? @jwt.verify(bad_token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)) {
+    Err(InvalidSignature) => ()
+    Ok(_) => abort("expected InvalidSignature, got Ok")
+    Err(e) => abort("expected InvalidSignature, got \{e}")
+  }
+}
+
+///|
+test "RS256: KeyAlgorithmMismatch when alg=HS256 but key is Rs256" {
+  // Sign an HS256 token, then try to verify with an Rs256 key.
+  let secret : Bytes = b"k"
+  let m : Map[String, Json] = Map::new()
+  m["sub"] = Json::string("x")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let pk = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_a2_pkcs1_der)
+  let opts = @jwt.VerifyOptions::default(0L)
+  match (try? @jwt.verify(token, @jwt.VerifyKey::Rs256(pubkey=pk), opts)) {
+    Err(KeyAlgorithmMismatch) => ()
+    other => abort("expected KeyAlgorithmMismatch, got \{other}")
+  }
+}

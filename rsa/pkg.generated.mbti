@@ -1,0 +1,41 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/rsa"
+
+import {
+  "mizchi/asn1",
+  "moonbitlang/core/bigint",
+}
+
+// Values
+pub fn verify(RsaPublicKey, Bytes, Bytes, HashAlg) -> Bool raise RsaError
+
+// Errors
+pub suberror RsaError {
+  InvalidEncoding(String)
+  UnsupportedAlgorithm(String)
+  InvalidSignatureLength
+  UnsupportedHash(HashAlg)
+  ModulusTooSmall
+  Asn1(@asn1.Asn1Error)
+} derive(Show)
+
+// Types and methods
+pub(all) enum HashAlg {
+  Sha256
+  Sha384
+  Sha512
+} derive(Eq, Show)
+
+pub(all) struct RsaPublicKey {
+  n : @bigint.BigInt
+  e : @bigint.BigInt
+  n_bytes_len : Int
+}
+pub fn RsaPublicKey::from_pkcs1_der(Bytes) -> Self raise RsaError
+pub fn RsaPublicKey::from_spki_der(Bytes) -> Self raise RsaError
+pub fn RsaPublicKey::verify(Self, Bytes, Bytes, HashAlg) -> Bool raise RsaError
+
+// Type aliases
+
+// Traits
+
