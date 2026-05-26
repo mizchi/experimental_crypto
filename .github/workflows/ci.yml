@@ -16,17 +16,17 @@ jobs:
     name: test + prove (ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
+        uses: DeterminateSystems/nix-installer-action@v22
         with:
           extra-conf: |
             experimental-features = nix-command flakes
             accept-flake-config = true
 
       - name: Cache /nix/store
-        uses: DeterminateSystems/magic-nix-cache-action@main
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Preflight (provers visible)
         run: |
