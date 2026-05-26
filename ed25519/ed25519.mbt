@@ -534,6 +534,18 @@ fn fe_neg(a : Fe) -> Fe {
 }
 
 ///|
+// Constant-time conditional move: returns `a` if bit == 0, `b` if bit == 1.
+// `bit` must be 0 or 1. Caller is responsible for that invariant.
+fn fe_cmov(a : Fe, b : Fe, bit : UInt64) -> Fe {
+  let mask : UInt64 = 0UL - bit // all-1s if bit==1, all-0s if bit==0
+  let r = FixedArray::make(10, 0UL)
+  for i in 0..<10 {
+    r[i] = (a[i] & mask.lnot()) | (b[i] & mask)
+  }
+  r
+}
+
+///|
 fn fe_mul(f : Fe, g : Fe) -> Fe {
   let f0 = f[0]
   let f1 = f[1]
@@ -955,10 +967,17 @@ fn ed_point_double(p : EdPoint) -> EdPoint {
   let a = fe_sqr(p.x)
   let b = fe_sqr(p.y)
   let c = fe_sqr(p.z)
-  let c2 = fe_add(c, c)
+  // c2 and ab are subsequently subtracted from (in fe_sub / fe_neg).
+  // Carry them back to canonical-limb form so that the offset constant
+  // `two_p_limb` in fe_sub / fe_neg stays larger than every limb of the
+  // subtrahend. Without this, doubling the identity (whose squared X is
+  // the "p"-encoded zero with maxed limbs) makes ab[0] = a[0] + b[0]
+  // exceed two_p_limb[0] and fe_neg underflows in UInt64 to ~2^64 - 1,
+  // silently corrupting subsequent iterations.
+  let c2 = fe_carry_full(fe_add(c, c))
   let xy = fe_add(p.x, p.y)
   let xy2 = fe_sqr(xy)
-  let ab = fe_add(a, b)
+  let ab = fe_carry_full(fe_add(a, b))
   let e = fe_sub(xy2, ab) // (X+Y)^2 - A - B = 2 X Y
   let g = fe_sub(b, a) // B - A = Y^2 - X^2
   let f = fe_sub(g, c2) // G - 2 Z^2
@@ -967,36 +986,42 @@ fn ed_point_double(p : EdPoint) -> EdPoint {
 }
 
 ///|
+// Constant-time conditional move on EdPoint. Returns `a` if bit==0,
+// `b` if bit==1. `bit` must be 0 or 1.
+fn ed_point_cmov(a : EdPoint, b : EdPoint, bit : UInt64) -> EdPoint {
+  {
+    x: fe_cmov(a.x, b.x, bit),
+    y: fe_cmov(a.y, b.y, bit),
+    z: fe_cmov(a.z, b.z, bit),
+    t: fe_cmov(a.t, b.t, bit),
+  }
+}
+
+///|
+// Constant-time double-and-always-add scalar multiplication.
+//
+// The scalar is reduced mod L and held as 32 little-endian bytes so bit
+// extraction does not depend on @bigint's variable internal length.
+// Every iteration performs both ed_point_double and ed_point_add and
+// then selects between (doubled) and (doubled + base) via constant-time
+// cmov, so the work performed per bit is independent of the secret
+// scalar.
+//
+// Loop length is fixed at 256 iterations, which covers the 253-bit
+// reduced scalar with slack. The first ~3 iterations always operate on
+// the (projective) identity -- this depended on ed_point_double being
+// safe for inputs whose coordinates encode 0 with all-max ("p"-form)
+// limbs; see the regression comment on ed_point_double.
 fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
-  // Double-and-add over the bits of `scalar`, MSB to LSB so we can use
-  // the dedicated doubling formula. Variable time -- see
-  // security_review.md finding 10. A constant-time rewrite is on the
-  // roadmap; two prior attempts (always-add with @bigint bit extraction
-  // and with 32-byte LE bit extraction, both using HWCD point cmov)
-  // produced deterministically wrong public keys despite paper
-  // verification, pointing at a subtlety in the HWCD addition formula
-  // when the left summand has a non-canonical projective representation
-  // (e.g. `(0, -1, -1, 0)` produced by doubling the identity). Needs
-  // dedicated debug session.
   let s = (scalar % ed_l + ed_l) % ed_l
-  let mut bitlen = 0
-  let mut tmp = s
-  let zero = BigInt::from_int(0)
-  while tmp > zero {
-    bitlen = bitlen + 1
-    tmp = tmp >> 1
-  }
-  if bitlen == 0 {
-    return ed_identity()
-  }
+  let s_bytes = scalar_to_le_bytes(s)
   let mut q = ed_identity()
-  let one = BigInt::from_int(1)
-  for i = bitlen - 1; i >= 0; i = i - 1 {
+  for i = 255; i >= 0; i = i - 1 {
     q = ed_point_double(q)
-    let bit = ((s >> i) & one) == one
-    if bit {
-      q = ed_point_add(q, base)
-    }
+    let byte = s_bytes[i / 8].to_uint64()
+    let bit = (byte >> (i % 8)) & 1UL
+    let added = ed_point_add(q, base)
+    q = ed_point_cmov(q, added, bit)
   }
   q
 }

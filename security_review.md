@@ -170,19 +170,26 @@ real.
 **Recommendation**: One-line change to OR-XOR over all 32 bytes,
 matching `aead.constant_time_eq`.
 
-### 10. ed25519 scalar multiplication is variable-time double-and-add
+### 10. ed25519 scalar multiplication is variable-time double-and-add (RESOLVED)
 
 **Module**: `ed25519`
-**Location**: `ed25519/ed25519.mbt:967-1002`
+**Location**: `ed25519/ed25519.mbt`
 
-Source explicitly comments "Variable time." Called from
-`sign` on a scalar derived from the seed (secret) and on `r`
-derived from `prefix || message` (secret-derived). Bit pattern of
-the scalar leaks via timing.
+`ed_scalar_mult_point` is now a fixed-iteration double-and-always-add
+ladder with constant-time `ed_point_cmov`. Scalar bits are extracted
+from a 32-byte little-endian buffer (so no @bigint length leak), and
+both `ed_point_double` and `ed_point_add` execute on every iteration
+regardless of the bit value.
 
-**Recommendation**: Already on the roadmap per README. Short-term:
-constant-time Montgomery ladder over the Edwards point, or
-windowed-NAF with conditional select (mask + or) instead of branch.
+Root cause for the two prior failed attempts was a latent issue in
+`ed_point_double`: when fed the doubled-identity coordinates
+`(0, -1, -1, 0)`, `fe_sqr(p.x)` returns the "p"-encoded zero (limbs
+maxed); `fe_add(a, b)` then drives one limb above `two_p_limb` and
+`fe_neg(ab)` / `fe_sub(g, c2)` underflow in `UInt64`. The variable-time
+ladder never hit this state because it skipped leading zero bits. Fix
+was to `fe_carry_full` `ab` and `c2` before they are subtracted from.
+
+Cost (native, M-class): sign +27 %, verify +37 %, derive_pk +24 %.
 
 ---
 

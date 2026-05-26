@@ -78,3 +78,82 @@ test "base point compresses+decompresses to itself" {
     assert_eq(enc1[i], enc2[i])
   }
 }
+
+///|
+test "fe_cmov(a, b, 0) == a, fe_cmov(a, b, 1) == b" {
+  let a = fe_one()
+  let b = ed_d // arbitrary non-zero, non-one
+  let r0 = fe_cmov(a, b, 0UL)
+  let r1 = fe_cmov(a, b, 1UL)
+  assert_true(fe_eq(r0, a))
+  assert_true(fe_eq(r1, b))
+}
+
+///|
+test "ed_point_cmov selects branch by bit" {
+  let p = ed_identity()
+  let q = ed_base
+  let r0 = ed_point_cmov(p, q, 0UL)
+  let r1 = ed_point_cmov(p, q, 1UL)
+  assert_true(ed_points_equal(r0, p))
+  assert_true(ed_points_equal(r1, q))
+}
+
+///|
+test "ed_point_double of identity is identity (projectively)" {
+  // Regression: a previous version of ed_point_double underflowed inside
+  // fe_neg / fe_sub when the input point was the doubled-identity
+  // `(0, -1, -1, 0)`. fe_sqr of the "p"-encoded zero produces limbs that,
+  // after fe_add(a, b), exceed two_p_limb[0] and turn fe_neg into a
+  // ~2^64-1 garbage limb. Fixed by canonicalizing ab and c2 with
+  // fe_carry_full before the subtractions.
+  let id = ed_identity()
+  let d1 = ed_point_double(id)
+  let d2 = ed_point_double(d1)
+  let d3 = ed_point_double(d2)
+  assert_true(ed_points_equal(d1, id))
+  assert_true(ed_points_equal(d2, id))
+  assert_true(ed_points_equal(d3, id))
+}
+
+///|
+test "ed_scalar_mult_point: scalar 0 yields identity" {
+  let r = ed_scalar_mult_point(BigInt::from_int(0), ed_base)
+  assert_true(ed_points_equal(r, ed_identity()))
+}
+
+///|
+test "ed_scalar_mult_point: scalar 1 yields base" {
+  let r = ed_scalar_mult_point(BigInt::from_int(1), ed_base)
+  assert_true(ed_points_equal(r, ed_base))
+}
+
+///|
+test "ed_scalar_mult_point: scalar 2 yields 2*base" {
+  let r = ed_scalar_mult_point(BigInt::from_int(2), ed_base)
+  let expected = ed_point_double(ed_base)
+  assert_true(ed_points_equal(r, expected))
+}
+
+///|
+test "ed_scalar_mult_point: k*base for small k matches repeated addition" {
+  // Cross-check the always-add ladder against the bare ed_point_add
+  // chain for the first few multiples of the base point.
+  let mut acc = ed_identity()
+  for k = 0; k < 16; k = k + 1 {
+    let r = ed_scalar_mult_point(BigInt::from_int(k), ed_base)
+    assert_true(ed_points_equal(r, acc))
+    acc = ed_point_add(acc, ed_base)
+  }
+}
+
+///|
+test "ed_scalar_mult_point: doubling commutes with the ladder" {
+  // 2 * (k * B) == (2 * k) * B for a handful of k.
+  for k = 1; k < 6; k = k + 1 {
+    let kp = ed_scalar_mult_point(BigInt::from_int(k), ed_base)
+    let doubled = ed_point_double(kp)
+    let two_k = ed_scalar_mult_point(BigInt::from_int(2 * k), ed_base)
+    assert_true(ed_points_equal(doubled, two_k))
+  }
+}
