@@ -245,9 +245,9 @@ pub(all) enum Key {
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
   Es256k(privkey~ : @secp256k1.PrivateKey)
-  Ps256(privkey~ : @rsa.RsaPrivateKey)
-  Ps384(privkey~ : @rsa.RsaPrivateKey)
-  Ps512(privkey~ : @rsa.RsaPrivateKey)
+  Ps256(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
+  Ps384(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
+  Ps512(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
 }
 
 pub(all) struct LogoutToken {

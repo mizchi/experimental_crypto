@@ -119,9 +119,8 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
   named errors. Bare `rsaEncryption` signature OIDs in CMS pull the hash from
   `digestAlgorithm` and cross-check.
 - **Caller-supplied randomness for sign**: ECDSA uses RFC 6979 deterministic
-  nonces. RSA-PSS for JWT uses sLen=0 (deterministic) because no vetted RNG
-  is exposed at the JWT layer; callers needing RFC 7518 interop call
-  `@rsa.sign_pss` directly.
+  nonces. RSA-PSS for JWT requires caller-supplied hLen salt because no vetted
+  RNG is exposed at the JWT layer; verification enforces RFC 7518 `sLen=hLen`.
 - **Const-time gaps documented**: every remaining variable-time sign path has a
   doc comment marking the side-channel. `crypto_bigint` now uses fixed-limb /
   fixed-iteration code for modular arithmetic, but external leakage

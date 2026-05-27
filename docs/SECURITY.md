@@ -102,11 +102,10 @@ paths.
 
 - **JWT `kid`** is returned verbatim. If the caller uses it as a
   file-system path or URL component, they MUST sanitise it.
-- **PSS sign for JWT** uses deterministic PSS (sLen=0) since no vetted
-  RNG is exposed at the JWT layer. This deviates from RFC 7518 §3.5
-  (which mandates sLen=hLen) and is documented in the jwt.mbt module
-  comment. Callers needing RFC 7518 interop call `@rsa.sign_pss`
-  directly with a freshly-sampled salt.
+- **PSS sign for JWT** requires caller-supplied salt of exactly hLen bytes
+  (32 / 48 / 64 for PS256 / PS384 / PS512). The JWT layer does not provide an
+  RNG; callers must generate fresh salt. Verification enforces RFC 7518
+  `sLen = hLen` and rejects deterministic no-salt PSx tokens.
 - **OCSP / CRL revocation** is parsed and verified but NOT consulted by
   `pkix_verify.verify_chain` automatically — callers must wire them.
 

@@ -182,6 +182,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add malformed UTF-8 JWT header and signed payload fixtures for the decode
   catch arms.
 - Add DPoP malformed embedded `jwk` header and claim-shape fixtures.
+- Enforce RFC 7518 `sLen=hLen` for JWT PS256 / PS384 / PS512 verification,
+  require caller-supplied hLen salt for PSx signing, and reject deterministic
+  no-salt PSx tokens under standard JOSE `alg` names.
 
 ### COSE / CMS / OCSP / CRL / PGP / Git Objects
 

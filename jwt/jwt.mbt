@@ -7,19 +7,12 @@
 // ES512 is recognized in `Algorithm` for completeness but has no Key /
 // VerifyKey branch because this workspace does not currently implement P-521.
 //
-// PSx caveat: RFC 7518 §3.5 requires sLen = hLen for PS256 / PS384 / PS512,
-// but the workspace does not yet expose a vetted RNG for the JWT layer.
-// To keep the roundtrip self-consistent without a hidden non-deterministic
-// dependency, both `sign` and `verify` for PSx use **deterministic PSS with
-// sLen = 0** (allowed by RFC 8017 §A.2.3). This means:
-//   * tokens we produce will NOT verify under strict RFC 7518 verifiers
-//     (which expect sLen = hLen);
-//   * tokens produced by strict RFC 7518 verifiers will NOT verify here.
-// Callers that need either direction of RFC 7518 interop should call
-// `@rsa.RsaPrivateKey::sign_pss` / `@rsa.RsaPublicKey::verify_pss`
-// directly with a real RNG-supplied salt and assemble or split the
-// compact JWS by hand. The defaults here are an interop-bug-resistant
-// closed loop, not an RFC 7518 implementation.
+// PSx note: RFC 7518 §3.5 requires sLen = hLen for PS256 / PS384 / PS512.
+// The workspace does not provide an RNG at the JWT layer, so PSx signing
+// requires the caller to provide a freshly sampled salt of exactly the hash
+// length. Verification always enforces sLen = hLen. Non-standard no-salt PSS
+// tokens are rejected under `alg=PS256/384/512` to avoid authentication
+// false positives against strict JWA semantics.
 
 ///|
 pub(all) enum Algorithm {
@@ -60,11 +53,11 @@ pub(all) enum Key {
   // ES256K (RFC 8812): ECDSA-secp256k1-SHA256 with RFC 6979 + BIP-62 low-s.
   // Signature is the JOSE raw form r||s (64 bytes) regardless of the curve.
   Es256k(privkey~ : @secp256k1.PrivateKey)
-  // PS256 / PS384 / PS512: RSASSA-PSS sign with deterministic empty salt.
-  // See the module comment for the sLen = 0 caveat vs RFC 7518 §3.5.
-  Ps256(privkey~ : @rsa.RsaPrivateKey)
-  Ps384(privkey~ : @rsa.RsaPrivateKey)
-  Ps512(privkey~ : @rsa.RsaPrivateKey)
+  // PS256 / PS384 / PS512: RSASSA-PSS sign with caller-supplied salt.
+  // The salt must be exactly hLen bytes (32 / 48 / 64 respectively).
+  Ps256(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
+  Ps384(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
+  Ps512(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
 }
 
 ///|
@@ -89,9 +82,8 @@ pub(all) enum VerifyKey {
   // Verify is permissive on high-s per the underlying SEC 2 / FIPS 186-5
   // shape — strict BIP-66 rejection is the caller's job.
   Es256k(pubkey~ : @secp256k1.PublicKey)
-  // PS256 / PS384 / PS512: RSASSA-PSS verify with sLen = 0 (matches our
-  // sign path, NOT the RFC 7518 sLen = hLen convention — see module
-  // comment for the interop tradeoff).
+  // PS256 / PS384 / PS512: RSASSA-PSS verify with sLen = hLen, as required
+  // by RFC 7518 §3.5.
   Ps256(pubkey~ : @rsa.RsaPublicKey)
   Ps384(pubkey~ : @rsa.RsaPublicKey)
   Ps512(pubkey~ : @rsa.RsaPublicKey)
@@ -361,6 +353,19 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
 }
 
 ///|
+fn require_pss_salt_len(
+  alg : String,
+  salt : Bytes,
+  expected : Int,
+) -> Unit raise JwtError {
+  if salt.length() != expected {
+    raise UnsupportedAlgorithm(
+      alg + " requires " + expected.to_string() + "-byte PSS salt (sLen=hLen)",
+    )
+  }
+}
+
+///|
 fn build_header_json(alg : Algorithm, kid : String?, typ : String) -> Json {
   // Header order is irrelevant for verification (the signing input is the
   // exact base64url-encoded bytes we produce here), so we just emit the
@@ -442,28 +447,33 @@ pub fn sign(
     Es256k(privkey~) =>
       // @secp256k1.sign defaults to BIP-62 low-s + DER; JOSE wants raw r||s.
       privkey.sign(signing_bytes, format=@secp256k1.SignatureFormat::Raw)
-    // PSS with sLen = 0 (deterministic) — see module comment.
-    Ps256(privkey~) =>
-      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, b"") catch {
+    Ps256(privkey~, salt~) => {
+      require_pss_salt_len("PS256", salt, 32)
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha256, salt) catch {
         e =>
           raise UnsupportedAlgorithm(
             "PS256 sign failed: " + @debug.to_string(e),
           )
       }
-    Ps384(privkey~) =>
-      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha384, b"") catch {
+    }
+    Ps384(privkey~, salt~) => {
+      require_pss_salt_len("PS384", salt, 48)
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha384, salt) catch {
         e =>
           raise UnsupportedAlgorithm(
             "PS384 sign failed: " + @debug.to_string(e),
           )
       }
-    Ps512(privkey~) =>
-      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha512, b"") catch {
+    }
+    Ps512(privkey~, salt~) => {
+      require_pss_salt_len("PS512", salt, 64)
+      privkey.sign_pss(signing_bytes, @rsa.HashAlg::Sha512, salt) catch {
         e =>
           raise UnsupportedAlgorithm(
             "PS512 sign failed: " + @debug.to_string(e),
           )
       }
+    }
   }
   signing_input + "." + base64url_encode(signature)
 }
@@ -985,32 +995,16 @@ pub fn verify(
       ) catch {
         _ => raise InvalidSignature
       }
-    // PSS verify with sLen = 0 (matches the sign path; see module comment).
     (PS256, Ps256(pubkey~)) =>
-      pubkey.verify_pss(
-        signing_bytes,
-        provided_sig,
-        @rsa.HashAlg::Sha256,
-        salt_len=0,
-      ) catch {
+      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha256) catch {
         _ => raise InvalidSignature
       }
     (PS384, Ps384(pubkey~)) =>
-      pubkey.verify_pss(
-        signing_bytes,
-        provided_sig,
-        @rsa.HashAlg::Sha384,
-        salt_len=0,
-      ) catch {
+      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha384) catch {
         _ => raise InvalidSignature
       }
     (PS512, Ps512(pubkey~)) =>
-      pubkey.verify_pss(
-        signing_bytes,
-        provided_sig,
-        @rsa.HashAlg::Sha512,
-        salt_len=0,
-      ) catch {
+      pubkey.verify_pss(signing_bytes, provided_sig, @rsa.HashAlg::Sha512) catch {
         _ => raise InvalidSignature
       }
     (_, _) =>

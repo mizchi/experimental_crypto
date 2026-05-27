@@ -107,6 +107,26 @@ fn sign_hs256_token_with_payload_bytes(
 }
 
 ///|
+fn sign_ps256_token_with_salt(
+  header : Json,
+  payload : Json,
+  sk : @rsa.RsaPrivateKey,
+  salt : Bytes,
+) -> String {
+  let header_b64 = b64u_encode(@utf8.encode(header.stringify()[:]))
+  let payload_b64 = b64u_encode(@utf8.encode(payload.stringify()[:]))
+  let signing_input = header_b64 + "." + payload_b64
+  let sig = sk.sign_pss(
+    @utf8.encode(signing_input[:]),
+    @rsa.HashAlg::Sha256,
+    salt,
+  ) catch {
+    _ => abort("PS256 fixture signing failed")
+  }
+  signing_input + "." + b64u_encode(sig)
+}
+
+///|
 fn sign_ed25519_token_with_raw_json(
   header_json : String,
   payload_json : String,
@@ -958,14 +978,15 @@ test "JWT RS512 sign + verify roundtrip" {
 }
 
 ///|
-test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
-  // Internal sign / verify use deterministic PSS (sLen = 0). This matches
-  // the closed-loop behaviour described in the jwt module comment; it is
-  // NOT RFC 7518 §3.5 interoperable.
+test "JWT PS256 sign + verify roundtrip (RFC 7518 sLen=hLen)" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let salt = Bytes::makei(32, fn(i) { (i + 11).to_byte() })
   let claims = Map([])
   claims["sub"] = Json::string("ps256-roundtrip")
-  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
+  let token = @jwt.sign(
+    Json::object(claims),
+    @jwt.Key::Ps256(privkey=sk, salt~),
+  )
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(
     token,
@@ -980,11 +1001,58 @@ test "JWT PS256 sign + verify roundtrip (deterministic sLen=0)" {
 }
 
 ///|
-test "JWT PS384 sign + verify roundtrip" {
+test "JWT PS256 sign rejects non-JWA salt length" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
   let claims = Map([])
+  claims["sub"] = Json::string("ps256-bad-salt")
+  try
+    @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk, salt=b""))
+  catch {
+    UnsupportedAlgorithm(_) => ()
+    other => abort("expected UnsupportedAlgorithm, got " + repr(other) + "")
+  } noraise {
+    _ => abort("PS256 accepted non-JWA salt length")
+  }
+}
+
+///|
+test "ATTACK JWT PS256: deterministic sLen=0 token is rejected" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("PS256")
+  header["typ"] = Json::string("JWT")
+  let claims : Map[String, Json] = Map([])
+  claims["sub"] = Json::string("ps256-empty-salt")
+  let token = sign_ps256_token_with_salt(
+    Json::object(header),
+    Json::object(claims),
+    sk,
+    b"",
+  )
+  try
+    @jwt.verify(
+      token,
+      @jwt.VerifyKey::Ps256(pubkey=sk.public_key()),
+      @jwt.VerifyOptions::default(0L),
+    )
+  catch {
+    InvalidSignature => ()
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted PS256 token with sLen=0")
+  }
+}
+
+///|
+test "JWT PS384 sign + verify roundtrip" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let salt = Bytes::makei(48, fn(i) { (i + 23).to_byte() })
+  let claims = Map([])
   claims["sub"] = Json::string("ps384-roundtrip")
-  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps384(privkey=sk))
+  let token = @jwt.sign(
+    Json::object(claims),
+    @jwt.Key::Ps384(privkey=sk, salt~),
+  )
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(
     token,
@@ -997,9 +1065,13 @@ test "JWT PS384 sign + verify roundtrip" {
 ///|
 test "JWT PS512 sign + verify roundtrip" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let salt = Bytes::makei(64, fn(i) { (i + 37).to_byte() })
   let claims = Map([])
   claims["sub"] = Json::string("ps512-roundtrip")
-  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps512(privkey=sk))
+  let token = @jwt.sign(
+    Json::object(claims),
+    @jwt.Key::Ps512(privkey=sk, salt~),
+  )
   let opts = @jwt.VerifyOptions::default(0L)
   let v = @jwt.verify(
     token,
@@ -1028,9 +1100,13 @@ test "JWT PS256: KeyAlgorithmMismatch when alg=HS256 but key is Ps256" {
 ///|
 test "JWT PS256: tampered payload fails signature check" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rs256_priv_pkcs1_der)
+  let salt = Bytes::makei(32, fn(i) { (i + 41).to_byte() })
   let claims = Map([])
   claims["sub"] = Json::string("original")
-  let token = @jwt.sign(Json::object(claims), @jwt.Key::Ps256(privkey=sk))
+  let token = @jwt.sign(
+    Json::object(claims),
+    @jwt.Key::Ps256(privkey=sk, salt~),
+  )
   // Swap the payload segment for a different valid base64url.
   let parts = token.split(".").to_array()
   let bad_token = parts[0].to_owned() +

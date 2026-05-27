@@ -89,9 +89,9 @@ fails closed before returning authenticated / verified / trusted.
 - **Interop-only sign output checks**: external `gpg` / `sq` / `rsop`
   validation of signatures we produce mostly causes false negatives with other
   tools rather than false positives in our verifiers.
-- **Coverage expansion after strict behavior exists**: remaining JOSE container
-  fuzzing is valuable, but the immediate false-positive control is fail-closed
-  behavior.
+- **Coverage expansion after strict behavior exists**: additional generated /
+  reference vectors are valuable, but the immediate false-positive control is
+  fail-closed behavior.
 - **Leakage measurement harnesses**: `dudect` / callgrind-style checks are not
   direct authentication false-positive controls, but remain high priority for
   production signing keys.
@@ -128,11 +128,6 @@ fails closed before returning authenticated / verified / trusted.
   fixed-iteration complete-addition field paths, and final nonce inverses no
   longer use `@bigint.pow`. The remaining ECDSA risk is unmeasured
   backend/allocation leakage, not the old affine secret-scalar ladder.
-- [ ] **PSS RNG-backed sign in JWT**: PS256/384/512 currently uses
-  deterministic PSS (`sLen = 0`) because the workspace has no vetted RNG at the
-  JWT layer. RFC 7518 mandates `sLen = hLen`; callers needing full interop call
-  `@rsa.sign_pss` directly with a freshly sampled salt.
-
 ## Formal Methods
 
 - [ ] Remove the `partial_prover` shim in `proofs/why3.conf` once Why3 1.7.2
