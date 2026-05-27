@@ -147,9 +147,6 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] **JWT remaining coverage holes**: unsupported / fixture-heavy ES512
   branch after P-521 exists.
-- [ ] **Cross-format fuzz breadth**: PEM -> ASN.1 -> PKCS#8 / PKIX and
-  CMS / OCSP / CRL -> PKIX_VERIFY fuzzing exists; extend remaining breadth to
-  JOSE containers.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
   operations, and ECDSA signing. A native `leakage_harness` workload entry

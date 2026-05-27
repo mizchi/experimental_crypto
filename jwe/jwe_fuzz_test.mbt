@@ -25,6 +25,55 @@ fn fuzz_jwe_flip_first(b : Bytes) -> Bytes {
 }
 
 ///|
+let fuzz_jwe_b64u_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+///|
+fn fuzz_jwe_mutate_b64u_char(c : Char, entropy : Int) -> Char {
+  let candidate = fuzz_jwe_b64u_alphabet.get_char(entropy & 63).unwrap()
+  if candidate == c {
+    fuzz_jwe_b64u_alphabet.get_char((entropy + 1) & 63).unwrap()
+  } else {
+    candidate
+  }
+}
+
+///|
+fn fuzz_jwe_mutate_compact_token(token : String, entropy : Bytes) -> String {
+  let mut b64u_chars = 0
+  for c in token {
+    if c != '.' {
+      b64u_chars = b64u_chars + 1
+    }
+  }
+  if b64u_chars == 0 {
+    token
+  } else {
+    let seed = if entropy.length() == 0 { 0 } else { entropy[0].to_int() }
+    let tweak = if entropy.length() < 2 {
+      seed + 1
+    } else {
+      entropy[1].to_int()
+    }
+    let target = seed % b64u_chars
+    let out = StringBuilder::new()
+    let mut seen = 0
+    let mut done = false
+    for c in token {
+      if c != '.' && seen == target && !done {
+        out.write_char(fuzz_jwe_mutate_b64u_char(c, tweak))
+        done = true
+      } else {
+        out.write_char(c)
+      }
+      if c != '.' {
+        seen = seen + 1
+      }
+    }
+    out.to_string()
+  }
+}
+
+///|
 test "fuzz jwe: decrypt never panics on random compact strings" {
   let key = fuzz_jwe_bytes(b"fixed-jwe-key", 32)
   for input in (@quickcheck.samples(200) : Array[String]) {
@@ -65,6 +114,28 @@ test "fuzz jwe: dir A256GCM round-trip on generated keys and IVs" {
     )
     let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecDir(cek~))
     @debug.assert_eq(decoded, plaintext)
+  }
+}
+
+///|
+test "fuzz jwe: mutated compact token never authenticates" {
+  for quad in (@quickcheck.samples(80) : Array[(Bytes, Bytes, Bytes, Bytes)]) {
+    let (plaintext, key_raw, iv_raw, entropy) = quad
+    let cek = fuzz_jwe_bytes(key_raw, 32)
+    let iv = fuzz_jwe_bytes(iv_raw, 12)
+    let token = @jwe.encrypt(
+      plaintext,
+      @jwe.JweAlg::Dir,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncDir(cek~),
+      iv~,
+    )
+    let mutated = fuzz_jwe_mutate_compact_token(token, entropy)
+    try @jwe.decrypt(mutated, @jwe.DecryptionKey::DecDir(cek~)) catch {
+      _ => ()
+    } noraise {
+      _ => abort("mutated compact JWE authenticated")
+    }
   }
 }
 

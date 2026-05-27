@@ -240,6 +240,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 ## Reference Tests And Fuzzing
 
 - Add JWK -> JWT -> JWE cross-format fuzz covering JWKS key selection, signed JWT verification, and JWE wrapping.
+- Add compact JWE mutation fuzz so any one-character protected-header /
+  ciphertext / tag tamper must fail authentication.
+- Add OIDC encrypted ID token mutation fuzz so outer JWE tampering cannot pass
+  the high-level ID token verifier.
 - Add RFC 7520 `dir` + `A128GCM` compact JWE decrypt vector.
 - Keep real Let's Encrypt R10 / ISRG Root X1 reference coverage in `pkix_verify`.
 - Add libsodium XChaCha20-Poly1305 no-AAD reference vector for `naclbox.secretbox`.

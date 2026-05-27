@@ -71,6 +71,55 @@ fn fuzz_bytes(raw : Bytes, len : Int) -> Bytes {
 }
 
 ///|
+let fuzz_compact_b64u_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+///|
+fn fuzz_mutate_b64u_char(c : Char, entropy : Int) -> Char {
+  let candidate = fuzz_compact_b64u_alphabet.get_char(entropy & 63).unwrap()
+  if candidate == c {
+    fuzz_compact_b64u_alphabet.get_char((entropy + 1) & 63).unwrap()
+  } else {
+    candidate
+  }
+}
+
+///|
+fn fuzz_mutate_compact_token(token : String, entropy : Bytes) -> String {
+  let mut b64u_chars = 0
+  for c in token {
+    if c != '.' {
+      b64u_chars = b64u_chars + 1
+    }
+  }
+  if b64u_chars == 0 {
+    token
+  } else {
+    let seed = if entropy.length() == 0 { 0 } else { entropy[0].to_int() }
+    let tweak = if entropy.length() < 2 {
+      seed + 1
+    } else {
+      entropy[1].to_int()
+    }
+    let target = seed % b64u_chars
+    let out = StringBuilder::new()
+    let mut seen = 0
+    let mut done = false
+    for c in token {
+      if c != '.' && seen == target && !done {
+        out.write_char(fuzz_mutate_b64u_char(c, tweak))
+        done = true
+      } else {
+        out.write_char(c)
+      }
+      if c != '.' {
+        seen = seen + 1
+      }
+    }
+    out.to_string()
+  }
+}
+
+///|
 fn fuzz_jwks_two_same_kid(kid : String) -> String {
   "{ \"keys\": [ " +
   "{ \"kty\": \"oct\", \"kid\": \"" +
@@ -408,6 +457,48 @@ test "fuzz oidc profiles: high-level verifiers never panic on random compact str
       oidc_opts,
     )
     let _ = try? @jwt.parse_provider_metadata(input)
+  }
+}
+
+///|
+test "fuzz oidc encrypted id token: mutated outer JWE never authenticates" {
+  let now = 1_700_000_000L
+  let sign_secret : Bytes = b"encrypted-id-fuzz-secret"
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://issuer.example/", "client-abc",
+  )
+  for sample in (@quickcheck.samples(60) : Array[(Bytes, Bytes, Bytes, Bytes)]) {
+    let (subject_raw, cek_raw, iv_raw, entropy) = sample
+    let subject = fuzz_oidc_subject(subject_raw)
+    let cek = fuzz_bytes(cek_raw, 32)
+    let iv = fuzz_bytes(iv_raw, 12)
+    let inner = @jwt.sign(
+      fuzz_oidc_claims(now, subject, Map([])),
+      @jwt.Key::Hs256(secret=sign_secret),
+    )
+    let outer_header : Map[String, Json] = Map([])
+    outer_header["cty"] = Json::string("JWT")
+    let outer = @jwe.encrypt(
+      @utf8.encode(inner[:]),
+      @jwe.JweAlg::Dir,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncDir(cek~),
+      iv~,
+      extra_header=outer_header,
+    )
+    let mutated = fuzz_mutate_compact_token(outer, entropy)
+    try
+      @jwt.verify_oidc_id_token_encrypted(
+        mutated,
+        @jwe.DecryptionKey::DecDir(cek~),
+        @jwt.VerifyKey::Hs256(secret=sign_secret),
+        opts,
+      )
+    catch {
+      _ => ()
+    } noraise {
+      _ => abort("mutated encrypted ID token authenticated")
+    }
   }
 }
 
