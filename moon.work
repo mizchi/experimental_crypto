@@ -22,6 +22,7 @@ members = [
   "./ssh",
   "./git_object",
   "./pgp",
+  "./pgp/gpg_interop",
   "./cms",
   "./secp256k1",
   "./jwe",

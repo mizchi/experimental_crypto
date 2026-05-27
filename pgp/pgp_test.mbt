@@ -503,9 +503,8 @@ test "pgp: armor CRC mismatch is detected" {
 }
 
 // -----------------------------------------------------------------------------
-// Sign roundtrips (verify with our own verifier — gpg-binary
-// interoperability is left as a follow-up since we don't emit a UserID
-// packet, only the detached Signature packet).
+// Sign roundtrips. The external v4 Ed25519 sign-side check lives in
+// `pgp/gpg_interop.sh`; these tests keep the in-package wire shape pinned.
 // -----------------------------------------------------------------------------
 
 ///|
@@ -518,6 +517,50 @@ test "pgp: sign Ed25519 + verify roundtrip" {
     b"hello pgp ed25519",
   )
   assert_true(@pgp.verify_armor(armor, b"hello pgp ed25519", pk_pgp))
+}
+
+///|
+test "pgp: export Ed25519 v4 signing public key armor" {
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let armor = @pgp.export_ed25519_v4_public_key_armor(
+    sk, "MoonBit PGP Interop <pgp@example.invalid>",
+  )
+  let decoded = @pgp.decode_armor(armor)
+  let packets = @pgp.parse_packets(decoded.data)
+  @debug.assert_eq(packets.length(), 3)
+  @debug.assert_eq(packets[0].tag, 6)
+  @debug.assert_eq(packets[1].tag, 13)
+  @debug.assert_eq(packets[2].tag, 2)
+  let pkpkt = @pgp.parse_pubkey_armor(armor)
+  @debug.assert_eq(pkpkt.version, 4)
+  @debug.assert_eq(pkpkt.algo, @pgp.algo_eddsa_legacy)
+  match pkpkt.key {
+    Ed25519(pk) => @debug.assert_eq(pk.to_bytes(), sk.public_key().to_bytes())
+    _ => abort("expected Ed25519 public key")
+  }
+  let self_sig = @pgp.parse_signature_packet(packets[2].body)
+  @debug.assert_eq(self_sig.version, 4)
+  @debug.assert_eq(self_sig.sig_type, 0x13)
+  @debug.assert_eq(self_sig.pubkey_algo, @pgp.algo_eddsa_legacy)
+  @debug.assert_eq(self_sig.hash_algo, @pgp.hash_sha512)
+}
+
+///|
+test "pgp: exported Ed25519 v4 signing key verifies generated signature" {
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let key_armor = @pgp.export_ed25519_v4_public_key_armor(
+    sk, "MoonBit PGP Interop <pgp@example.invalid>",
+  )
+  let pkpkt = @pgp.parse_pubkey_armor(key_armor)
+  let sig_armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"PGP sign-side interop\n",
+  )
+  assert_true(
+    @pgp.verify_armor(sig_armor, b"PGP sign-side interop\n", pkpkt.key),
+  )
 }
 
 ///|

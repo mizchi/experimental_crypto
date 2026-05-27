@@ -225,8 +225,9 @@ fn build_pre_hash_input(sig : PgpSignature, message : Bytes) -> Bytes {
 
 // ─── sign side ───────────────────────────────────────────────────────────
 //
-// Out of scope: building a key (with user IDs / self-cert) for export.
-// We just emit a detached signature armor over `message`.
+// Full OpenPGP key management is out of scope, but we export a minimal v4
+// Ed25519 transferable public key so generated detached signatures can be
+// checked by external tools such as GnuPG.
 
 ///|
 pub(all) enum PgpPrivateKey {
@@ -234,6 +235,229 @@ pub(all) enum PgpPrivateKey {
   Rsa(@rsa.RsaPrivateKey)
   EcdsaP256(@p256.PrivateKey)
   EcdsaP384(@p384.PrivateKey)
+}
+
+///|
+/// Export a minimal v4 Ed25519 `-----BEGIN PGP PUBLIC KEY BLOCK-----` with a
+/// User ID packet and primary-key self-signature. This is intentionally narrow:
+/// it exists so detached signatures produced by `sign_armor` can be imported
+/// and verified by OpenPGP reference tools. It is not a complete key-generation
+/// or trust-management API.
+pub fn export_ed25519_v4_public_key_armor(
+  sk : @ed25519.PrivateKey,
+  user_id : String,
+  creation_time? : UInt = 1700000000U,
+) -> String raise PgpError {
+  let user_id_body = @utf8.encode(user_id[:])
+  if user_id_body.length() == 0 {
+    raise Crypto("OpenPGP User ID must not be empty")
+  }
+  let public_key_body = build_ed25519_v4_public_key_packet_body(
+    sk.public_key(),
+    creation_time,
+  )
+  let self_sig_body = build_ed25519_v4_user_id_self_signature(
+    sk, public_key_body, user_id_body, creation_time,
+  )
+  let public_key_packet = wrap_new_format_packet(6, public_key_body)
+  let user_id_packet = wrap_new_format_packet(13, user_id_body)
+  let self_sig_packet = wrap_new_format_packet(2, self_sig_body)
+  build_armor(
+    "PUBLIC KEY BLOCK",
+    concat_bytes(
+      concat_bytes(public_key_packet, user_id_packet),
+      self_sig_packet,
+    ),
+  )
+}
+
+///|
+fn build_ed25519_v4_public_key_packet_body(
+  pk : @ed25519.PublicKey,
+  creation_time : UInt,
+) -> Bytes {
+  let oid = legacy_ed25519_oid()
+  let raw = pk.to_bytes()
+  let point = Bytes::makei(33, fn(i) {
+    if i == 0 {
+      b'\x40'
+    } else {
+      raw[i - 1]
+    }
+  })
+  let point_mpi = encode_mpi(point)
+  let total = 6 + 1 + oid.length() + point_mpi.length()
+  Bytes::makei(total, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 1 {
+      ((creation_time >> 24) & 0xffU).to_byte()
+    } else if i == 2 {
+      ((creation_time >> 16) & 0xffU).to_byte()
+    } else if i == 3 {
+      ((creation_time >> 8) & 0xffU).to_byte()
+    } else if i == 4 {
+      (creation_time & 0xffU).to_byte()
+    } else if i == 5 {
+      algo_eddsa_legacy.to_byte()
+    } else if i == 6 {
+      oid.length().to_byte()
+    } else if i < 7 + oid.length() {
+      oid[i - 7]
+    } else {
+      point_mpi[i - 7 - oid.length()]
+    }
+  })
+}
+
+///|
+fn build_ed25519_v4_user_id_self_signature(
+  sk : @ed25519.PrivateKey,
+  public_key_body : Bytes,
+  user_id_body : Bytes,
+  creation_time : UInt,
+) -> Bytes {
+  let fp = v4_public_key_fingerprint(public_key_body)
+  let hashed_sub = concat_bytes(
+    concat_bytes(
+      build_creation_time_subpacket(creation_time),
+      build_key_flags_subpacket(0x03),
+    ),
+    build_issuer_fingerprint_subpacket(fp),
+  )
+  let hashed_sub_len = hashed_sub.length()
+  let prelude_len = 6 + hashed_sub_len
+  let prelude = FixedArray::make(prelude_len, b'\x00')
+  prelude[0] = b'\x04'
+  prelude[1] = b'\x13' // positive certification of a User ID and public key
+  prelude[2] = algo_eddsa_legacy.to_byte()
+  prelude[3] = hash_sha512.to_byte()
+  prelude[4] = ((hashed_sub_len >> 8) & 0xff).to_byte()
+  prelude[5] = (hashed_sub_len & 0xff).to_byte()
+  for i = 0; i < hashed_sub_len; i = i + 1 {
+    prelude[6 + i] = hashed_sub[i]
+  }
+  let prelude_bytes = Bytes::makei(prelude_len, fn(i) { prelude[i] })
+  let certified = concat_bytes(
+    build_v4_public_key_hash_input(public_key_body),
+    build_v4_user_id_hash_input(user_id_body),
+  )
+  let digest = @hash.sha512(
+    build_pgp_pre_hash_input(certified, prelude_bytes, b"", 4),
+  )
+  let raw = sk.sign(digest)
+  let r = Bytes::makei(32, fn(i) { raw[i] })
+  let s = Bytes::makei(32, fn(i) { raw[i + 32] })
+  let sig_material = concat_bytes(encode_mpi(r), encode_mpi(s))
+  let unhashed_sub = build_issuer_key_id_subpacket(fp)
+  let unhashed_sub_len = unhashed_sub.length()
+  let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
+  let total = prelude_len + 2 + unhashed_sub_len + 2 + sig_material.length()
+  let sig_pkt = FixedArray::make(total, b'\x00')
+  for i = 0; i < prelude_len; i = i + 1 {
+    sig_pkt[i] = prelude_bytes[i]
+  }
+  sig_pkt[prelude_len] = ((unhashed_sub_len >> 8) & 0xff).to_byte()
+  sig_pkt[prelude_len + 1] = (unhashed_sub_len & 0xff).to_byte()
+  for i = 0; i < unhashed_sub_len; i = i + 1 {
+    sig_pkt[prelude_len + 2 + i] = unhashed_sub[i]
+  }
+  let left_pos = prelude_len + 2 + unhashed_sub_len
+  sig_pkt[left_pos] = ((left16 >> 8) & 0xffU).to_byte()
+  sig_pkt[left_pos + 1] = (left16 & 0xffU).to_byte()
+  let sig_pos = left_pos + 2
+  for i = 0; i < sig_material.length(); i = i + 1 {
+    sig_pkt[sig_pos + i] = sig_material[i]
+  }
+  Bytes::makei(total, fn(i) { sig_pkt[i] })
+}
+
+///|
+fn legacy_ed25519_oid() -> Bytes {
+  b"\x2b\x06\x01\x04\x01\xda\x47\x0f\x01"
+}
+
+///|
+fn build_key_flags_subpacket(flags : Int) -> Bytes {
+  // type 27: Key Flags. 0x01 = certify, 0x02 = sign.
+  Bytes::makei(3, fn(i) {
+    if i == 0 {
+      b'\x02'
+    } else if i == 1 {
+      b'\x1b'
+    } else {
+      flags.to_byte()
+    }
+  })
+}
+
+///|
+fn build_issuer_fingerprint_subpacket(fp : Bytes) -> Bytes {
+  Bytes::makei(23, fn(i) {
+    if i == 0 {
+      b'\x16'
+    } else if i == 1 {
+      b'\x21'
+    } else if i == 2 {
+      b'\x04'
+    } else {
+      fp[i - 3]
+    }
+  })
+}
+
+///|
+fn build_issuer_key_id_subpacket(fp : Bytes) -> Bytes {
+  Bytes::makei(10, fn(i) {
+    if i == 0 {
+      b'\x09'
+    } else if i == 1 {
+      b'\x10'
+    } else {
+      fp[12 + i - 2]
+    }
+  })
+}
+
+///|
+fn v4_public_key_fingerprint(public_key_body : Bytes) -> Bytes {
+  @hash.sha1(build_v4_public_key_hash_input(public_key_body))
+}
+
+///|
+fn build_v4_public_key_hash_input(public_key_body : Bytes) -> Bytes {
+  let len = public_key_body.length()
+  Bytes::makei(3 + len, fn(i) {
+    if i == 0 {
+      b'\x99'
+    } else if i == 1 {
+      ((len >> 8) & 0xff).to_byte()
+    } else if i == 2 {
+      (len & 0xff).to_byte()
+    } else {
+      public_key_body[i - 3]
+    }
+  })
+}
+
+///|
+fn build_v4_user_id_hash_input(user_id_body : Bytes) -> Bytes {
+  let len = user_id_body.length()
+  Bytes::makei(5 + len, fn(i) {
+    if i == 0 {
+      b'\xb4'
+    } else if i == 1 {
+      ((len.reinterpret_as_uint() >> 24) & 0xffU).to_byte()
+    } else if i == 2 {
+      ((len.reinterpret_as_uint() >> 16) & 0xffU).to_byte()
+    } else if i == 3 {
+      ((len.reinterpret_as_uint() >> 8) & 0xffU).to_byte()
+    } else if i == 4 {
+      (len.reinterpret_as_uint() & 0xffU).to_byte()
+    } else {
+      user_id_body[i - 5]
+    }
+  })
 }
 
 ///|
@@ -254,6 +478,11 @@ pub(all) enum PgpPrivateKey {
 /// when producing real signatures so verifiers that enforce "signed
 /// within the last N hours" policies don't reject them.
 ///
+/// `issuer_key_creation_time`: v4 Ed25519 signatures include an issuer
+/// fingerprint / Key ID so GnuPG can locate the signing key. This timestamp
+/// must match the public-key packet's creation time. It defaults to the same
+/// fixed value as `export_ed25519_v4_public_key_armor`.
+///
 /// `version`: 4 (default) or 6. Selects the Signature Packet wire format.
 /// When `version=6` we emit:
 ///   - the v6 packet layout with 4-byte hashed/unhashed length fields
@@ -267,6 +496,7 @@ pub fn sign_armor(
   message : Bytes,
   hash_algo? : Int = 0,
   creation_time? : UInt = 1700000000U,
+  issuer_key_creation_time? : UInt = 1700000000U,
   version? : Int = 4,
   salt? : Bytes = b"",
 ) -> String raise PgpError {
@@ -307,10 +537,28 @@ pub fn sign_armor(
     EcdsaP256(_) => algo_ecdsa
     EcdsaP384(_) => algo_ecdsa
   }
-  // Build hashed subpackets: just a creation_time (subpacket type 2) +
-  // issuer_fingerprint omitted for simplicity. Even a near-empty hashed
-  // area is RFC-valid.
-  let hashed_sub = build_creation_time_subpacket(creation_time)
+  // Build hashed subpackets. v4 Ed25519 includes issuer metadata so external
+  // verifiers can locate the imported public key; other narrow sign paths keep
+  // the minimal creation-time-only packet accepted by our verifier.
+  let creation_sub = build_creation_time_subpacket(creation_time)
+  let (hashed_sub, unhashed_sub) = if version == 4 {
+    match privkey {
+      Ed25519(sk) => {
+        let issuer_public_key_body = build_ed25519_v4_public_key_packet_body(
+          sk.public_key(),
+          issuer_key_creation_time,
+        )
+        let fp = v4_public_key_fingerprint(issuer_public_key_body)
+        (
+          concat_bytes(creation_sub, build_issuer_fingerprint_subpacket(fp)),
+          build_issuer_key_id_subpacket(fp),
+        )
+      }
+      _ => (creation_sub, b"")
+    }
+  } else {
+    (creation_sub, b"")
+  }
   let hashed_sub_len = hashed_sub.length()
   // Prelude length: v4 uses a 2-byte length field, v6 uses 4-byte.
   let len_field = if version == 6 { 4 } else { 2 }
@@ -381,23 +629,42 @@ pub fn sign_armor(
   // left16 = top 16 bits of digest.
   let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
   // Build full Signature Packet body.
-  // v4: prelude || unhashed_len(2)=0 || left16(2) || sig_material
+  // v4: prelude || unhashed_len(2) || unhashed || left16(2) || sig_material
   // v6: prelude || unhashed_len(4)=0 || left16(2) || salt_len(1) ||
   //     salt(0) || sig_material
   let salt_len = salt.length()
+  let unhashed_sub_len = unhashed_sub.length()
   let extra = if version == 6 { 1 + salt_len } else { 0 }
-  let sig_pkt_len = prelude_len + len_field + 2 + extra + sig_material.length()
+  let sig_pkt_len = prelude_len +
+    len_field +
+    unhashed_sub_len +
+    2 +
+    extra +
+    sig_material.length()
   let sig_pkt = FixedArray::make(sig_pkt_len, b'\x00')
   for i = 0; i < prelude_len; i = i + 1 {
     sig_pkt[i] = prelude_bytes[i]
   }
-  // unhashed_len = 0, encoded as 2 or 4 bytes.
-  for i = 0; i < len_field; i = i + 1 {
-    sig_pkt[prelude_len + i] = b'\x00'
+  if version == 6 {
+    sig_pkt[prelude_len] = ((unhashed_sub_len.reinterpret_as_uint() >> 24) &
+    0xffU).to_byte()
+    sig_pkt[prelude_len + 1] = ((unhashed_sub_len.reinterpret_as_uint() >> 16) &
+    0xffU).to_byte()
+    sig_pkt[prelude_len + 2] = ((unhashed_sub_len.reinterpret_as_uint() >> 8) &
+    0xffU).to_byte()
+    sig_pkt[prelude_len + 3] = (unhashed_sub_len.reinterpret_as_uint() & 0xffU).to_byte()
+  } else {
+    sig_pkt[prelude_len] = ((unhashed_sub_len >> 8) & 0xff).to_byte()
+    sig_pkt[prelude_len + 1] = (unhashed_sub_len & 0xff).to_byte()
   }
-  sig_pkt[prelude_len + len_field] = ((left16 >> 8) & 0xffU).to_byte()
-  sig_pkt[prelude_len + len_field + 1] = (left16 & 0xffU).to_byte()
-  let mut p = prelude_len + len_field + 2
+  let mut p = prelude_len + len_field
+  for i = 0; i < unhashed_sub_len; i = i + 1 {
+    sig_pkt[p + i] = unhashed_sub[i]
+  }
+  p = p + unhashed_sub_len
+  sig_pkt[p] = ((left16 >> 8) & 0xffU).to_byte()
+  sig_pkt[p + 1] = (left16 & 0xffU).to_byte()
+  p = p + 2
   if version == 6 {
     sig_pkt[p] = salt_len.to_byte()
     p = p + 1

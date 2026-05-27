@@ -22,6 +22,8 @@ pub fn compute_signature_digest(PgpSignature, Bytes) -> Bytes raise PgpError
 
 pub fn decode_armor(String) -> Armored raise PgpError
 
+pub fn export_ed25519_v4_public_key_armor(@ed25519.PrivateKey, String, creation_time? : UInt) -> String raise PgpError
+
 pub let hash_sha256 : Int
 
 pub let hash_sha384 : Int
@@ -38,7 +40,7 @@ pub fn parse_signature_packet(Bytes) -> PgpSignature raise PgpError
 
 pub fn read_mpi(Bytes, Int) -> (Bytes, Int) raise PgpError
 
-pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int, creation_time? : UInt, version? : Int, salt? : Bytes) -> String raise PgpError
+pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int, creation_time? : UInt, issuer_key_creation_time? : UInt, version? : Int, salt? : Bytes) -> String raise PgpError
 
 pub fn verify_armor(String, Bytes, PgpPublicKey) -> Bool raise PgpError
 

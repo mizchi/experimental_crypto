@@ -158,6 +158,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Enforce RFC 9580 hash-specific PGP v6 salt lengths on parse / verify / sign.
 - Validate legacy PGP EdDSA public-key Ed25519 curve OID.
 - Reject non-`PUBLIC KEY BLOCK` armor labels in PGP public-key parsing.
+- Add PGP sign-side gpg interop for v4 Ed25519 by exporting a minimal
+  transferable public key, embedding issuer metadata in generated detached
+  signatures, and checking the result with `gpg --verify`.
 - Add signed git tag-object coverage.
 - Keep `parse_signed_commit` commit-only; reject tag content and raw tag objects.
 - Keep duplicate `gpgsig` and body-only `gpgsig` rejection tests.

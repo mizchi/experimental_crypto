@@ -13,7 +13,7 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      RSA and ECDSA sign paths.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
-   - [ ] Add external sign-output verification for v4 signatures.
+   - [x] Add external sign-output verification for v4 signatures.
    - [ ] Add v6 sign-output verification once a v6-capable reference tool is
      available in CI.
 3. [ ] **JWT remaining algorithm / parser coverage**.
@@ -132,9 +132,6 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] **JWT remaining coverage holes**: unsupported / fixture-heavy ES512
   branch after P-521 exists.
-- [ ] **PGP gpg-binary interop**: `pgp_test.mbt` sign side is still mostly
-  tautological. A CI step piping our armor into `gpg --verify` would catch
-  sign-side drift.
 - [ ] **Cross-format fuzz breadth**: PEM -> ASN.1 -> PKCS#8 / PKIX integration
   fuzzing exists; extend to CMS / OCSP / CRL and JOSE containers.
 - [ ] **Constant-time verification** via external profiler (`dudect` /

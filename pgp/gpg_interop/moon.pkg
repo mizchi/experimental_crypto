@@ -1,0 +1,8 @@
+import {
+  "mizchi/ed25519",
+  "mizchi/pgp",
+}
+
+options(
+  is_main: true,
+)
