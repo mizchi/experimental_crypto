@@ -1,0 +1,46 @@
+// Logic-side spec for `mizchi/aead/wrap`. Bundles the block-/key-related
+// helper functions used by proof clauses in wrap.mbt.
+
+fn ghash_zero_pad_len_logic(len : Int, block_size : Int) -> Int {
+  (block_size - len % block_size) % block_size
+}
+
+fn pkcs7_pad_len_logic(plaintext_len : Int, block_size : Int) -> Int {
+  block_size - plaintext_len % block_size
+}
+
+fn aes_round_count_logic(key_bits : Int) -> Int {
+  if key_bits == 128 {
+    10
+  } else {
+    if key_bits == 192 {
+      12
+    } else {
+      14
+    }
+  }
+}
+
+fn aes_key_word_count_logic(key_bits : Int) -> Int {
+  if key_bits == 128 {
+    4
+  } else {
+    if key_bits == 192 {
+      6
+    } else {
+      8
+    }
+  }
+}
+
+predicate aead_block_aligned(in_len : Int, block_size : Int, pad_len : Int) {
+  block_size > 0 &&
+  in_len >= 0 &&
+  pad_len >= 0 &&
+  (in_len + pad_len) % block_size == 0 &&
+  pkcs7_pad_len_logic(in_len, block_size) == pkcs7_pad_len_logic(in_len, block_size)
+}
+
+predicate aes_keysize_valid(key_bits : Int) {
+  key_bits == 128 || key_bits == 192 || key_bits == 256
+}
