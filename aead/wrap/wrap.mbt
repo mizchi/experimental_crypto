@@ -45,7 +45,9 @@ pub fn pkcs7_pad_len(
   proof_require: plaintext_len >= 0,
   proof_require: block_size > 0,
   proof_require: block_size <= 255,
-  proof_ensure: result => result == pkcs7_pad_len_logic(plaintext_len, block_size),
+  proof_ensure: result => {
+    result == pkcs7_pad_len_logic(plaintext_len, block_size)
+  },
   proof_ensure: result => aead_block_aligned(plaintext_len, block_size, result),
   proof_ensure: result => 1 <= result,
   proof_ensure: result => result <= block_size,

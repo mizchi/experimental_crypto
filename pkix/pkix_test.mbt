@@ -217,6 +217,27 @@ test "pkix: parse fields back from minimal v3 certificate" {
 }
 
 ///|
+test "ATTACK pkix: impossible validity date is rejected" {
+  let bad_validity = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Unknown(
+      concat_der([
+        raw_ascii_tlv(0x17, "230101000000Z"),
+        raw_ascii_tlv(0x17, "490231235959Z"),
+      ]),
+    ),
+  )
+  let der = cert_der_from_tbs_items(base_tbs_items(validity=bad_validity))
+  try @pkix.parse_certificate(der) catch {
+    Asn1(@asn1.InvalidEncoding(_)) => ()
+    InvalidTime(_) => ()
+    other => abort("expected InvalidTime, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted certificate validity with impossible date")
+  }
+}
+
+///|
 test "pkix: parse subject CN" {
   let bytes = @pkix.serialize_certificate(sample_cert())
   let cert = @pkix.parse_certificate(bytes)

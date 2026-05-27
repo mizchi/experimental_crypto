@@ -801,11 +801,12 @@ pub fn verify_with_chain(
   if !verify_detached(sd, message) {
     return false
   }
-  @pkix_verify.verify_chain(
+  @pkix_verify.verify_chain_for_signature(
     sd.signer_cert,
     sd.extra_certs,
     trust_anchor_pubkey,
     now,
+    { required_eku: None },
   ) catch {
     _ => return false
   }

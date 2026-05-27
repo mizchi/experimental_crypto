@@ -20,6 +20,7 @@ pub suberror CrlError {
   BadSignature
   StaleCrl(String)
   IssuerMismatch
+  KeyUsageMissingCrlSign
   AlgorithmMismatch
   Malformed(String)
   Asn1(@asn1.Asn1Error)

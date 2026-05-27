@@ -7,10 +7,10 @@
 //   * beforenm commutativity (Alice's view ≡ Bob's view)
 //   * size and error-path checks
 //
-// We do not embed libsodium-style canonical ciphertext vectors here because
-// the upstream test suite does not publish them in a directly-copyable form
-// for the xchacha20poly1305 variant; self-roundtrip + commutativity cover
-// the symmetry that libsodium guarantees.
+// Secretbox has a libsodium XChaCha20-Poly1305 reference vector below. Public
+// key box still relies on RFC 7748 key agreement vectors plus round-trip /
+// commutativity checks because libsodium does not publish an equally direct
+// crypto_box_curve25519xchacha20poly1305 ciphertext fixture.
 
 ///|
 fn hex(s : String) -> Bytes {
@@ -67,6 +67,33 @@ test "secretbox round-trip" {
   @debug.assert_eq(sealed_box.length(), 16 + msg.length())
   let recovered = @naclbox.secretbox_open(key, nonce, sealed_box)
   @debug.assert_eq(to_hex(recovered), to_hex(msg_bytes))
+}
+
+///|
+test "secretbox reference: libsodium XChaCha20-Poly1305 no-AAD vector" {
+  // Derived from libsodium test/default/aead_xchacha20poly1305.{c,exp}.
+  // secretbox uses no AAD and stores tag || ciphertext.
+  let key = hex(
+    "808182838485868788898a8b8c8d8e8f" + "909192939495969798999a9b9c9d9e9f",
+  )
+  let nonce = hex("07000000404142434445464748494a4b" + "4c4d4e4f50515253")
+  let msg = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+  let msg_bytes = Bytes::makei(msg.length(), fn(i) { msg[i] })
+  let expected = hex(
+    "e096e033d91b63f7ac92e9972e0d43e5" +
+    "f8ebea4875044066fc162a0604e171fe" +
+    "ecfb3d20425248563bcfd5a155dcc47b" +
+    "bda70b86e5ab9b55002bd1274c02db35" +
+    "321acd7af8b2e2d25015e136b7679458" +
+    "e9f43243bf719d639badb5feac03f80a" +
+    "19a96ef10cb1d15333a837b90946ba38" +
+    "54ee74da3f2585efc7e1e170e17e15e5" +
+    "63e7",
+  )
+  let sealed_box = @naclbox.secretbox(key, nonce, msg_bytes)
+  @debug.assert_eq(to_hex(sealed_box), to_hex(expected))
+  let opened = @naclbox.secretbox_open(key, nonce, expected)
+  @debug.assert_eq(to_hex(opened), to_hex(msg_bytes))
 }
 
 ///|

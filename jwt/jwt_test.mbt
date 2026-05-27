@@ -167,11 +167,7 @@ test "HS256: wrong secret fails verification" {
   let other_secret : Bytes = b"another-secret-hmac-key"
   let m : Map[String, Json] = Map([])
   m["sub"] = Json::string("bob")
-  let token = @jwt.sign(
-    Json::object(m),
-    @jwt.Key::Hs256(secret~),
-    typ="oauth-authz-req+jwt",
-  )
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts = @jwt.VerifyOptions::default(0L)
   try
     @jwt.verify(token, @jwt.VerifyKey::Hs256(secret=other_secret), opts)
@@ -252,11 +248,7 @@ test "exp: expired token raises Expired" {
   let secret : Bytes = b"k"
   let m : Map[String, Json] = Map([])
   m["exp"] = Json::number(1_000.0)
-  let token = @jwt.sign(
-    Json::object(m),
-    @jwt.Key::Hs256(secret~),
-    typ="oauth-authz-req+jwt",
-  )
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts = @jwt.VerifyOptions::default(2_000L)
   try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
     Expired => ()
@@ -271,11 +263,7 @@ test "exp: clock_skew_sec absorbs small differences" {
   let secret : Bytes = b"k"
   let m : Map[String, Json] = Map([])
   m["exp"] = Json::number(1_000.0)
-  let token = @jwt.sign(
-    Json::object(m),
-    @jwt.Key::Hs256(secret~),
-    typ="oauth-authz-req+jwt",
-  )
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   // now = 1010, exp = 1000, skew = 60 -> allowed (exp + skew = 1060 >= now)
   let opts : @jwt.VerifyOptions = {
     now: 1_010L,
@@ -4833,6 +4821,67 @@ test "ATTACK typ-confusion: dpop+jwt rejected by generic verify default" {
     e => abort("expected InvalidType, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected InvalidType (cross-class confusion), got Ok")
+  }
+}
+
+///|
+test "ATTACK typ-confusion: JARM response typ rejected when ID token expected" {
+  // JARM and ID tokens are both signed by the AS and often share issuer /
+  // audience. A response JWT with enough ID-token-shaped claims must still not
+  // authenticate as an ID token when typ_allowed=None.
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jarm-as-id-key"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://accounts.example.com/")
+  m["sub"] = Json::string("user-42")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["state"] = Json::string("rp-state")
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="oauth-authz-resp+jwt",
+  )
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType for JARM-as-ID-token confusion")
+  }
+}
+
+///|
+test "ATTACK typ-confusion: JAR request typ rejected by generic verify default" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jar-generic-key"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("client-abc")
+  m["aud"] = Json::string("https://as.example.com/")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["response_type"] = Json::string("code")
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="application/oauth-authz-req+jwt",
+  )
+  try
+    @jwt.verify(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      @jwt.VerifyOptions::default(now),
+    )
+  catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType for JAR generic typ confusion")
   }
 }
 

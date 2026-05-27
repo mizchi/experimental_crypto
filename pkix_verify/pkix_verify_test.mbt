@@ -419,6 +419,25 @@ test "verify_certificate: Expired after notAfter" {
   }
 }
 
+///|
+test "ATTACK verify_certificate: impossible now date is rejected" {
+  let (cert, pk) = build_self_signed_ed25519(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "Test Root",
+    "200101000000Z",
+    "300101000000Z",
+    [basic_constraints_ca_ext()],
+  )
+  try
+    @pkix_verify.verify_certificate(cert, Ed25519(pk), "250231235959Z")
+  catch {
+    MalformedExtension(_) => ()
+    other => abort("expected MalformedExtension, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted certificate verification with impossible now date")
+  }
+}
+
 // ─── verify_chain ────────────────────────────────────────────────────────
 
 ///|
@@ -1242,6 +1261,49 @@ test "required_eku: leaf with matching EKU passes" {
     "250601000000Z",
     opts,
   )
+}
+
+///|
+test "ATTACK required leaf digitalSignature: keyUsage without bit 0 is rejected" {
+  let inter_seed = "7172737475767778797a7b7c7d7e7f807172737475767778797a7b7c7d7e7f80"
+  let leaf_seed = "0101010101010101010101010101010101010101010101010101010101010101"
+  let bc = basic_constraints_ca_ext()
+  let ku = key_usage_ext(true, true)
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [bc, ku],
+  )
+  let leaf_ku_without_signature = key_usage_ext(false, true)
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "CA",
+    "250101000000Z",
+    "260101000000Z",
+    [leaf_ku_without_signature],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = { required_eku: None }
+  try
+    @pkix_verify.verify_chain_for_signature(
+      leaf,
+      [inter],
+      anchor,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    KeyUsageMissingDigitalSignature => ()
+    other => abort("leaf keyUsage not enforced: " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted leaf keyUsage without digitalSignature")
+  }
 }
 
 // -----------------------------------------------------------------------------

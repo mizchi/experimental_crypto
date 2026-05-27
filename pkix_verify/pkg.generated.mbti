@@ -20,6 +20,8 @@ pub fn verify_certificate(@pkix.Certificate, PublicKey, String) -> Unit raise Pk
 
 pub fn verify_chain(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String) -> Unit raise PkixVerifyError
 
+pub fn verify_chain_for_signature(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String, VerifyChainOptions) -> Unit raise PkixVerifyError
+
 pub fn verify_chain_with_options(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String, VerifyChainOptions) -> Unit raise PkixVerifyError
 
 pub fn verify_signature(Bytes, @pkix.AlgorithmIdentifier, @asn1.BitString, PublicKey) -> Unit raise PkixVerifyError
@@ -37,6 +39,7 @@ pub suberror PkixVerifyError {
   MalformedExtension(String)
   UnknownCriticalExtension(@asn1.ObjectIdentifier)
   KeyUsageMissingCertSign
+  KeyUsageMissingDigitalSignature
   NameConstraintViolation(String)
   ExtendedKeyUsageMissing(@asn1.ObjectIdentifier)
   Pkix(@pkix.PkixError)

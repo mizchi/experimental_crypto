@@ -10,6 +10,7 @@ import {
   "mizchi/pkix@0.1.0",
   "mizchi/pkix_verify@0.1.0",
   "mizchi/ed25519@0.1.0",
+  "mizchi/pem@0.1.0",
 }
 
 readme = "README.mbt.md"

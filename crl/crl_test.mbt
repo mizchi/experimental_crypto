@@ -79,6 +79,23 @@ fn build_ed25519_cert(
   issuer_cn : String,
   issuer_seed_hex : String,
 ) -> @pkix.Certificate raise {
+  build_ed25519_cert_with_extensions(
+    subject_seed_hex,
+    subject_cn,
+    issuer_cn,
+    issuer_seed_hex,
+    [],
+  )
+}
+
+///|
+fn build_ed25519_cert_with_extensions(
+  subject_seed_hex : String,
+  subject_cn : String,
+  issuer_cn : String,
+  issuer_seed_hex : String,
+  extensions : Array[@pkix.Extension],
+) -> @pkix.Certificate raise {
   let subject_sk = @ed25519.PrivateKey::from_seed(
     hex_to_bytes(subject_seed_hex),
   )
@@ -99,7 +116,7 @@ fn build_ed25519_cert(
     subject_public_key_info: ed25519_spki(subject_pk),
     issuer_unique_id: None,
     subject_unique_id: None,
-    extensions: [],
+    extensions,
   }
   let tbs_elem = @pkix.tbs_certificate_to_element(tbs)
   let tbs_bytes = @asn1.encode_der(tbs_elem)
@@ -108,6 +125,20 @@ fn build_ed25519_cert(
     tbs,
     signature_algorithm: ed25519_alg_id(),
     signature: { bytes: sig, unused_bits: 0 },
+  }
+}
+
+///|
+fn key_usage_ext(bits : Bytes) -> @pkix.Extension {
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15]),
+    critical: true,
+    value: @asn1.encode_der(
+      @asn1.Element::new(
+        @asn1.tag_bit_string,
+        BitString({ bytes: bits, unused_bits: 0 }),
+      ),
+    ),
   }
 }
 
@@ -310,6 +341,57 @@ fn crl_extensions_explicit(exts : Array[@asn1.Element]) -> @asn1.Element {
 let issuer_seed_hex : String = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
 
 ///|
+let openssl_ref_ca_pem : String =
+  #|-----BEGIN CERTIFICATE-----
+  #|MIIC/TCCAeWgAwIBAgIJAMfe2hGkAfZGMA0GCSqGSIb3DQEBCwUAMBwxGjAYBgNV
+  #|BAMMEVJlZmVyZW5jZSBSb290IENBMB4XDTI2MDUyNzA1MDQ0NloXDTM2MDUyNDA1
+  #|MDQ0NlowHDEaMBgGA1UEAwwRUmVmZXJlbmNlIFJvb3QgQ0EwggEiMA0GCSqGSIb3
+  #|DQEBAQUAA4IBDwAwggEKAoIBAQDiow1UzEZVc3XKxM/WTdbKGvFytsvGQ0hI7W/3
+  #|V/cL4pehxalQhTfRFROP9teG6GWWhbKm4fPMFxHA9qxZPd/I2nRWODtLslizgHls
+  #|1synAsPqmF3xxOgU6NPqad/xizTEUZfAt0JMSJdWU5SS0Nh+a6o8niKf7lfSmC6H
+  #|t4RMoAyr4uymrIjyyw1Lw+dlvoAU0G3gLpTzBRaiThwnTC2AlmB7upjya/Rt9D1f
+  #|zb+rfxfJ4CbbIyDTnUve5JYLFSvBVo+gn20pCidxAX2Ekm1I9fSqpUQNH5o8EzHq
+  #|gGcUSJjZurFrnDIsYh3TIVVKrnSKTLhmxcXymWoLKvnmAEkBAgMBAAGjQjBAMA8G
+  #|A1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBRu/Z/GVcL3
+  #|Rk6ZmYnMKNAAaP97LjANBgkqhkiG9w0BAQsFAAOCAQEAd2OMeqJgeXIQvoAMgl8d
+  #|0ih9FUS+KaaTnOfbaiiPMcMn/6hl1M2rRwbdR4aZnnnJHpfi0I7x4OInAEaS5kO2
+  #|nP9Fl+mOMp5SUzp5FDv7ogLC/LO9r09q6T/qGADB5xpJ2NHb0nEkZQQLIlW3skmY
+  #|IZ1SQsIV1AAOxoOKMKb09McvRoihyZ4z63H22OlbLqLKrWGPNfBSk6o7HFACtm30
+  #|MpGMpGiperbzRhcmsMPcFrKEen7zvlDa0WmnkBR8AljWLJGydVMOiCDDrEpyhR9E
+  #|N5SPPLSC4+BDx0k/AB6GM2X3+mY6InHt7v5FxDfCK2ok7IEgND1GbWdbmWa7rnSQ
+  #|cg==
+  #|-----END CERTIFICATE-----
+
+///|
+let openssl_ref_leaf_pem : String =
+  #|-----BEGIN CERTIFICATE-----
+  #|MIIDJjCCAg6gAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwHDEaMBgGA1UEAwwRUmVm
+  #|ZXJlbmNlIFJvb3QgQ0EwHhcNMjYwNTI3MDUwNDQ2WhcNMzYwNTI0MDUwNDQ2WjAZ
+  #|MRcwFQYDVQQDDA5SZWZlcmVuY2UgTGVhZjCCASIwDQYJKoZIhvcNAQEBBQADggEP
+  #|ADCCAQoCggEBAKcRsqK0Sy8FWp9VWLMIUNUG6dvut1acOturMefBL+KwOy0792Es
+  #|E7S3s4Lzw1b6ZSB0ZVmnnQ/fL98iN8R4hN+uwfLhkFPyyMvVFuJv9pnHqgzcbV44
+  #|4Tpux6PT7NbcMgXqYMjguTt/2ZKQITEUtNXctAIMSh9CsMyRWnb2cUs2c9oA30xs
+  #|1zTkZUqLko8QpE4HHiCumTXi+rkjsm1dG4/Zck8Ugb/G1jerx3tbYwgDvwgHT8kj
+  #|cZ1IKNk1i0AiO2rBaSzDEMFko8rzW+mCfwNbaBpWGNShucG/rgleBEkkRO+/sFn+
+  #|iO4JEjsm6FCwbr4HbSM7Zy/fmejH9HQIUb0CAwEAAaN1MHMwDAYDVR0TAQH/BAIw
+  #|ADAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwHQYDVR0OBBYE
+  #|FEnO1ZkR07jNiI/5ikudqEm0Ll+CMB8GA1UdIwQYMBaAFG79n8ZVwvdGTpmZicwo
+  #|0ABo/3suMA0GCSqGSIb3DQEBCwUAA4IBAQC9wg9Hp/0lLvwGfy+ZfZVMR5Zqb95H
+  #|wtQXiZoSgh8ihiJDrRpF+YbfoZhfQTvqEFs2m8icKBBWS+bZ597DwrZLAQ2s46Rs
+  #|rDLSQJR5jXJ3IB+Uuv91QTsCir2Pp4nRVhU+edjKoNIGlRaP4Sm2H2aInFUzW/NS
+  #|ZMcgqOOsDHK2aOn07pFB6PMjDatkLOQdoIjjRrb8WdnTOq8yJVPyWlZt+mD6oUOl
+  #|V0Sg/2pW3pfHPN4QiTnypfTwhaNt260s2M4hPVDIM6WHOMpe+u0zgbZQXvj+4tsU
+  #|GjctzIbppDx0T4RcnrbzTRcpuyLsFnDeIoEqRqDjhW+n6L6uirsFg+iE
+  #|-----END CERTIFICATE-----
+
+///|
+let openssl_ref_crl_der_hex : String = "3082018c3076020101300d06092a864886f70d01010b0500301c311a301806035504030c115265666572656e636520526f6f74204341170d3236303532373035303534305a170d3336303532343035303534305a3015301302021000170d3236" +
+  "303532373035303534305aa00f300d300b0603551d14040402021001300d06092a864886f70d01010b0500038201010024c80f26c9f983dfc826e06b5db8d19b942fe907496c65a5468104e2918abf060afef11e2cc0011c8900ed8efb21b6e1" +
+  "1e8931f0a8b5c4324aa463a234c61992a2c2ee40ec34a6b0cc3348429eac846d7a24c0caecd5bcf81d0f640c0cfa91f093aae32c62b83a18e5fb2f1961b25ee4b31d17fc734efe4f57d28a42c67f9679b6f96da74b730d4f6e3fc2be91a26848" +
+  "09b286c918cc27cf4028c7e2db8bfaaaed504648cea9bbf12652572a80195bbdd9a3aaac18bd02c438c3ed8065ad19bb2d63cf1c7d8ddf26ee39c214198dedf6ba473a24b0b0725dc67fa5fecc3e89466ae1f39542f1fa98bc7c150ec8fb0b0c" +
+  "ff98d1b110f5b76810cc8d6336753653"
+
+///|
 test "crl: parse a CRL with two revoked entries" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
@@ -334,6 +416,15 @@ test "crl: parse a CRL with two revoked entries" {
 }
 
 ///|
+test "crl reference: OpenSSL RSA CRL verifies and revoked serial matches" {
+  let issuer = @pkix.parse_certificate(@pem.decode(openssl_ref_ca_pem).data)
+  let leaf = @pkix.parse_certificate(@pem.decode(openssl_ref_leaf_pem).data)
+  let der = hex_to_bytes(openssl_ref_crl_der_hex)
+  let crl = @crl.verify(der, issuer, "270101000000Z")
+  assert_true(@crl.is_revoked(crl, leaf.tbs.serial_number))
+}
+
+///|
 test "crl: verify signature with correct issuer" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
@@ -347,6 +438,70 @@ test "crl: verify signature with correct issuer" {
   )
   let crl = @crl.verify(der, issuer, "250601000000Z")
   @debug.assert_eq(crl.revoked.length(), 1)
+}
+
+///|
+test "ATTACK crl: issuer keyUsage without cRLSign is rejected" {
+  let issuer = build_ed25519_cert_with_extensions(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    issuer_seed_hex,
+    [key_usage_ext(b"\x80")], // digitalSignature only, no cRLSign bit.
+  )
+  let der = build_crl_der(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    KeyUsageMissingCrlSign => ()
+    other => abort("expected KeyUsageMissingCrlSign, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL signed by issuer without cRLSign keyUsage")
+  }
+}
+
+///|
+test "ATTACK crl: non-digit Time is rejected before freshness trust" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+  )
+  try @crl.verify(der, issuer, "2506AA000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with non-digit Time")
+  }
+}
+
+///|
+test "ATTACK crl: impossible now date is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+  )
+  try @crl.verify(der, issuer, "250231235959Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL verification with impossible now date")
+  }
 }
 
 ///|

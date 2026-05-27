@@ -490,6 +490,96 @@ let issuer_seed_hex : String = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919
 let cert_seed_hex : String = "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
 
 ///|
+let openssl_ref_ca_pem : String =
+  #|-----BEGIN CERTIFICATE-----
+  #|MIIC/TCCAeWgAwIBAgIJAMfe2hGkAfZGMA0GCSqGSIb3DQEBCwUAMBwxGjAYBgNV
+  #|BAMMEVJlZmVyZW5jZSBSb290IENBMB4XDTI2MDUyNzA1MDQ0NloXDTM2MDUyNDA1
+  #|MDQ0NlowHDEaMBgGA1UEAwwRUmVmZXJlbmNlIFJvb3QgQ0EwggEiMA0GCSqGSIb3
+  #|DQEBAQUAA4IBDwAwggEKAoIBAQDiow1UzEZVc3XKxM/WTdbKGvFytsvGQ0hI7W/3
+  #|V/cL4pehxalQhTfRFROP9teG6GWWhbKm4fPMFxHA9qxZPd/I2nRWODtLslizgHls
+  #|1synAsPqmF3xxOgU6NPqad/xizTEUZfAt0JMSJdWU5SS0Nh+a6o8niKf7lfSmC6H
+  #|t4RMoAyr4uymrIjyyw1Lw+dlvoAU0G3gLpTzBRaiThwnTC2AlmB7upjya/Rt9D1f
+  #|zb+rfxfJ4CbbIyDTnUve5JYLFSvBVo+gn20pCidxAX2Ekm1I9fSqpUQNH5o8EzHq
+  #|gGcUSJjZurFrnDIsYh3TIVVKrnSKTLhmxcXymWoLKvnmAEkBAgMBAAGjQjBAMA8G
+  #|A1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBRu/Z/GVcL3
+  #|Rk6ZmYnMKNAAaP97LjANBgkqhkiG9w0BAQsFAAOCAQEAd2OMeqJgeXIQvoAMgl8d
+  #|0ih9FUS+KaaTnOfbaiiPMcMn/6hl1M2rRwbdR4aZnnnJHpfi0I7x4OInAEaS5kO2
+  #|nP9Fl+mOMp5SUzp5FDv7ogLC/LO9r09q6T/qGADB5xpJ2NHb0nEkZQQLIlW3skmY
+  #|IZ1SQsIV1AAOxoOKMKb09McvRoihyZ4z63H22OlbLqLKrWGPNfBSk6o7HFACtm30
+  #|MpGMpGiperbzRhcmsMPcFrKEen7zvlDa0WmnkBR8AljWLJGydVMOiCDDrEpyhR9E
+  #|N5SPPLSC4+BDx0k/AB6GM2X3+mY6InHt7v5FxDfCK2ok7IEgND1GbWdbmWa7rnSQ
+  #|cg==
+  #|-----END CERTIFICATE-----
+
+///|
+let openssl_ref_leaf_pem : String =
+  #|-----BEGIN CERTIFICATE-----
+  #|MIIDJjCCAg6gAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwHDEaMBgGA1UEAwwRUmVm
+  #|ZXJlbmNlIFJvb3QgQ0EwHhcNMjYwNTI3MDUwNDQ2WhcNMzYwNTI0MDUwNDQ2WjAZ
+  #|MRcwFQYDVQQDDA5SZWZlcmVuY2UgTGVhZjCCASIwDQYJKoZIhvcNAQEBBQADggEP
+  #|ADCCAQoCggEBAKcRsqK0Sy8FWp9VWLMIUNUG6dvut1acOturMefBL+KwOy0792Es
+  #|E7S3s4Lzw1b6ZSB0ZVmnnQ/fL98iN8R4hN+uwfLhkFPyyMvVFuJv9pnHqgzcbV44
+  #|4Tpux6PT7NbcMgXqYMjguTt/2ZKQITEUtNXctAIMSh9CsMyRWnb2cUs2c9oA30xs
+  #|1zTkZUqLko8QpE4HHiCumTXi+rkjsm1dG4/Zck8Ugb/G1jerx3tbYwgDvwgHT8kj
+  #|cZ1IKNk1i0AiO2rBaSzDEMFko8rzW+mCfwNbaBpWGNShucG/rgleBEkkRO+/sFn+
+  #|iO4JEjsm6FCwbr4HbSM7Zy/fmejH9HQIUb0CAwEAAaN1MHMwDAYDVR0TAQH/BAIw
+  #|ADAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwHQYDVR0OBBYE
+  #|FEnO1ZkR07jNiI/5ikudqEm0Ll+CMB8GA1UdIwQYMBaAFG79n8ZVwvdGTpmZicwo
+  #|0ABo/3suMA0GCSqGSIb3DQEBCwUAA4IBAQC9wg9Hp/0lLvwGfy+ZfZVMR5Zqb95H
+  #|wtQXiZoSgh8ihiJDrRpF+YbfoZhfQTvqEFs2m8icKBBWS+bZ597DwrZLAQ2s46Rs
+  #|rDLSQJR5jXJ3IB+Uuv91QTsCir2Pp4nRVhU+edjKoNIGlRaP4Sm2H2aInFUzW/NS
+  #|ZMcgqOOsDHK2aOn07pFB6PMjDatkLOQdoIjjRrb8WdnTOq8yJVPyWlZt+mD6oUOl
+  #|V0Sg/2pW3pfHPN4QiTnypfTwhaNt260s2M4hPVDIM6WHOMpe+u0zgbZQXvj+4tsU
+  #|GjctzIbppDx0T4RcnrbzTRcpuyLsFnDeIoEqRqDjhW+n6L6uirsFg+iE
+  #|-----END CERTIFICATE-----
+
+///|
+let openssl_ref_ocsp_responder_pem : String =
+  #|-----BEGIN CERTIFICATE-----
+  #|MIIDMDCCAhigAwIBAgICEAEwDQYJKoZIhvcNAQELBQAwHDEaMBgGA1UEAwwRUmVm
+  #|ZXJlbmNlIFJvb3QgQ0EwHhcNMjYwNTI3MDUwNDQ2WhcNMzYwNTI0MDUwNDQ2WjAj
+  #|MSEwHwYDVQQDDBhSZWZlcmVuY2UgT0NTUCBSZXNwb25kZXIwggEiMA0GCSqGSIb3
+  #|DQEBAQUAA4IBDwAwggEKAoIBAQCnGyj/Dn/ULpkL+h9Rt5VbxcJNq6W3pAGA+s2i
+  #|fggD3T+6bbzZM3HJ7/uT6EluDoXEoutx8ZYtRjWOYkg9zreJ4n0ff5g5zrZ0Jkon
+  #|c0xu2u+K8w180GtC0f2LW9nwHDYqkYAGGUvP/+CuO84bjawXICnuZCChT+MeiZOe
+  #|2NVei4yX+TIQTqvG8fAZAD2JLvqKvc8G64hPeUePQlNY6eFbq7bKcEyW2B+nOKHf
+  #|O9KGLzVBduGTO2ojtTHrH82Bo1X738DIDH3ruEs2g9eg7EbjeDFfUIk7p8dKSVx0
+  #|E5WIP95XYM5HXpo9XasQsxVURUCp5/w3OhkWurWCX2Cexi/TAgMBAAGjdTBzMAwG
+  #|A1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMJ
+  #|MB0GA1UdDgQWBBRDaHHdXO+ZrRl49d8vgjhAh1bi9zAfBgNVHSMEGDAWgBRu/Z/G
+  #|VcL3Rk6ZmYnMKNAAaP97LjANBgkqhkiG9w0BAQsFAAOCAQEAHyrUvBiVs0g1F8/T
+  #|34nGKzJ1AhIRb4rUHhue06qAa0tinigt9zK23KSHSVSiyHCmGUCrNK1nwk5lJsA/
+  #|VkCvdeEZTIO74yBDn8Gj25AXPRaequipuZers8rf/gsyWFMvUdKEOeNrAfFtVzLX
+  #|LjBD02PASFOQhM0wvUTQ08YUsAK0Jg8tIpByXNstK1D8ITiWUDqA6oJ0cdOzZ4cs
+  #|PVG9Y02U32Lnc1ZajzZcUYQUiWNRXhgNAJOYZBBrlj57DlipdywgGRr5YaWsgLKa
+  #|Ygi4GUSVnwfv+H21Ev/B/6t59GRr0EJq+1Gfe0zTv6H/JIGK9L87nJHQVKlY8UWu
+  #|1m1NAw==
+  #|-----END CERTIFICATE-----
+
+///|
+let openssl_ref_ocsp_direct_der_hex : String = "308201cd0a0100a08201c6308201c206092b0601050507300101048201b3308201af308198a11e301c311a301806035504030c115265666572656e636520526f6f74204341180f32303236303532373035303435355a30653063303b30090605" +
+  "2b0e03021a0500041437152737810065c977c9007888800e11ccfe107404146efd9fc655c2f7464e999989cc28d00068ff7b2e020210008000180f32303236303532373035303435355aa011180f32303336303532343035303435355a300d06" +
+  "092a864886f70d01010b0500038201010042016c04346876e3276954b2cd78d044da5bbdad81e36be3d068e50b3e03f82bbb8e18085c6e82375bc3cde84e8b80ed825f62b5be98d45c4b391333e52e6982d134d0421b35a0a06ec5c4517bd09f" +
+  "5f643bf041e1dc78b6f9977d98cc86daba7746696c97984c40880abc53da5d5344d29c6d1be09de9d76b6d229f05ea288ebbd157d09990373310d37ac5a52f987007b68e61138a98e56d1b1ab02e9f725038ab93298abe686aa602b53ed5ca80" +
+  "310157a7a3af5f5c747d601faeb9d274d00a4808ba8f988d4a75e8e3665021206ed4bbd64c6d2315cc8221353b8ed202da6accc2826ba554684f5d1a2c0bc6fdb041504af04d93a7d3564e76f670ae3779"
+
+///|
+let openssl_ref_ocsp_delegated_der_hex : String = "308205100a0100a08205093082050506092b0601050507300101048204f6308204f230819fa12530233121301f06035504030c185265666572656e6365204f43535020526573706f6e646572180f32303236303532373035303435355a306530" +
+  "63303b300906052b0e03021a0500041437152737810065c977c9007888800e11ccfe107404146efd9fc655c2f7464e999989cc28d00068ff7b2e020210008000180f32303236303532373035303435355aa011180f3230333630353234303530" +
+  "3435355a300d06092a864886f70d01010b0500038201010048483ac86a25fda7a705c504d7e7c3d1dbdf39c0a71e8bc25ffd954270d1413b69306774ee4fd6f28169b4a62cb18a4545f221a52566ad1943cf3f2c60bd12b6e142d135982d1a29" +
+  "d772849198845effcffbbbff04b5aed8654a8d6f34f1c954eabafa2b616ce4a5322c5e50286ea8354991c1571e8c7a661bebb8c5e0ef74088f5e3e46890eaae8cf2e5dc492b0d466ef0c5624c2faf05b5c2822506c2745fa3ccd559206c66917" +
+  "0daa6a310f74ff356e158a5930066b57b8eac59519f950fe7d48174b5a973f37f165d6f264b840957516b964c3690bbfb06683617be6957b875aa72dcd7b7925f2d26550c494949d53be498d9f05e90279b5c2524d03be8da082033830820334" +
+  "3082033030820218a00302010202021001300d06092a864886f70d01010b0500301c311a301806035504030c115265666572656e636520526f6f74204341301e170d3236303532373035303434365a170d3336303532343035303434365a3023" +
+  "3121301f06035504030c185265666572656e6365204f43535020526573706f6e64657230820122300d06092a864886f70d01010105000382010f003082010a0282010100a71b28ff0e7fd42e990bfa1f51b7955bc5c24daba5b7a40180facda2" +
+  "7e0803dd3fba6dbcd93371c9effb93e8496e0e85c4a2eb71f1962d46358e62483dceb789e27d1f7f9839ceb674264a27734c6edaef8af30d7cd06b42d1fd8b5bd9f01c362a918006194bcfffe0ae3bce1b8dac172029ee6420a14fe31e89939e" +
+  "d8d55e8b8c97f932104eabc6f1f019003d892efa8abdcf06eb884f79478f425358e9e15babb6ca704c96d81fa738a1df3bd2862f354176e1933b6a23b531eb1fcd81a355fbdfc0c80c7debb84b3683d7a0ec46e378315f50893ba7c74a495c74" +
+  "1395883fde5760ce475e9a3d5dab10b315544540a9e7fc373a1916bab5825f609ec62fd30203010001a3753073300c0603551d130101ff04023000300e0603551d0f0101ff04040302078030130603551d25040c300a06082b06010505070309" +
+  "301d0603551d0e04160414436871dd5cef99ad1978f5df2f8238408756e2f7301f0603551d230418301680146efd9fc655c2f7464e999989cc28d00068ff7b2e300d06092a864886f70d01010b050003820101001f2ad4bc1895b3483517cfd3" +
+  "df89c62b32750212116f8ad41e1b9ed3aa806b4b629e282df732b6dca4874954a2c870a61940ab34ad67c24e6526c03f5640af75e1194c83bbe320439fc1a3db90173d169eaae8a9b997abb3cadffe0b3258532f51d28439e36b01f16d5732d7" +
+  "2e3043d363c048539084cd30bd44d0d3c614b002b4260f2d2290725cdb2d2b50fc213896503a80ea827471d3b367872c3d51bd634d94df62e773565a8f365c5184148963515e180d00939864106b963e7b0e58a9772c20191af961a5ac80b29a" +
+  "6208b81944959f07eff87db512ffc1ffab79f4646bd0426afb519f7b4cd3bfa1ff24818af4bf3b9c91d054a958f145aed66d4d03"
+
+///|
 test "ocsp: good status, direct-signed, SHA-256 CertID" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex,
@@ -526,6 +616,123 @@ test "ocsp: good status, direct-signed, SHA-256 CertID" {
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")
   @debug.assert_eq(status, Good)
+}
+
+///|
+test "ocsp reference: OpenSSL direct RSA response verifies" {
+  let issuer = @pkix.parse_certificate(@pem.decode(openssl_ref_ca_pem).data)
+  let cert = @pkix.parse_certificate(@pem.decode(openssl_ref_leaf_pem).data)
+  let status = @ocsp.verify(
+    hex_to_bytes(openssl_ref_ocsp_direct_der_hex),
+    cert,
+    issuer,
+    "270101000000Z",
+  )
+  @debug.assert_eq(status, Good)
+}
+
+///|
+test "ocsp reference: OpenSSL delegated RSA responder verifies" {
+  let issuer = @pkix.parse_certificate(@pem.decode(openssl_ref_ca_pem).data)
+  let cert = @pkix.parse_certificate(@pem.decode(openssl_ref_leaf_pem).data)
+  // Keep the delegated responder cert fixture parsed independently so the
+  // embedded BasicOCSPResponse cert can be compared during debugging.
+  let _ = @pkix.parse_certificate(
+    @pem.decode(openssl_ref_ocsp_responder_pem).data,
+  )
+  let status = @ocsp.verify(
+    hex_to_bytes(openssl_ref_ocsp_delegated_der_hex),
+    cert,
+    issuer,
+    "270101000000Z",
+  )
+  @debug.assert_eq(status, Good)
+}
+
+///|
+test "ATTACK ocsp: non-digit time input is rejected before status trust" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "202506AA000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP status with non-digit time input")
+  }
+}
+
+///|
+test "ATTACK ocsp: impossible now date is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250231235959Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP verification with impossible now date")
+  }
 }
 
 ///|

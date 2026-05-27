@@ -46,6 +46,8 @@ pub suberror CrlError {
   StaleCrl(String)
   /// CRL's `issuer` DN does not match the supplied `issuer_cert.subject`.
   IssuerMismatch
+  /// issuer_cert carries keyUsage but does not allow CRL signing.
+  KeyUsageMissingCrlSign
   /// Inner TBSCertList.signature does not match outer signatureAlgorithm.
   AlgorithmMismatch
   /// Structural problems in the DER.
@@ -124,6 +126,29 @@ fn expect_bit_string(elem : @asn1.Element) -> @asn1.BitString raise CrlError {
 }
 
 ///|
+fn key_usage_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15])
+}
+
+///|
+fn issuer_allows_crl_sign(cert : @pkix.Certificate) -> Bool raise CrlError {
+  for ext in cert.tbs.extensions {
+    if ext.oid == key_usage_oid() {
+      let elem = @asn1.decode_der(ext.value) catch { e => raise Asn1(e) }
+      let bs = expect_bit_string(elem)
+      if bs.bytes.length() == 0 {
+        raise Malformed("keyUsage: empty BIT STRING")
+      }
+      // keyUsage bit 6 = cRLSign. BIT STRING bit numbering starts at the
+      // high bit of byte 0, so bit 6 is mask 0x02.
+      return ((bs.bytes[0].to_int() >> 1) & 1) == 1
+    }
+  }
+  // Absent keyUsage means unrestricted for this verifier's purpose.
+  true
+}
+
+///|
 fn expect_time(elem : @asn1.Element) -> String raise CrlError {
   // RFC 5280: Time ::= CHOICE { utcTime UTCTime, generalTime GeneralizedTime }
   match elem.value {
@@ -171,6 +196,11 @@ fn parse_extension_meta(
 }
 
 ///|
+fn id_ce_crl_number() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 20])
+}
+
+///|
 fn reject_unsupported_extensions(
   elem : @asn1.Element,
   context : String,
@@ -186,7 +216,11 @@ fn reject_unsupported_extensions(
     }
     seen.push(oid)
   }
-  if items.length() > 0 {
+  for item in items {
+    let (oid, _) = parse_extension_meta(item)
+    if context == "crlExtensions" && oid == id_ce_crl_number() {
+      continue
+    }
     raise Malformed(context + ": unsupported extension")
   }
 }
@@ -372,22 +406,93 @@ pub fn parse(der : Bytes) -> Crl raise CrlError {
 // ─── time helpers ───────────────────────────────────────────────────────
 
 ///|
+fn decimal2(s : String, offset : Int) -> Int {
+  let hi = s.get_char(offset).unwrap().to_int() - '0'.to_int()
+  let lo = s.get_char(offset + 1).unwrap().to_int() - '0'.to_int()
+  hi * 10 + lo
+}
+
+///|
+fn decimal4(s : String, offset : Int) -> Int {
+  decimal2(s, offset) * 100 + decimal2(s, offset + 2)
+}
+
+///|
+fn days_in_month(year : Int, month : Int) -> Int {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn is_leap_year(year : Int) -> Bool {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+///|
+fn validate_time_fields(
+  s : String,
+  year : Int,
+  month_at : Int,
+  day_at : Int,
+  hour_at : Int,
+  minute_at : Int,
+  second_at : Int,
+) -> Unit raise CrlError {
+  if year <= 0 {
+    raise Malformed("time: invalid year")
+  }
+  let month = decimal2(s, month_at)
+  let day = decimal2(s, day_at)
+  let hour = decimal2(s, hour_at)
+  let minute = decimal2(s, minute_at)
+  let second = decimal2(s, second_at)
+  if month < 1 || month > 12 {
+    raise Malformed("time: invalid month")
+  }
+  if day < 1 || day > days_in_month(year, month) {
+    raise Malformed("time: invalid day")
+  }
+  if hour > 23 || minute > 59 || second > 59 {
+    raise Malformed("time: invalid clock")
+  }
+}
+
+///|
 fn normalize_time(s : String) -> String raise CrlError {
   if s.length() == 15 {
     if s.get_char(14).unwrap() != 'Z' {
       raise Malformed("time: GeneralizedTime must end with Z")
     }
+    for i = 0; i < 14; i = i + 1 {
+      let c = s.get_char(i).unwrap()
+      if c < '0' || c > '9' {
+        raise Malformed("time: GeneralizedTime non-digit")
+      }
+    }
+    validate_time_fields(s, decimal4(s, 0), 4, 6, 8, 10, 12)
     return s
   }
   if s.length() == 13 {
     if s.get_char(12).unwrap() != 'Z' {
       raise Malformed("time: UTCTime must end with Z")
     }
+    for i = 0; i < 12; i = i + 1 {
+      let c = s.get_char(i).unwrap()
+      if c < '0' || c > '9' {
+        raise Malformed("time: UTCTime non-digit")
+      }
+    }
     let zero = '0'.to_int()
     let yy_hi = s.code_unit_at(0).to_int() - zero
     let yy_lo = s.code_unit_at(1).to_int() - zero
     let yy = yy_hi * 10 + yy_lo
     let century = if yy < 50 { "20" } else { "19" }
+    let year = if yy < 50 { 2000 + yy } else { 1900 + yy }
+    validate_time_fields(s, year, 2, 4, 6, 8, 10)
     return century + s
   }
   raise Malformed("time: unsupported format length " + s.length().to_string())
@@ -413,6 +518,9 @@ pub fn verify(
   // DN linkage.
   if !names_match(p.tbs.issuer, issuer_cert.tbs.subject) {
     raise IssuerMismatch
+  }
+  if !issuer_allows_crl_sign(issuer_cert) {
+    raise KeyUsageMissingCrlSign
   }
   // Signature.
   let issuer_pk = @pkix_verify.extract_public_key(

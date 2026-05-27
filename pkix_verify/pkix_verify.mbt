@@ -43,6 +43,10 @@ pub suberror PkixVerifyError {
   // RFC 5280 §6.1.4(n): an issuer's keyUsage, if present, MUST include
   // keyCertSign.
   KeyUsageMissingCertSign
+  // Leaf signature-verification usages can opt into requiring keyUsage bit 0
+  // (digitalSignature). If keyUsage is present and does not allow signing,
+  // accepting the leaf for a CMS/JWS-like authentication decision is unsafe.
+  KeyUsageMissingDigitalSignature
   // RFC 5280 §6.1.3(b) / §4.2.1.10: child's DNS name is excluded by the
   // parent's nameConstraints.excludedSubtrees, or outside its
   // permittedSubtrees.
@@ -282,6 +286,29 @@ fn issuer_allows_cert_sign(
     }
   }
   // Extension absent ⇒ unrestricted usage permitted (RFC 5280 §4.2.1.3).
+  true
+}
+
+///|
+fn leaf_allows_digital_signature(
+  cert : @pkix.Certificate,
+) -> Bool raise PkixVerifyError {
+  for ext in cert.tbs.extensions {
+    if ext.oid == key_usage_oid() {
+      let elem = @asn1.decode_der(ext.value) catch { e => raise Asn1(e) }
+      let bs = match elem.value {
+        BitString(b) => b
+        _ => raise MalformedExtension("keyUsage: expected BIT STRING")
+      }
+      if bs.bytes.length() == 0 {
+        raise MalformedExtension("keyUsage: empty BIT STRING")
+      }
+      // keyUsage bit 0 = digitalSignature. BIT STRING bit numbering starts at
+      // the high bit of byte 0, so bit 0 is mask 0x80.
+      return ((bs.bytes[0].to_int() >> 7) & 1) == 1
+    }
+  }
+  // Extension absent => unrestricted for this purpose.
   true
 }
 
@@ -779,6 +806,62 @@ pub fn verify_signature(
 // ─── validity ────────────────────────────────────────────────────────────
 
 ///|
+fn decimal2(s : String, offset : Int) -> Int {
+  let hi = s.get_char(offset).unwrap().to_int() - '0'.to_int()
+  let lo = s.get_char(offset + 1).unwrap().to_int() - '0'.to_int()
+  hi * 10 + lo
+}
+
+///|
+fn decimal4(s : String, offset : Int) -> Int {
+  decimal2(s, offset) * 100 + decimal2(s, offset + 2)
+}
+
+///|
+fn days_in_month(year : Int, month : Int) -> Int {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn is_leap_year(year : Int) -> Bool {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+///|
+fn validate_time_fields(
+  s : String,
+  year : Int,
+  month_at : Int,
+  day_at : Int,
+  hour_at : Int,
+  minute_at : Int,
+  second_at : Int,
+) -> Unit raise PkixVerifyError {
+  if year <= 0 {
+    raise MalformedExtension("validity: invalid year")
+  }
+  let month = decimal2(s, month_at)
+  let day = decimal2(s, day_at)
+  let hour = decimal2(s, hour_at)
+  let minute = decimal2(s, minute_at)
+  let second = decimal2(s, second_at)
+  if month < 1 || month > 12 {
+    raise MalformedExtension("validity: invalid month")
+  }
+  if day < 1 || day > days_in_month(year, month) {
+    raise MalformedExtension("validity: invalid day")
+  }
+  if hour > 23 || minute > 59 || second > 59 {
+    raise MalformedExtension("validity: invalid clock")
+  }
+}
+
+///|
 // UTCTime / GeneralizedTime comparison.
 //
 // RFC 5280 §4.1.2.5: UTCTime is YYMMDDHHMMSSZ with YY < 50 ⇒ 20YY else 19YY.
@@ -800,6 +883,7 @@ fn normalize_time(s : String) -> String raise PkixVerifyError {
         raise MalformedExtension("validity: GeneralizedTime non-digit")
       }
     }
+    validate_time_fields(s, decimal4(s, 0), 4, 6, 8, 10, 12)
     return s
   }
   if s.length() == 13 {
@@ -817,6 +901,8 @@ fn normalize_time(s : String) -> String raise PkixVerifyError {
     let yy_lo = s.code_unit_at(1).to_int() - zero
     let yy = yy_hi * 10 + yy_lo
     let century = if yy < 50 { "20" } else { "19" }
+    let year = if yy < 50 { 2000 + yy } else { 1900 + yy }
+    validate_time_fields(s, year, 2, 4, 6, 8, 10)
     return century + s
   }
   raise MalformedExtension(
@@ -1013,6 +1099,36 @@ pub fn verify_chain_with_options(
   now : String,
   opts : VerifyChainOptions,
 ) -> Unit raise PkixVerifyError {
+  verify_chain_with_options_internal(
+    leaf, intermediates, trust_anchor_pubkey, now, opts, false,
+  )
+}
+
+///|
+/// Like `verify_chain_with_options`, but additionally requires the leaf
+/// keyUsage extension, when present, to include digitalSignature. High-level
+/// signature authentication protocols such as CMS should use this entry point.
+pub fn verify_chain_for_signature(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor_pubkey : PublicKey,
+  now : String,
+  opts : VerifyChainOptions,
+) -> Unit raise PkixVerifyError {
+  verify_chain_with_options_internal(
+    leaf, intermediates, trust_anchor_pubkey, now, opts, true,
+  )
+}
+
+///|
+fn verify_chain_with_options_internal(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor_pubkey : PublicKey,
+  now : String,
+  opts : VerifyChainOptions,
+  require_leaf_digital_signature : Bool,
+) -> Unit raise PkixVerifyError {
   check_extension_policy(leaf)
   for inter in intermediates {
     check_extension_policy(inter)
@@ -1088,5 +1204,8 @@ pub fn verify_chain_with_options(
   match opts.required_eku {
     Some(o) => enforce_required_eku(leaf, o)
     None => ()
+  }
+  if require_leaf_digital_signature && !leaf_allows_digital_signature(leaf) {
+    raise KeyUsageMissingDigitalSignature
   }
 }

@@ -827,6 +827,8 @@ pub fn verify(
             "at+jwt", "application/at+jwt", "logout+jwt", "application/logout+jwt",
             "dpop+jwt", "application/dpop+jwt", "entity-statement+jwt", "application/entity-statement+jwt",
             "secevent+jwt", "application/secevent+jwt", "ciba+jwt", "application/ciba+jwt",
+            "oauth-authz-req+jwt", "application/oauth-authz-req+jwt", "oauth-authz-resp+jwt",
+            "application/oauth-authz-resp+jwt",
           ]
           for d in denied {
             if t_norm == d {

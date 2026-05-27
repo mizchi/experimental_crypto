@@ -199,6 +199,16 @@ fn validate_time_string(s : String, tag : @asn1.Tag) -> Unit raise PkixError {
       raise InvalidTime(s)
     }
   }
+  let year = if tag == @asn1.tag_utc_time {
+    let yy = decimal2(s, 0)
+    if yy < 50 {
+      2000 + yy
+    } else {
+      1900 + yy
+    }
+  } else {
+    decimal4(s, 0)
+  }
   let month = decimal2(s, month_at)
   let day = decimal2(s, day_at)
   let hour = decimal2(s, hour_at)
@@ -207,7 +217,7 @@ fn validate_time_string(s : String, tag : @asn1.Tag) -> Unit raise PkixError {
   if month < 1 || month > 12 {
     raise InvalidTime(s)
   }
-  if day < 1 || day > 31 {
+  if day < 1 || day > days_in_month(year, month) {
     raise InvalidTime(s)
   }
   if hour > 23 || minute > 59 || second > 59 {
@@ -220,6 +230,26 @@ fn decimal2(s : String, offset : Int) -> Int {
   let hi = s.get_char(offset).unwrap().to_int() - '0'.to_int()
   let lo = s.get_char(offset + 1).unwrap().to_int() - '0'.to_int()
   hi * 10 + lo
+}
+
+///|
+fn decimal4(s : String, offset : Int) -> Int {
+  decimal2(s, offset) * 100 + decimal2(s, offset + 2)
+}
+
+///|
+fn days_in_month(year : Int, month : Int) -> Int {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn is_leap_year(year : Int) -> Bool {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
 // Context [n] EXPLICIT: outer tag = ContextSpecific n constructed,

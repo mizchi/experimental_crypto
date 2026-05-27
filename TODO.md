@@ -198,6 +198,20 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
     diverge.
     - [x] Split CI test job into a target matrix for `wasm-gc`, `native`,
       and `js`; keep `moon prove` as a separate job.
+11. [ ] **Protocol/container reference-test sweep**: pin supported behavior
+    to external RFC / upstream vectors for `jwe`, `ocsp`, `crl`,
+    `pkix_verify`, `cose`, and `naclbox`.
+    - [x] Add RFC 7520 `dir` + `A128GCM` compact JWE decrypt vector.
+    - [x] Add external OpenSSL OCSP response fixture for direct and delegated
+      responder paths.
+    - [x] Add external OpenSSL CRL fixture with `cRLSign` issuer key usage and
+      revoked serial lookup.
+    - [x] Keep real Let's Encrypt R10 / ISRG Root X1 reference coverage in
+      `pkix_verify`; add a real leaf chain fixture when name constraints /
+      policy coverage is needed.
+    - [x] Add RFC 9052 COSE_Sign1 ES256 reference vector.
+    - [x] Add libsodium XChaCha20-Poly1305 no-AAD reference vector for
+      `naclbox.secretbox`.
 
 ### Authentication false-positive triage
 
