@@ -158,8 +158,11 @@ fails closed before returning authenticated / verified / trusted.
   impractically slow.
   - [x] Add P-256 10-limb field I/O, canonical reduction, add/sub/neg, and
     interim fixed-width mul/square/inversion helpers with BigInt oracle tests.
-  - [ ] Add P-256 projective point formulas, then wire private scalar
-    multiplication away from affine `@bigint`.
+  - [x] Add P-256 projective point conversion, double/add, and branchy scalar
+    multiplication baseline against the existing affine oracle.
+  - [x] Add P-256 field / projective point conditional-select helpers.
+  - [ ] Add complete / exceptional-case-free P-256 formulas, then wire private
+    scalar multiplication away from affine `@bigint`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
 - [ ] **`ed25519`** 10-limb field arithmetic, matching the speedup already

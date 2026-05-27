@@ -13,11 +13,10 @@
 // is internally little-endian: limb 0 holds the least-significant 26
 // bits. fe_from_bytes/fe_to_bytes do the BE ⇄ LE flip.
 //
-// Scope of this file (Milestone 1): the type, constants, I/O, copy,
-// add/sub/neg, and a fe_carry_full that handles inputs whose limbs are already
-// small (post-fe_from_bytes, or pre-multiplication). The wider-input fe_carry
-// that takes ~2^62 limbs from fe_mul / fe_sqr lives in a follow-up commit so
-// this file stays reviewable.
+// Scope of this file: the type, constants, I/O, copy, add/sub/neg, and
+// fixed-width mul/square/inversion. Multiplication and inversion currently
+// route through `crypto_bigint` as an interim reducer; the dedicated P-256
+// pseudo-Mersenne reducer is still pending.
 
 ///|
 type Fe = FixedArray[UInt64]
@@ -56,6 +55,16 @@ fn fe_copy(a : Fe) -> Fe {
 fn fe_u64_lt_01(a : UInt64, b : UInt64) -> UInt64 {
   let diff = a - b
   (((a.lnot() & b) | ((a ^ b).lnot() & diff)) >> 63) & 1UL
+}
+
+///|
+fn fe_select(a : Fe, b : Fe, bit : UInt64) -> Fe {
+  let mask = 0UL - (bit & 1UL)
+  let out = FixedArray::make(10, 0UL)
+  for i = 0; i < 10; i = i + 1 {
+    out[i] = (a[i] & mask.lnot()) | (b[i] & mask)
+  }
+  out
 }
 
 ///|

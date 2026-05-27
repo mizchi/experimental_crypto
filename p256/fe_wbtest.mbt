@@ -27,6 +27,21 @@ fn be32_to_bigint(b : FixedArray[Byte]) -> BigInt {
 }
 
 ///|
+fn assert_point_eq(
+  got : Point,
+  expected : Point,
+  context : String,
+) -> Unit raise {
+  @debug.assert_eq(got.inf, expected.inf)
+  if !expected.inf {
+    @debug.assert_eq(got.x.to_string(), expected.x.to_string())
+    @debug.assert_eq(got.y.to_string(), expected.y.to_string())
+  } else if !got.inf {
+    abort(context + ": expected infinity")
+  }
+}
+
+///|
 test "fe zero / one round-trip through bytes" {
   let zero = FixedArray::make(10, 0UL)
   let zero_be = fe_to_bytes(zero)
@@ -223,4 +238,72 @@ test "fe inv matches @bigint oracle for non-zero values" {
     @debug.assert_eq(got.to_string(), expected.to_string())
     @debug.assert_eq(prod.to_string(), "1")
   }
+}
+
+///|
+test "fe conditional select chooses operands" {
+  let a_big = BigInt::from_string("123456789abcdef", radix=16)
+  let b_big = BigInt::from_string("fedcba987654321", radix=16)
+  let a = fe_from_bytes(bigint_to_be32(a_big))
+  let b = fe_from_bytes(bigint_to_be32(b_big))
+  let pick_a = be32_to_bigint(fe_to_bytes(fe_select(a, b, 0UL)))
+  let pick_b = be32_to_bigint(fe_to_bytes(fe_select(a, b, 1UL)))
+  @debug.assert_eq(pick_a.to_string(), a_big.to_string())
+  @debug.assert_eq(pick_b.to_string(), b_big.to_string())
+}
+
+///|
+test "fe projective point conversion round-trips affine points" {
+  let g = generator()
+  assert_point_eq(fe_point_to_affine(fe_point_from_affine(g)), g, "G")
+  let inf = point_infinity()
+  assert_point_eq(fe_point_to_affine(fe_point_from_affine(inf)), inf, "O")
+}
+
+///|
+test "fe projective point double/add match affine oracle" {
+  let g = generator()
+  let g2_affine = point_double(g)
+  let g3_affine = point_add(g2_affine, g)
+  let g_j = fe_point_from_affine(g)
+  let g2_j = fe_point_double(g_j)
+  assert_point_eq(fe_point_to_affine(g2_j), g2_affine, "2G")
+  assert_point_eq(
+    fe_point_to_affine(fe_point_add(g2_j, g_j)),
+    g3_affine,
+    "2G + G",
+  )
+  let inf = fe_point_from_affine(point_infinity())
+  assert_point_eq(fe_point_to_affine(fe_point_add(inf, g_j)), g, "O + G")
+  assert_point_eq(fe_point_to_affine(fe_point_add(g_j, inf)), g, "G + O")
+}
+
+///|
+test "fe projective scalar multiplication matches affine oracle" {
+  let g = generator()
+  let scalars : Array[Int] = [0, 1, 2, 3, 5, 17, 255]
+  for k_int in scalars {
+    let k = BigInt::from_int(k_int)
+    let got = fe_point_to_affine(
+      fe_scalar_mult_variable(k, fe_point_from_affine(g)),
+    )
+    let expected = scalar_mult(k, g)
+    assert_point_eq(got, expected, "k=" + k_int.to_string())
+  }
+}
+
+///|
+test "fe projective point conditional select chooses operands" {
+  let g = fe_point_from_affine(generator())
+  let inf = fe_point_from_affine(point_infinity())
+  assert_point_eq(
+    fe_point_to_affine(fe_point_select(inf, g, 0UL)),
+    point_infinity(),
+    "select O",
+  )
+  assert_point_eq(
+    fe_point_to_affine(fe_point_select(inf, g, 1UL)),
+    generator(),
+    "select G",
+  )
 }

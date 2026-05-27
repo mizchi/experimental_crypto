@@ -79,6 +79,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add P-256 10-limb field add/sub/neg plus interim fixed-width
   mul/square/inversion helpers and BigInt-oracle whitebox tests. These helpers
   are not wired into scalar multiplication yet.
+- Add P-256 projective point conversion, double/add, and a branchy scalar
+  multiplication correctness baseline against the existing affine oracle.
+- Add P-256 field and projective point conditional-select helpers as the
+  groundwork for a fixed-iteration scalar multiplication path.
 
 ## Parser And Protocol Hardening
 
