@@ -131,7 +131,13 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Reject unsupported OCSP `ResponseData.version` values.
 - Reject OCSP responses whose `producedAt` is in the future.
 - Require OCSP high-level verification responses to include `nextUpdate`.
-- Add external OpenSSL OCSP fixtures for direct and delegated responder paths.
+- Add `verify_with_nonce` and reject nonce-bearing OCSP responses unless the
+  signed response nonce is explicitly bound to the request nonce.
+- Require delegated OCSP responder certs to carry non-critical
+  `id-pkix-ocsp-nocheck`; reject delegated responders whose revocation status
+  would otherwise be unchecked.
+- Add external OpenSSL OCSP fixtures for direct responder acceptance and
+  delegated responder rejection without `id-pkix-ocsp-nocheck`.
 - Reject unsupported CRL / CRL-entry extensions instead of ignoring scope, delta, or indirect-CRL semantics.
 - Reject unsupported CRL `TBSCertList.version` values.
 - Require high-level CRL verification to include `nextUpdate`.

@@ -13,10 +13,8 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      RSA and ECDSA sign paths.
 2. [ ] **OCSP / CRL revocation semantics**: implement the semantics currently
    treated as fail-closed at the high-level trust boundary.
-   - [ ] Enforce OCSP nonce request binding.
    - [ ] Implement delta CRL and indirect CRL handling.
    - [ ] Implement CRL distribution-point matching.
-   - [ ] Implement delegated OCSP responder `id-pkix-ocsp-nocheck` policy.
    - [ ] Add OCSP request construction and HTTP transport semantics.
 3. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
@@ -106,10 +104,9 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **Ed448 / X448** (RFC 8032 / 7748).
 - [ ] **PKCS#12 (PFX)**.
 - [ ] **AES-GCM-SIV / AES-SIV** nonce-misuse-resistant AEADs.
-- [ ] **OCSP / CRL extensions**: nonce, archive cutoff, delta-CRLs,
-  CRL distribution-point matching, indirect CRLs,
-  `id-pkix-ocsp-nocheck` on delegated responders, request construction, and
-  HTTP transport.
+- [ ] **OCSP / CRL extensions**: archive cutoff, delta-CRLs, CRL
+  distribution-point matching, indirect CRLs, request construction, and HTTP
+  transport.
 - [ ] **`age`** file encryption format.
 - [ ] **EIP-712 / EIP-191** structured Ethereum signing helpers.
 

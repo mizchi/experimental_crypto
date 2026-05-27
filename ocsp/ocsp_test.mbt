@@ -120,6 +120,23 @@ fn ext_key_usage_ocsp_signing() -> @pkix.Extension {
 }
 
 ///|
+fn ocsp_no_check_ext() -> @pkix.Extension {
+  ocsp_no_check_ext_with_value(false, b"\x05\x00")
+}
+
+///|
+fn ocsp_no_check_ext_with_value(
+  critical : Bool,
+  value : Bytes,
+) -> @pkix.Extension {
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 48, 1, 5]),
+    critical,
+    value,
+  }
+}
+
+///|
 fn key_usage_ext(bits : Bytes) -> @pkix.Extension {
   let elem = @asn1.Element::new(
     @asn1.tag_bit_string,
@@ -388,6 +405,15 @@ fn ocsp_extension_elem(
   oid : @asn1.ObjectIdentifier,
   critical : Bool,
 ) -> @asn1.Element {
+  ocsp_extension_elem_with_value(oid, critical, b"\x05\x00")
+}
+
+///|
+fn ocsp_extension_elem_with_value(
+  oid : @asn1.ObjectIdentifier,
+  critical : Bool,
+  extn_value : Bytes,
+) -> @asn1.Element {
   let items : Array[@asn1.Element] = [
     @asn1.Element::new(@asn1.tag_oid, Oid(oid)),
   ]
@@ -395,9 +421,24 @@ fn ocsp_extension_elem(
     items.push(@asn1.Element::new(@asn1.tag_boolean, Boolean(true)))
   }
   items.push(
-    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"\x05\x00")),
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(extn_value)),
   )
   @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
+fn ocsp_nonce_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 48, 1, 2])
+}
+
+///|
+fn ocsp_nonce_extension_elem(nonce : Bytes, critical : Bool) -> @asn1.Element {
+  let inner = @asn1.Element::new(@asn1.tag_octet_string, OctetString(nonce))
+  ocsp_extension_elem_with_value(
+    ocsp_nonce_oid(),
+    critical,
+    @asn1.encode_der(inner),
+  )
 }
 
 ///|
@@ -662,7 +703,7 @@ test "ocsp reference: OpenSSL direct RSA response verifies" {
 }
 
 ///|
-test "ocsp reference: OpenSSL delegated RSA responder verifies" {
+test "ocsp reference: OpenSSL delegated RSA responder without nocheck is rejected" {
   let issuer = @pkix.parse_certificate(@pem.decode(openssl_ref_ca_pem).data)
   let cert = @pkix.parse_certificate(@pem.decode(openssl_ref_leaf_pem).data)
   // Keep the delegated responder cert fixture parsed independently so the
@@ -670,13 +711,20 @@ test "ocsp reference: OpenSSL delegated RSA responder verifies" {
   let _ = @pkix.parse_certificate(
     @pem.decode(openssl_ref_ocsp_responder_pem).data,
   )
-  let status = @ocsp.verify(
-    hex_to_bytes(openssl_ref_ocsp_delegated_der_hex),
-    cert,
-    issuer,
-    "270101000000Z",
-  )
-  @debug.assert_eq(status, Good)
+  try
+    @ocsp.verify(
+      hex_to_bytes(openssl_ref_ocsp_delegated_der_hex),
+      cert,
+      issuer,
+      "270101000000Z",
+    )
+  catch {
+    ResponderRevocationNotChecked => ()
+    other =>
+      abort("expected ResponderRevocationNotChecked, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted delegated OCSP responder without nocheck")
+  }
 }
 
 ///|
@@ -1111,6 +1159,329 @@ test "ATTACK ocsp: unsupported non-critical response extension is rejected" {
 }
 
 ///|
+test "ocsp: verify_with_nonce accepts matching response nonce" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let nonce = b"client-nonce-001"
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [ocsp_nonce_extension_elem(nonce, false)]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  let status = @ocsp.verify_with_nonce(
+    ocsp, cert, issuer, "20250601000000Z", nonce,
+  )
+  @debug.assert_eq(status, Good)
+}
+
+///|
+test "ATTACK ocsp: verify rejects response nonce without request binding" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let nonce = b"client-nonce-002"
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [ocsp_nonce_extension_elem(nonce, false)]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted nonce-bearing OCSP response without expected nonce")
+  }
+}
+
+///|
+test "ATTACK ocsp: verify_with_nonce rejects mismatched response nonce" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [
+      ocsp_nonce_extension_elem(b"response-nonce", false),
+    ]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try
+    @ocsp.verify_with_nonce(
+      ocsp, cert, issuer, "20250601000000Z", b"request-nonce",
+    )
+  catch {
+    NonceMismatch => ()
+    other => abort("expected NonceMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP response with mismatched nonce")
+  }
+}
+
+///|
+test "ATTACK ocsp: verify_with_nonce rejects missing response nonce" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try
+    @ocsp.verify_with_nonce(
+      ocsp, cert, issuer, "20250601000000Z", b"request-nonce",
+    )
+  catch {
+    NonceMismatch => ()
+    other => abort("expected NonceMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP response without expected nonce")
+  }
+}
+
+///|
+test "ATTACK ocsp: critical nonce extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let nonce = b"client-nonce-003"
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [ocsp_nonce_extension_elem(nonce, true)]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try
+    @ocsp.verify_with_nonce(ocsp, cert, issuer, "20250601000000Z", nonce)
+  catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted critical OCSP nonce extension")
+  }
+}
+
+///|
+test "ATTACK ocsp: duplicate nonce extensions are rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let nonce = b"client-nonce-004"
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [
+      ocsp_nonce_extension_elem(nonce, false),
+      ocsp_nonce_extension_elem(nonce, false),
+    ]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try
+    @ocsp.verify_with_nonce(ocsp, cert, issuer, "20250601000000Z", nonce)
+  catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP response with duplicate nonce extensions")
+  }
+}
+
+///|
+test "ATTACK ocsp: nonce extension value must wrap an OCTET STRING" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let nonce = b"client-nonce-005"
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [
+      ocsp_extension_elem_with_value(
+        ocsp_nonce_oid(),
+        false,
+        @asn1.encode_der(@asn1.Element::new(@asn1.tag_null, Null)),
+      ),
+    ]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try
+    @ocsp.verify_with_nonce(ocsp, cert, issuer, "20250601000000Z", nonce)
+  catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP nonce extension with non-OCTET inner value")
+  }
+}
+
+///|
 test "ATTACK ocsp: unsupported critical single extension is rejected" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex,
@@ -1474,7 +1845,7 @@ test "ocsp: delegated responder cert path" {
     "Test Issuer",
     "230101000000Z",
     "330101000000Z",
-    [ext_key_usage_ocsp_signing()],
+    [ext_key_usage_ocsp_signing(), ocsp_no_check_ext()],
     issuer_seed_hex,
   )
   // The OCSP response is signed by the responder, not the issuer.
@@ -1527,6 +1898,7 @@ test "ATTACK ocsp: delegated responder keyUsage must allow digitalSignature" {
     "330101000000Z",
     [
       ext_key_usage_ocsp_signing(),
+      ocsp_no_check_ext(),
       key_usage_ext(b"\x20"), // keyEncipherment only; no digitalSignature.
     ],
     issuer_seed_hex,
@@ -1584,7 +1956,7 @@ test "ATTACK ocsp: delegated responder issuer DN must match issuer cert subject"
     "Other Issuer",
     "230101000000Z",
     "330101000000Z",
-    [ext_key_usage_ocsp_signing()],
+    [ext_key_usage_ocsp_signing(), ocsp_no_check_ext()],
     issuer_seed_hex,
   )
   let single = build_single_response_elem(
@@ -1730,7 +2102,7 @@ test "ATTACK ocsp: delegated responderID must match embedded responder cert" {
     "Test Issuer",
     "230101000000Z",
     "330101000000Z",
-    [ext_key_usage_ocsp_signing()],
+    [ext_key_usage_ocsp_signing(), ocsp_no_check_ext()],
     issuer_seed_hex,
   )
   let single = build_single_response_elem(
@@ -1756,5 +2128,176 @@ test "ATTACK ocsp: delegated responderID must match embedded responder cert" {
     other => abort("expected ResponderIdMismatch, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted delegated OCSP with mismatched responderID")
+  }
+}
+
+///|
+test "ATTACK ocsp: delegated responder without nocheck is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let resp_seed_hex = "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+  let responder = build_ed25519_cert(
+    resp_seed_hex,
+    "OCSP Responder",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [ext_key_usage_ocsp_signing()],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    responder.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    ResponderRevocationNotChecked => ()
+    other =>
+      abort("expected ResponderRevocationNotChecked, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted delegated OCSP responder without nocheck")
+  }
+}
+
+///|
+test "ATTACK ocsp: critical delegated responder nocheck is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let resp_seed_hex = "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+  let responder = build_ed25519_cert(
+    resp_seed_hex,
+    "OCSP Responder",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [
+      ext_key_usage_ocsp_signing(),
+      ocsp_no_check_ext_with_value(true, b"\x05\x00"),
+    ],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    responder.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted critical delegated OCSP nocheck extension")
+  }
+}
+
+///|
+test "ATTACK ocsp: delegated responder nocheck must be DER NULL" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let resp_seed_hex = "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+  let responder = build_ed25519_cert(
+    resp_seed_hex,
+    "OCSP Responder",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [
+      ext_key_usage_ocsp_signing(),
+      ocsp_no_check_ext_with_value(
+        false,
+        @asn1.encode_der(
+          @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+        ),
+      ),
+    ],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    responder.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted delegated OCSP nocheck extension without DER NULL")
   }
 }

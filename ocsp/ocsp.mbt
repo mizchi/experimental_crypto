@@ -14,14 +14,14 @@
 //   5. BasicOCSPResponse.signature verifies against either:
 //        - responderID byName/byKey matching the issuer cert directly, OR
 //        - an embedded delegated responder cert in `certs[0]`, itself signed
-//          by the issuer cert and carrying the id-kp-OCSPSigning EKU.
+//          by the issuer cert, carrying the id-kp-OCSPSigning EKU, and marked
+//          with non-critical id-pkix-ocsp-nocheck.
+//   6. OCSP response nonce binding when the caller uses
+//      `verify_with_nonce(...)`.
 //
 // Out of scope:
-//   - OCSP nonces / responseExtensions
 //   - OCSP request construction
 //   - HTTP transport
-//   - id-pkix-ocsp-nocheck on delegated responders (we accept the responder
-//     cert validity window; we do not check its CRL)
 
 // ─── data types ──────────────────────────────────────────────────────────
 
@@ -62,6 +62,8 @@ pub(all) struct OcspSingleResponse {
 pub(all) struct OcspResponse {
   produced_at : String
   responses : Array[OcspSingleResponse]
+  /// id-pkix-ocsp-nonce from ResponseData.responseExtensions, if present.
+  response_nonce : Bytes?
   /// The signer cert: present iff the BasicOCSPResponse carried a delegated
   /// responder certificate in its `certs [0] EXPLICIT` field. Direct-signed
   /// responses (signed by the issuer key itself) have None here.
@@ -86,6 +88,13 @@ pub suberror OcspError {
   /// Signature on the BasicOCSPResponse did not verify against the determined
   /// signer key.
   BadSignature
+  /// Delegated responder cert lacks id-pkix-ocsp-nocheck. This verifier does
+  /// not recursively check responder-certificate revocation, so accepting such
+  /// a responder would be a false positive.
+  ResponderRevocationNotChecked
+  /// `verify_with_nonce` was called and the signed response nonce was missing
+  /// or did not exactly match the request nonce.
+  NonceMismatch
   /// Delegated responder cert is missing the id-kp-OCSPSigning EKU.
   ResponderMissingOcspSigningEku
   /// Delegated responder cert has keyUsage but not digitalSignature.
@@ -109,6 +118,18 @@ pub suberror OcspError {
 fn id_pkix_ocsp_basic() -> @asn1.ObjectIdentifier {
   // 1.3.6.1.5.5.7.48.1.1
   @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 48, 1, 1])
+}
+
+///|
+fn id_pkix_ocsp_nonce() -> @asn1.ObjectIdentifier {
+  // 1.3.6.1.5.5.7.48.1.2
+  @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 48, 1, 2])
+}
+
+///|
+fn id_pkix_ocsp_no_check() -> @asn1.ObjectIdentifier {
+  // 1.3.6.1.5.5.7.48.1.5
+  @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 48, 1, 5])
 }
 
 ///|
@@ -274,9 +295,9 @@ fn expect_enumerated_small(elem : @asn1.Element) -> Int raise OcspError {
 }
 
 ///|
-fn parse_extension_meta(
+fn parse_extension(
   elem : @asn1.Element,
-) -> (@asn1.ObjectIdentifier, Bool) raise OcspError {
+) -> (@asn1.ObjectIdentifier, Bool, Bytes) raise OcspError {
   let items = expect_sequence(elem)
   if items.length() < 2 || items.length() > 3 {
     raise Malformed("Extension arity")
@@ -289,8 +310,8 @@ fn parse_extension_meta(
   } else {
     1
   }
-  let _ = expect_octet_string(items[value_index])
-  (oid, critical)
+  let value = expect_octet_string(items[value_index])
+  (oid, critical, value)
 }
 
 ///|
@@ -301,7 +322,7 @@ fn reject_unsupported_extensions(
   let items = expect_sequence(elem)
   let seen : Array[@asn1.ObjectIdentifier] = []
   for item in items {
-    let (oid, _) = parse_extension_meta(item)
+    let (oid, _, _) = parse_extension(item)
     for prev in seen {
       if prev == oid {
         raise Malformed(context + ": duplicate extension")
@@ -312,6 +333,37 @@ fn reject_unsupported_extensions(
   if items.length() > 0 {
     raise Malformed(context + ": unsupported extension")
   }
+}
+
+///|
+fn parse_nonce_value(extn_value : Bytes) -> Bytes raise OcspError {
+  let inner = @asn1.decode_der(extn_value) catch { e => raise Asn1(e) }
+  expect_octet_string(inner)
+}
+
+///|
+fn parse_response_extensions(elem : @asn1.Element) -> Bytes? raise OcspError {
+  let items = expect_sequence(elem)
+  let seen : Array[@asn1.ObjectIdentifier] = []
+  let mut nonce : Bytes? = None
+  for item in items {
+    let (oid, critical, value) = parse_extension(item)
+    for prev in seen {
+      if prev == oid {
+        raise Malformed("responseExtensions: duplicate extension")
+      }
+    }
+    seen.push(oid)
+    if oid == id_pkix_ocsp_nonce() {
+      if critical {
+        raise Malformed("responseExtensions: critical nonce extension")
+      }
+      nonce = Some(parse_nonce_value(value))
+    } else {
+      raise Malformed("responseExtensions: unsupported extension")
+    }
+  }
+  nonce
 }
 
 ///|
@@ -548,6 +600,7 @@ priv struct ParsedResponseData {
   responder_id : ResponderId
   produced_at : String
   responses : Array[OcspSingleResponse]
+  response_nonce : Bytes?
 }
 
 ///|
@@ -607,12 +660,13 @@ fn parse_response_data(
   for sr in responses_seq {
     responses.push(parse_single_response(sr))
   }
-  // [1] EXPLICIT responseExtensions OPTIONAL. Nonces and other extensions can
-  // bind request semantics, so reject them until each supported OID is enforced.
+  let mut response_nonce : Bytes? = None
+  // [1] EXPLICIT responseExtensions OPTIONAL. Only OCSP nonce is supported,
+  // and the high-level verifier enforces explicit request binding.
   if idx < items.length() {
     match match_context_explicit(items[idx], 1U) {
       Some(exts) => {
-        reject_unsupported_extensions(exts, "responseExtensions")
+        response_nonce = parse_response_extensions(exts)
         idx = idx + 1
       }
       None => raise Malformed("ResponseData: unexpected trailing field")
@@ -621,7 +675,7 @@ fn parse_response_data(
   if idx != items.length() {
     raise Malformed("ResponseData: trailing fields")
   }
-  { responder_id, produced_at, responses }
+  { responder_id, produced_at, responses, response_nonce }
 }
 
 // ─── BasicOCSPResponse (RFC 6960 §4.2.1) ─────────────────────────────────
@@ -739,6 +793,7 @@ pub fn parse_response(der : Bytes) -> OcspResponse raise OcspError {
   {
     produced_at: basic.response_data.produced_at,
     responses: basic.response_data.responses,
+    response_nonce: basic.response_data.response_nonce,
     signer_cert,
   }
 }
@@ -967,6 +1022,22 @@ fn cert_has_ocsp_signing_eku(cert : @pkix.Certificate) -> Bool raise OcspError {
 }
 
 ///|
+fn cert_has_ocsp_no_check(cert : @pkix.Certificate) -> Bool raise OcspError {
+  for ext in cert.tbs.extensions {
+    if ext.oid == id_pkix_ocsp_no_check() {
+      if ext.critical {
+        raise Malformed("id-pkix-ocsp-nocheck must be non-critical")
+      }
+      if !is_der_null(ext.value) {
+        raise Malformed("id-pkix-ocsp-nocheck value must be DER NULL")
+      }
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn cert_issuer_matches(
   cert : @pkix.Certificate,
   issuer_cert : @pkix.Certificate,
@@ -990,6 +1061,7 @@ fn verify_basic_signature(
     if !cert_has_ocsp_signing_eku(resp_cert) {
       raise ResponderMissingOcspSigningEku
     }
+    let has_no_check = cert_has_ocsp_no_check(resp_cert)
     if !responder_id_matches_cert(basic.response_data.responder_id, resp_cert) {
       raise ResponderIdMismatch
     }
@@ -1009,6 +1081,9 @@ fn verify_basic_signature(
       KeyUsageMissingDigitalSignature =>
         raise ResponderMissingDigitalSignatureKeyUsage
       _ => raise ResponderNotSignedByIssuer
+    }
+    if !has_no_check {
+      raise ResponderRevocationNotChecked
     }
     @pkix_verify.extract_public_key(resp_cert.tbs.subject_public_key_info) catch {
       e => raise PkixVerify(e)
@@ -1038,6 +1113,36 @@ fn verify_basic_signature(
 // ─── top-level verify ───────────────────────────────────────────────────
 
 ///|
+fn enforce_nonce_binding(
+  response_nonce : Bytes?,
+  expected_nonce : Bytes?,
+) -> Unit raise OcspError {
+  match expected_nonce {
+    None =>
+      match response_nonce {
+        Some(_) => raise Malformed("OCSP response nonce without expected nonce")
+        None => ()
+      }
+    Some(expected) => {
+      if expected.length() == 0 {
+        raise Malformed("OCSP expected nonce must be non-empty")
+      }
+      match response_nonce {
+        Some(actual) => {
+          if actual.length() == 0 {
+            raise Malformed("OCSP response nonce must be non-empty")
+          }
+          if !bytes_equal(actual, expected) {
+            raise NonceMismatch
+          }
+        }
+        None => raise NonceMismatch
+      }
+    }
+  }
+}
+
+///|
 /// Parse `response_der`, verify the BasicOCSPResponse signature, and return
 /// the status reported for `cert`.
 ///
@@ -1050,6 +1155,30 @@ pub fn verify(
   cert : @pkix.Certificate,
   issuer_cert : @pkix.Certificate,
   now : String,
+) -> CertStatus raise OcspError {
+  verify_internal(response_der, cert, issuer_cert, now, None)
+}
+
+///|
+/// Like `verify`, but also requires the signed OCSP response nonce to exactly
+/// match the nonce from the request that produced the response.
+pub fn verify_with_nonce(
+  response_der : Bytes,
+  cert : @pkix.Certificate,
+  issuer_cert : @pkix.Certificate,
+  now : String,
+  expected_nonce : Bytes,
+) -> CertStatus raise OcspError {
+  verify_internal(response_der, cert, issuer_cert, now, Some(expected_nonce))
+}
+
+///|
+fn verify_internal(
+  response_der : Bytes,
+  cert : @pkix.Certificate,
+  issuer_cert : @pkix.Certificate,
+  now : String,
+  expected_nonce : Bytes?,
 ) -> CertStatus raise OcspError {
   // 1. Parse and structural checks.
   let outer = @asn1.decode_der(response_der) catch { e => raise Asn1(e) }
@@ -1086,21 +1215,26 @@ pub fn verify(
   // be rejected before we trust any thisUpdate / nextUpdate field.
   verify_basic_signature(basic, issuer_cert, now)
 
-  // 3. Freshness for ResponseData itself.
+  // 3. Request/response nonce binding. A nonce-bearing response must not be
+  // accepted by the legacy API because the caller has not supplied the request
+  // nonce needed to bind it.
+  enforce_nonce_binding(basic.response_data.response_nonce, expected_nonce)
+
+  // 4. Freshness for ResponseData itself.
   let now_n = normalize_time(now)
   let produced_n = normalize_time(basic.response_data.produced_at)
   if now_n < produced_n {
     raise StaleResponse("producedAt > now")
   }
 
-  // 4. Locate the SingleResponse that matches (cert, issuer_cert).
+  // 5. Locate the SingleResponse that matches (cert, issuer_cert).
   let single = find_matching_single(
     basic.response_data.responses,
     cert,
     issuer_cert,
   )
 
-  // 5. Freshness window.
+  // 6. Freshness window.
   let this_n = normalize_time(single.this_update)
   if now_n < this_n {
     raise StaleResponse("thisUpdate > now")
@@ -1115,6 +1249,6 @@ pub fn verify(
     None => raise StaleResponse("missing nextUpdate")
   }
 
-  // 6. Return the status.
+  // 7. Return the status.
   single.status
 }
