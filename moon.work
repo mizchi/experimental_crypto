@@ -46,4 +46,5 @@ members = [
   "./totp/wrap",
   "./scrypt/wrap",
   "./getrandom/wrap",
+  "./argon2/wrap",
 ]
