@@ -109,4 +109,8 @@ jobs:
       - name: moon prove
         run: |
           nix develop --impure --command bash proofs/setup.sh
-          nix develop --impure --command bash proofs/prove.sh
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            moon update >/dev/null
+            bash proofs/prove.sh
+          '
