@@ -23,6 +23,7 @@ pub fn pbkdf2_block_count(
   proof_require: dk_len > 0,
   proof_require: h_len > 0,
   proof_require: dk_len <= 2147483647 - h_len,
+  proof_ensure: result => result == pbkdf2_block_count_logic(dk_len, h_len),
   proof_ensure: result => 1 <= result,
   proof_ensure: result => (result - 1) * h_len < dk_len,
   proof_ensure: result => dk_len <= result * h_len,
@@ -48,10 +49,10 @@ pub fn pbkdf2_total_output_bytes(
   proof_require: dk_len > 0,
   proof_require: h_len > 0,
   proof_require: dk_len <= 2147483647 - h_len,
+  proof_ensure: result => result == pbkdf2_total_output_bytes_logic(dk_len, h_len),
   proof_ensure: result => dk_len <= result,
   proof_ensure: result => result < dk_len + h_len,
   proof_ensure: result => result % h_len == 0,
-  proof_ensure: result => result == ((dk_len + h_len - 1) / h_len) * h_len,
 } {
   ((dk_len + h_len - 1) / h_len) * h_len
 }

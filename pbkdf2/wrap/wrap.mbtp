@@ -1,0 +1,23 @@
+// Logic-side spec for `mizchi/pbkdf2/wrap`. Lives in `.mbtp` so contract
+// bodies can refer to it directly and so the lemma below can be discharged
+// once and reused by callers.
+
+fn pbkdf2_block_count_logic(dk_len : Int, h_len : Int) -> Int {
+  (dk_len + h_len - 1) / h_len
+}
+
+fn pbkdf2_total_output_bytes_logic(dk_len : Int, h_len : Int) -> Int {
+  pbkdf2_block_count_logic(dk_len, h_len) * h_len
+}
+
+// Multi-function consistency lemma: the total scratch size is
+// block-count * hash-len. Both sides are logic functions, so the SMT
+// solver discharges this by unfolding the definitions directly.
+lemma pbkdf2_total_equals_blocks_times_h(dk_len : Int, h_len : Int) where {
+  proof_require: dk_len > 0,
+  proof_require: h_len > 0,
+  proof_require: dk_len <= 2147483647 - h_len,
+  proof_ensure: pbkdf2_total_output_bytes_logic(dk_len, h_len) == pbkdf2_block_count_logic(dk_len, h_len) * h_len,
+} {
+
+}
