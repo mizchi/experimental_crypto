@@ -154,3 +154,26 @@ test "ATTACK cms: unexpected SignerInfo trailing field is malformed" {
     _ => abort("accepted SignerInfo with unexpected trailing field")
   }
 }
+
+///|
+test "ATTACK cms: ECDSA signatureAlgorithm and digestAlgorithm must match" {
+  let scalar = Bytes::makei(32, fn(i) {
+    if i == 31 {
+      b'\x01'
+    } else {
+      b'\x00'
+    }
+  })
+  let sk = @p256.PrivateKey::from_bytes(scalar)
+  let msg : Bytes = b"cms ecdsa digest mismatch"
+  let sig = sk.sign(msg, format=@p256.SignatureFormat::Der)
+  let pk : @pkix_verify.PublicKey = P256(sk.public_key())
+  try
+    verify_signature(id_ecdsa_with_sha256(), id_sha384(), pk, msg, sig)
+  catch {
+    UnsupportedSignatureAlgorithm(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted ECDSA signatureAlgorithm/digestAlgorithm mismatch")
+  }
+}

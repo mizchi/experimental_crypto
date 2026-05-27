@@ -319,6 +319,29 @@ test "nbf: not yet valid raises NotYetValid" {
 }
 
 ///|
+test "ATTACK NumericDate claims with non-number values are rejected" {
+  let secret : Bytes = b"numeric-date-shape"
+  for claim in ["exp", "nbf", "iat"] {
+    let m : Map[String, Json] = Map([])
+    m[claim] = Json::string("9999999999")
+    let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+    let opts = @jwt.VerifyOptions::default(0L)
+    try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+      ClaimsParseError(_) => ()
+      other =>
+        abort(
+          "expected ClaimsParseError for non-numeric " +
+          claim +
+          ", got " +
+          repr(other),
+        )
+    } noraise {
+      _ => abort("accepted non-numeric NumericDate claim " + claim)
+    }
+  }
+}
+
+///|
 test "iss: wrong issuer raises InvalidIssuer" {
   let secret : Bytes = b"k"
   let m : Map[String, Json] = Map([])

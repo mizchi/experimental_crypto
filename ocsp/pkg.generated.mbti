@@ -22,6 +22,7 @@ pub suberror OcspError {
   StaleResponse(String)
   BadSignature
   ResponderMissingOcspSigningEku
+  ResponderMissingDigitalSignatureKeyUsage
   ResponderNotSignedByIssuer
   ResponderIdMismatch
   Malformed(String)

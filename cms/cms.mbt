@@ -603,6 +603,9 @@ fn verify_signature(
       _ => raise UnsupportedSignatureAlgorithm(sig_alg)
     }
   } else if sig_alg == id_ecdsa_with_sha256() {
+    if digest_alg != id_sha256() {
+      raise UnsupportedSignatureAlgorithm(sig_alg)
+    }
     match pubkey {
       P256(pk) =>
         @p256.verify(pk, message, signature, @p256.SignatureFormat::Der) catch {
@@ -611,6 +614,9 @@ fn verify_signature(
       _ => raise UnsupportedSignatureAlgorithm(sig_alg)
     }
   } else if sig_alg == id_ecdsa_with_sha384() {
+    if digest_alg != id_sha384() {
+      raise UnsupportedSignatureAlgorithm(sig_alg)
+    }
     match pubkey {
       P384(pk) =>
         @p384.verify(pk, message, signature, @p384.SignatureFormat::Der) catch {

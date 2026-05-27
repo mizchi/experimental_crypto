@@ -88,6 +88,8 @@ pub suberror OcspError {
   BadSignature
   /// Delegated responder cert is missing the id-kp-OCSPSigning EKU.
   ResponderMissingOcspSigningEku
+  /// Delegated responder cert has keyUsage but not digitalSignature.
+  ResponderMissingDigitalSignatureKeyUsage
   /// Delegated responder cert is itself signed by something that is not the
   /// issuer cert under consideration.
   ResponderNotSignedByIssuer
@@ -965,6 +967,17 @@ fn cert_has_ocsp_signing_eku(cert : @pkix.Certificate) -> Bool raise OcspError {
 }
 
 ///|
+fn cert_issuer_matches(
+  cert : @pkix.Certificate,
+  issuer_cert : @pkix.Certificate,
+) -> Bool {
+  bytes_equal(
+    @pkix.serialize_name(cert.tbs.issuer),
+    @pkix.serialize_name(issuer_cert.tbs.subject),
+  )
+}
+
+///|
 // Determine which key signed the BasicOCSPResponse and verify the signature.
 fn verify_basic_signature(
   basic : ParsedBasicOcsp,
@@ -980,13 +993,21 @@ fn verify_basic_signature(
     if !responder_id_matches_cert(basic.response_data.responder_id, resp_cert) {
       raise ResponderIdMismatch
     }
-    // The responder cert itself must be signed by the issuer cert.
+    // The responder cert itself must be issued by, signed by, and usable for
+    // signatures under the issuer cert under consideration.
+    if !cert_issuer_matches(resp_cert, issuer_cert) {
+      raise ResponderNotSignedByIssuer
+    }
     let issuer_pk = @pkix_verify.extract_public_key(
       issuer_cert.tbs.subject_public_key_info,
     ) catch {
       e => raise PkixVerify(e)
     }
-    @pkix_verify.verify_certificate(resp_cert, issuer_pk, now) catch {
+    @pkix_verify.verify_chain_for_signature(resp_cert, [], issuer_pk, now, {
+      required_eku: Some(id_kp_ocsp_signing()),
+    }) catch {
+      KeyUsageMissingDigitalSignature =>
+        raise ResponderMissingDigitalSignatureKeyUsage
       _ => raise ResponderNotSignedByIssuer
     }
     @pkix_verify.extract_public_key(resp_cert.tbs.subject_public_key_info) catch {

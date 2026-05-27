@@ -715,11 +715,17 @@ fn get_header_kid(header : Map[String, Json]) -> String? raise JwtError {
 
 ///|
 // Pull a unix-seconds claim out of the claims map. JWT spec (RFC 7519 §2)
-// calls these "NumericDate"s, defined as a JSON numeric value. We accept any
-// JSON number (including fractional) and truncate to Int64.
-fn get_numeric_date(m : Map[String, Json], key : String) -> Int64? {
+// calls these "NumericDate"s, defined as a JSON numeric value. Missing claims
+// remain optional, but a present non-number is malformed and must not silently
+// disable time-based validation.
+fn get_numeric_date(
+  m : Map[String, Json],
+  key : String,
+) -> Int64? raise JwtError {
   match m.get(key) {
     Some(Number(n, ..)) => Some(n.to_int64())
+    Some(_) =>
+      raise ClaimsParseError("claim '" + key + "' is not a NumericDate")
     _ => None
   }
 }

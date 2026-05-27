@@ -119,6 +119,19 @@ fn ext_key_usage_ocsp_signing() -> @pkix.Extension {
   }
 }
 
+///|
+fn key_usage_ext(bits : Bytes) -> @pkix.Extension {
+  let elem = @asn1.Element::new(
+    @asn1.tag_bit_string,
+    BitString({ bytes: bits, unused_bits: 0 }),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 15]),
+    critical: true,
+    value: @asn1.encode_der(elem),
+  }
+}
+
 // ─── OCSP response builder ──────────────────────────────────────────────
 //
 // Builds a BasicOCSPResponse with a single SingleResponse, then wraps it in
@@ -1440,6 +1453,118 @@ test "ocsp: delegated responder cert path" {
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z")
   @debug.assert_eq(status, Good)
+}
+
+///|
+test "ATTACK ocsp: delegated responder keyUsage must allow digitalSignature" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let resp_seed_hex = "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+  let responder = build_ed25519_cert(
+    resp_seed_hex,
+    "OCSP Responder",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [
+      ext_key_usage_ocsp_signing(),
+      key_usage_ext(b"\x20"), // keyEncipherment only; no digitalSignature.
+    ],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    responder.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    ResponderMissingDigitalSignatureKeyUsage => ()
+    other =>
+      abort(
+        "expected ResponderMissingDigitalSignatureKeyUsage, got " + repr(other),
+      )
+  } noraise {
+    _ => abort("accepted delegated OCSP responder without digitalSignature")
+  }
+}
+
+///|
+test "ATTACK ocsp: delegated responder issuer DN must match issuer cert subject" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let resp_seed_hex = "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+  let responder = build_ed25519_cert(
+    resp_seed_hex,
+    "OCSP Responder",
+    "Other Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [ext_key_usage_ocsp_signing()],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    responder.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    ResponderNotSignedByIssuer => ()
+    other => abort("expected ResponderNotSignedByIssuer, got " + repr(other))
+  } noraise {
+    _ => abort("accepted delegated OCSP responder with mismatched issuer DN")
+  }
 }
 
 ///|
