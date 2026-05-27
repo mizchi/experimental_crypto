@@ -933,10 +933,85 @@ fn write_element_at(enc : Encoder, element : Element, depth : Int) -> Unit {
   if depth > MAX_DEPTH {
     abort("asn1 encoder: depth exceeds MAX_DEPTH")
   }
-  let payload_size = value_encoded_size_at(element.value, depth)
   write_tag(enc, element.tag)
-  write_length(enc, payload_size)
-  encode_value_at(enc, element.value, depth)
+  // Single-pass encode: composite values (Sequence / Set) are written into
+  // a child Encoder so we learn their byte length without a separate
+  // size-walk. Primitive values have a directly-known length, so we
+  // compute it cheaply and avoid the child-buffer allocation entirely.
+  match element.value {
+    Sequence(items) => {
+      let child = Encoder::new()
+      for item in items {
+        write_element_at(child, item, depth + 1)
+      }
+      let body = child.finish()
+      write_length(enc, body.length())
+      enc.buf.write_bytes(body)
+    }
+    Set(items) => {
+      // DER SET: encode each item to its own Bytes, sort lexicographically,
+      // then concatenate. The sort already needs per-item Bytes; reuse that.
+      let encoded = sorted_set_item_encodings(items, depth)
+      let mut total = 0
+      for b in encoded {
+        total = total + b.length()
+      }
+      write_length(enc, total)
+      for b in encoded {
+        enc.buf.write_bytes(b)
+      }
+    }
+    _ => {
+      // Primitive — direct length computation, no recursion.
+      let size = primitive_value_size(element.value)
+      write_length(enc, size)
+      encode_value_at(enc, element.value, depth)
+    }
+  }
+}
+
+///|
+// Length of an encoded primitive Value. Only valid for non-composite
+// variants — Sequence / Set hit the child-encoder path above.
+fn primitive_value_size(value : Value) -> Int {
+  match value {
+    Null => 0
+    Boolean(_) => 1
+    Integer(b) => b.length()
+    OctetString(b) => b.length()
+    Utf8String(s) => utf8_byte_count(s)
+    PrintableString(s) => {
+      validate_printable_string(s) catch {
+        e => abort("encode PrintableString: " + @debug.to_string(e))
+      }
+      utf8_byte_count(s)
+    }
+    Ia5String(s) => {
+      validate_ascii_string(s) catch {
+        e => abort("encode IA5String: " + @debug.to_string(e))
+      }
+      utf8_byte_count(s)
+    }
+    UtcTime(s) => {
+      validate_time_string(s, tag_utc_time) catch {
+        e => abort("encode UTCTime: " + @debug.to_string(e))
+      }
+      utf8_byte_count(s)
+    }
+    GeneralizedTime(s) => {
+      validate_time_string(s, tag_generalized_time) catch {
+        e => abort("encode GeneralizedTime: " + @debug.to_string(e))
+      }
+      utf8_byte_count(s)
+    }
+    BitString(bs) => {
+      validate_bit_string_for_encode(bs)
+      1 + bs.bytes.length()
+    }
+    Oid(oid) => oid_encoded_size(oid)
+    Unknown(b) => b.length()
+    Sequence(_) | Set(_) => abort("primitive_value_size: composite value")
+  }
 }
 
 ///|
