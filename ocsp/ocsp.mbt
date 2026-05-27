@@ -268,23 +268,23 @@ fn parse_extension_meta(
 }
 
 ///|
-fn check_unsupported_critical_extensions(
+fn reject_unsupported_extensions(
   elem : @asn1.Element,
   context : String,
 ) -> Unit raise OcspError {
   let items = expect_sequence(elem)
   let seen : Array[@asn1.ObjectIdentifier] = []
   for item in items {
-    let (oid, critical) = parse_extension_meta(item)
+    let (oid, _) = parse_extension_meta(item)
     for prev in seen {
       if prev == oid {
         raise Malformed(context + ": duplicate extension")
       }
     }
     seen.push(oid)
-    if critical {
-      raise Malformed(context + ": unsupported critical extension")
-    }
+  }
+  if items.length() > 0 {
+    raise Malformed(context + ": unsupported extension")
   }
 }
 
@@ -473,12 +473,12 @@ fn parse_single_response(
       None => ()
     }
   }
-  // singleExtensions [1] EXPLICIT — skip silently for now (no nonce / archive
-  // cutoff handling in this minimal verifier).
+  // singleExtensions [1] EXPLICIT. Their semantics are not implemented, so a
+  // verified OCSP response must fail closed instead of ignoring them.
   if idx < items.length() {
     match match_context_explicit(items[idx], 1U) {
       Some(exts) => {
-        check_unsupported_critical_extensions(exts, "singleExtensions")
+        reject_unsupported_extensions(exts, "singleExtensions")
         idx = idx + 1
       }
       None => raise Malformed("SingleResponse: unexpected trailing field")
@@ -578,11 +578,12 @@ fn parse_response_data(
   for sr in responses_seq {
     responses.push(parse_single_response(sr))
   }
-  // [1] EXPLICIT responseExtensions OPTIONAL — ignored for now.
+  // [1] EXPLICIT responseExtensions OPTIONAL. Nonces and other extensions can
+  // bind request semantics, so reject them until each supported OID is enforced.
   if idx < items.length() {
     match match_context_explicit(items[idx], 1U) {
       Some(exts) => {
-        check_unsupported_critical_extensions(exts, "responseExtensions")
+        reject_unsupported_extensions(exts, "responseExtensions")
         idx = idx + 1
       }
       None => raise Malformed("ResponseData: unexpected trailing field")

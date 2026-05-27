@@ -80,6 +80,19 @@ fn sign_hs256_token_with_header(
   signing_input + "." + b64u_encode(sig)
 }
 
+///|
+fn sign_hs256_token_with_raw_json(
+  header_json : String,
+  payload_json : String,
+  secret : Bytes,
+) -> String {
+  let header_b64 = b64u_encode(@utf8.encode(header_json[:]))
+  let payload_b64 = b64u_encode(@utf8.encode(payload_json[:]))
+  let signing_input = header_b64 + "." + payload_b64
+  let sig = @hash.hmac_sha256(secret, @utf8.encode(signing_input[:]))
+  signing_input + "." + b64u_encode(sig)
+}
+
 // -----------------------------------------------------------------------------
 // HS256: RFC 7515 §A.1 verify
 // -----------------------------------------------------------------------------
@@ -415,6 +428,45 @@ test "KeyAlgorithmMismatch: HS256 token with EdDSA verify key" {
     other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
   } noraise {
     other => abort("expected KeyAlgorithmMismatch, got " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK jwt: duplicate JOSE header members are rejected" {
+  let secret : Bytes = b"duplicate-json-secret"
+  let token = sign_hs256_token_with_raw_json(
+    "{\"alg\":\"HS256\",\"alg\":\"HS256\",\"typ\":\"JWT\"}", "{\"sub\":\"alice\"}",
+    secret,
+  )
+  let opts = @jwt.VerifyOptions::default(0L)
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidHeader(_) => ()
+    other => abort("expected InvalidHeader, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted JWT with duplicate JOSE header member")
+  }
+}
+
+///|
+test "ATTACK jwt: duplicate claims members are rejected" {
+  let secret : Bytes = b"duplicate-claims-secret"
+  let token = sign_hs256_token_with_raw_json(
+    "{\"alg\":\"HS256\",\"typ\":\"JWT\"}", "{\"iss\":\"trusted\",\"iss\":\"trusted\"}",
+    secret,
+  )
+  let opts : @jwt.VerifyOptions = {
+    now: 0L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: Some("trusted"),
+    audience: None,
+    typ_allowed: None,
+  }
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClaimsParseError(_) => ()
+    other => abort("expected ClaimsParseError, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted JWT with duplicate claims member")
   }
 }
 

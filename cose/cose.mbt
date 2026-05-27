@@ -78,9 +78,10 @@ pub suberror CoseError {
 ///|
 // Parse a COSE_Key from its CBOR encoding.
 //
-// Accepts both the "alg" label and the per-kty curve / x / y / n / e
-// labels. The `kid` label is ignored on purpose (it's caller-side
-// metadata and bears no signature integrity).
+// Accepts per-kty curve / x / y / n / e labels. If the optional `alg` label is
+// present, it must match the parsed key type so trusted key metadata cannot
+// accidentally widen verification policy. The `kid` label is ignored on
+// purpose (it's caller-side metadata and bears no signature integrity).
 pub fn parse_cose_key(cbor : Bytes) -> CoseKey raise CoseError {
   let v = @cbor.decode(cbor) catch { e => raise CborDecode(e) }
   parse_cose_key_value(v)
@@ -98,6 +99,7 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
       if crv != 6L {
         raise InvalidKey("OKP curve \{crv} not supported (only Ed25519=6)")
       }
+      require_key_alg_if_present(v, -8L, "Ed25519")
       let x = require_bytes(v, -2L, "OKP x")
       let pk = @ed25519.PublicKey::from_bytes(x) catch {
         e => raise InvalidKey("Ed25519: " + @debug.to_string(e) + "")
@@ -112,6 +114,7 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
       match crv {
         // crv = 1 (P-256)
         1L => {
+          require_key_alg_if_present(v, -7L, "P-256")
           if x.length() != 32 || y.length() != 32 {
             raise InvalidKey("P-256 coords must be 32 bytes each")
           }
@@ -123,6 +126,7 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
         }
         // crv = 2 (P-384)
         2L => {
+          require_key_alg_if_present(v, -35L, "P-384")
           if x.length() != 48 || y.length() != 48 {
             raise InvalidKey("P-384 coords must be 48 bytes each")
           }
@@ -137,6 +141,7 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
     }
     // kty = 3 (RSA, RFC 8230 §4)
     3L => {
+      require_key_alg_if_present(v, -257L, "RSA")
       let n = require_bytes(v, -1L, "RSA n")
       let e = require_bytes(v, -2L, "RSA e")
       let der = encode_rsa_pkcs1_der(n, e)
@@ -158,9 +163,8 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
 //
 // `payload` is the payload to verify against. If the COSE_Sign1 embeds a
 // payload (third element != nil), pass the same bytes for `payload`. If
-// the payload is detached (third element = nil), pass the external
-// payload here; the function does not enforce the equality (a strict
-// caller should compare beforehand).
+// the payload is detached (third element = nil), pass the external payload
+// here. Embedded payloads must byte-match the supplied payload.
 //
 // `external_aad` is the application-supplied AAD bound into the
 // Sig_structure (RFC 9052 §4.4). Defaults to the empty byte string,
@@ -431,6 +435,38 @@ fn require_unique_text_labels(
         }
       }
     _ => raise InvalidStructure(context + " must be a map")
+  }
+}
+
+///|
+fn optional_key_alg_id(m : @cbor.CborValue) -> Int64? raise CoseError {
+  match @cbor.map_get_int(m, 3L) {
+    Some(Uint(n)) => {
+      if n > 0x7FFFFFFFFFFFFFFFUL {
+        raise InvalidKey("COSE_Key alg integer out of range")
+      }
+      Some(n.reinterpret_as_int64())
+    }
+    Some(Nint(n)) => Some(-1L - n.reinterpret_as_int64())
+    Some(_) => raise InvalidKey("COSE_Key alg must be integer")
+    None => None
+  }
+}
+
+///|
+fn require_key_alg_if_present(
+  m : @cbor.CborValue,
+  expected : Int64,
+  key_name : String,
+) -> Unit raise CoseError {
+  match optional_key_alg_id(m) {
+    Some(id) =>
+      if id != expected {
+        raise InvalidKey(
+          "COSE_Key alg does not match " + key_name + " key type",
+        )
+      }
+    None => ()
   }
 }
 

@@ -111,12 +111,168 @@ fn b64url_decode(s : String) -> Bytes raise JwkError {
 
 ///|
 fn parse_object(json : String) -> Map[String, Json] raise JwkError {
+  reject_duplicate_json_keys(json)
   let parsed = @json.parse(json[:]) catch {
     _ => raise InvalidJson("not valid JSON")
   }
   match parsed {
     Object(m) => m
     _ => raise InvalidJson("top-level value is not an object")
+  }
+}
+
+///|
+fn json_ws_skip(s : String, start : Int) -> Int {
+  let mut i = start
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  i
+}
+
+///|
+fn json_read_key(s : String, start : Int) -> (String, Int) raise JwkError {
+  let buf = StringBuilder::new()
+  let mut i = start + 1
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '"' {
+      return (buf.to_string(), i + 1)
+    }
+    if c == '\\' {
+      raise InvalidJson("escaped JSON member names are not supported")
+    }
+    buf.write_char(c)
+    i = i + 1
+  }
+  raise InvalidJson("unterminated JSON member name")
+}
+
+///|
+fn json_skip_string(s : String, start : Int) -> Int raise JwkError {
+  let mut i = start + 1
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '"' {
+      return i + 1
+    }
+    if c == '\\' {
+      i = i + 2
+    } else {
+      i = i + 1
+    }
+  }
+  raise InvalidJson("unterminated JSON string")
+}
+
+///|
+fn json_scan_array(s : String, start : Int) -> Int raise JwkError {
+  let mut i = start + 1
+  while true {
+    i = json_ws_skip(s, i)
+    if i >= s.length() {
+      raise InvalidJson("unterminated JSON array")
+    }
+    if s.get_char(i).unwrap() == ']' {
+      return i + 1
+    }
+    i = json_scan_value(s, i)
+    i = json_ws_skip(s, i)
+    if i >= s.length() {
+      raise InvalidJson("unterminated JSON array")
+    }
+    let sep = s.get_char(i).unwrap()
+    if sep == ',' {
+      i = i + 1
+    } else if sep == ']' {
+      return i + 1
+    } else {
+      raise InvalidJson("expected ',' or ']'")
+    }
+  }
+  i
+}
+
+///|
+fn json_scan_object(s : String, start : Int) -> Int raise JwkError {
+  let keys : Array[String] = []
+  let mut i = start + 1
+  while true {
+    i = json_ws_skip(s, i)
+    if i >= s.length() {
+      raise InvalidJson("unterminated JSON object")
+    }
+    if s.get_char(i).unwrap() == '}' {
+      return i + 1
+    }
+    if s.get_char(i).unwrap() != '"' {
+      raise InvalidJson("expected JSON member name")
+    }
+    let (key, next) = json_read_key(s, i)
+    for prev in keys {
+      if prev == key {
+        raise InvalidJson("duplicate JSON member '" + key + "'")
+      }
+    }
+    keys.push(key)
+    i = json_ws_skip(s, next)
+    if i >= s.length() || s.get_char(i).unwrap() != ':' {
+      raise InvalidJson("expected ':' after JSON member")
+    }
+    i = json_scan_value(s, i + 1)
+    i = json_ws_skip(s, i)
+    if i >= s.length() {
+      raise InvalidJson("unterminated JSON object")
+    }
+    let sep = s.get_char(i).unwrap()
+    if sep == ',' {
+      i = i + 1
+    } else if sep == '}' {
+      return i + 1
+    } else {
+      raise InvalidJson("expected ',' or '}'")
+    }
+  }
+  i
+}
+
+///|
+fn json_scan_value(s : String, start : Int) -> Int raise JwkError {
+  let i = json_ws_skip(s, start)
+  if i >= s.length() {
+    raise InvalidJson("missing JSON value")
+  }
+  let c = s.get_char(i).unwrap()
+  if c == '"' {
+    json_skip_string(s, i)
+  } else if c == '{' {
+    json_scan_object(s, i)
+  } else if c == '[' {
+    json_scan_array(s, i)
+  } else {
+    let mut j = i
+    while j < s.length() {
+      let x = s.get_char(j).unwrap()
+      if x == ',' || x == '}' || x == ']' {
+        return j
+      }
+      j = j + 1
+    }
+    j
+  }
+}
+
+///|
+fn reject_duplicate_json_keys(json : String) -> Unit raise JwkError {
+  let i = json_scan_value(json, 0)
+  let rest = json_ws_skip(json, i)
+  if rest != json.length() {
+    raise InvalidJson("trailing data after JSON value")
   }
 }
 

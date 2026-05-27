@@ -232,6 +232,39 @@ test "missing required field is rejected" {
 }
 
 ///|
+test "ATTACK jwk: duplicate top-level JWK members are rejected" {
+  let json = "{\"kty\":\"RSA\",\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\"}"
+  try @jwk.parse_public(json) catch {
+    @jwk.InvalidJson(_) => ()
+    e => abort("expected InvalidJson, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JWK with duplicate top-level member")
+  }
+}
+
+///|
+test "ATTACK jwk: duplicate JWKS entry metadata members are rejected" {
+  let json = "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"k1\",\"kid\":\"k1\",\"alg\":\"HS256\",\"k\":\"c2VjcmV0\"}]}"
+  try @jwk.parse_set(json) catch {
+    @jwk.InvalidJson(_) => ()
+    e => abort("expected InvalidJson, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JWKS key with duplicate kid")
+  }
+}
+
+///|
+test "ATTACK jwk: duplicate JWKS top-level members are rejected" {
+  let json = "{\"keys\":[],\"keys\":[]}"
+  try @jwk.parse_set(json) catch {
+    @jwk.InvalidJson(_) => ()
+    e => abort("expected InvalidJson, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JWKS with duplicate keys member")
+  }
+}
+
+///|
 test "unsupported kty is rejected" {
   let json =
     #|{"kty":"DSA","y":"AQAB"}

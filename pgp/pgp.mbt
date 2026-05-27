@@ -140,12 +140,18 @@ pub fn verify_armor(
 fn find_signature_packet(
   packets : Array[PgpPacket],
 ) -> PgpSignature raise PgpError {
-  for p in packets {
-    if p.tag == 2 {
-      return parse_signature_packet(p.body)
-    }
+  if packets.length() != 1 {
+    raise ArmorMalformed(
+      "detached signature armor must contain exactly one packet",
+    )
   }
-  raise ArmorMalformed("no Signature packet in PGP SIGNATURE armor")
+  let p = packets[0]
+  if p.tag != 2 {
+    raise ArmorMalformed(
+      "detached signature armor packet is not a Signature packet",
+    )
+  }
+  parse_signature_packet(p.body)
 }
 
 ///|

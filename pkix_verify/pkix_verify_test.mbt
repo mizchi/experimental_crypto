@@ -721,6 +721,44 @@ test "ATTACK RFC 5280 §4.2: unknown critical extension rejected" {
 }
 
 ///|
+test "ATTACK RFC 5280 §4.2: recognised-but-unenforced critical extensions reject" {
+  let san = san_ext("example.com")
+  let critical_san : @pkix.Extension = {
+    oid: san.oid,
+    critical: true,
+    value: san.value,
+  }
+  let policy_ext : @pkix.Extension = {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32]),
+    critical: true,
+    value: @asn1.encode_der(
+      @asn1.Element::new(@asn1.tag_sequence, Sequence([])),
+    ),
+  }
+  let cases : Array[@pkix.Extension] = [critical_san, policy_ext]
+  for ext in cases {
+    let (cert, pk) = build_self_signed_ed25519(
+      "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "Critical Extension",
+      "250101000000Z",
+      "260101000000Z",
+      [ext],
+    )
+    let issuer_pk = @pkix_verify.PublicKey::Ed25519(pk)
+    try
+      @pkix_verify.verify_certificate(cert, issuer_pk, "250601000000Z")
+    catch {
+      UnknownCriticalExtension(oid) => @debug.assert_eq(oid, ext.oid)
+      other =>
+        abort("unenforced critical extension accepted: " + repr(other) + "")
+    } noraise {
+      other =>
+        abort("unenforced critical extension accepted: " + repr(other) + "")
+    }
+  }
+}
+
+///|
 // Same OID but `critical = false` — the verifier ignores it per RFC 5280.
 test "non-critical unknown extension is silently accepted" {
   let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4, 5])

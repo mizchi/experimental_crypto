@@ -48,6 +48,11 @@ fn commit_object_bytes() -> Bytes {
 }
 
 ///|
+fn signed_tag_object_bytes() -> Bytes {
+  b"object 0000000000000000000000000000000000000000\ntype commit\ntag v1.0.0\ntagger x <x@x> 0 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n line1\n -----END PGP SIGNATURE-----\n\nrelease\n"
+}
+
+///|
 fn signer_pubkey() -> @ed25519.PublicKey raise {
   // Same key as mizchi/ssh's fixture.
   let text = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV mizchi@misc-test"
@@ -92,8 +97,7 @@ test "git_object: parse raw commit object header before signed content" {
 
 ///|
 test "git_object: split signed tag object" {
-  let tag : Bytes = b"object 0000000000000000000000000000000000000000\ntype commit\ntag v1.0.0\ntagger x <x@x> 0 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n line1\n -----END PGP SIGNATURE-----\n\nrelease\n"
-  let parsed = @git_object.parse_signed_object(tag)
+  let parsed = @git_object.parse_signed_object(signed_tag_object_bytes())
   @debug.assert_eq(
     parsed.signature_armor,
     "-----BEGIN PGP SIGNATURE-----\nline1\n-----END PGP SIGNATURE-----",
@@ -102,6 +106,38 @@ test "git_object: split signed tag object" {
   assert_true(contains(signed_text, "tag v1.0.0"))
   assert_true(contains(signed_text, "release"))
   assert_false(contains(signed_text, "gpgsig"))
+}
+
+///|
+test "ATTACK: parse_signed_commit rejects signed tag content" {
+  try @git_object.parse_signed_commit(signed_tag_object_bytes()) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted signed tag content as a commit")
+  }
+}
+
+///|
+test "ATTACK: parse_signed_commit rejects raw tag object" {
+  let tag = signed_tag_object_bytes()
+  let raw = with_raw_object_header("tag", tag)
+  try @git_object.parse_signed_commit(raw) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted raw tag object as a commit")
+  }
+}
+
+///|
+test "git_object: parse_signed_commit accepts raw commit object" {
+  let body = commit_object_bytes()
+  let raw = with_raw_object_header("commit", body)
+  let direct = @git_object.parse_signed_commit(body)
+  let parsed = @git_object.parse_signed_commit(raw)
+  @debug.assert_eq(parsed.signed_content, direct.signed_content)
+  @debug.assert_eq(parsed.signature_armor, direct.signature_armor)
 }
 
 ///|

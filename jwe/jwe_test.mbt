@@ -137,6 +137,11 @@ fn replace_compact_segment(
   buf.to_string()
 }
 
+///|
+fn bytes_slice(b : Bytes, start : Int, end : Int) -> Bytes {
+  Bytes::makei(end - start, fn(i) { b[start + i] })
+}
+
 // ─── Roundtrip: dir + A256GCM ─────────────────────────────────────────────
 
 ///|
@@ -323,6 +328,38 @@ test "jwe: tampered header (AAD) fails AuthenticationFailed" {
     _ => false
   }
   assert_true(raised)
+}
+
+///|
+test "ATTACK jwe: duplicate protected header members are rejected before decrypt success" {
+  let cek = fixed_cek32()
+  let iv = fixed_iv12()
+  let plaintext : Bytes = b"duplicate protected header"
+  let header_str = "{\"alg\":\"dir\",\"alg\":\"dir\",\"enc\":\"A256GCM\"}"
+  let header_b64 = b64u(@utf8.encode(header_str[:]))
+  let aad = @utf8.encode(header_b64[:])
+  let sealed_bytes = @aead.seal(
+    @aead.Algorithm::Aes256Gcm,
+    cek,
+    iv,
+    aad,
+    plaintext,
+  ) catch {
+    _ => abort("seal failed")
+  }
+  let ct = bytes_slice(sealed_bytes, 0, sealed_bytes.length() - 16)
+  let tag = bytes_slice(
+    sealed_bytes,
+    sealed_bytes.length() - 16,
+    sealed_bytes.length(),
+  )
+  let token = header_b64 + ".." + b64u(iv) + "." + b64u(ct) + "." + b64u(tag)
+  try @jwe.decrypt(token, @jwe.DecryptionKey::DecDir(cek~)) catch {
+    @jwe.InvalidHeader(_) => ()
+    e => abort("expected InvalidHeader, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JWE with duplicate protected header member")
+  }
 }
 
 ///|

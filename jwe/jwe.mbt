@@ -245,12 +245,161 @@ fn build_header(
 
 ///|
 fn parse_json_object(s : String) -> Map[String, Json] raise JweError {
+  reject_duplicate_top_level_json_keys(s)
   let parsed = @json.parse(s[:]) catch {
     _ => raise InvalidHeader("invalid JSON")
   }
   match parsed {
     Object(m) => m
     _ => raise InvalidHeader("expected JSON object")
+  }
+}
+
+///|
+fn json_ws_skip(s : String, start : Int) -> Int {
+  let mut i = start
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  i
+}
+
+///|
+fn json_read_top_level_key(
+  s : String,
+  start : Int,
+) -> (String, Int) raise JweError {
+  let buf = StringBuilder::new()
+  let mut i = start + 1
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '"' {
+      return (buf.to_string(), i + 1)
+    }
+    if c == '\\' {
+      raise InvalidHeader(
+        "escaped protected-header member names are not supported",
+      )
+    }
+    buf.write_char(c)
+    i = i + 1
+  }
+  raise InvalidHeader("unterminated protected-header member name")
+}
+
+///|
+fn json_skip_string_value(s : String, start : Int) -> Int raise JweError {
+  let mut i = start + 1
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '"' {
+      return i + 1
+    }
+    if c == '\\' {
+      i = i + 2
+    } else {
+      i = i + 1
+    }
+  }
+  raise InvalidHeader("unterminated JSON string")
+}
+
+///|
+fn json_skip_value(s : String, start : Int) -> Int raise JweError {
+  let mut i = json_ws_skip(s, start)
+  if i >= s.length() {
+    raise InvalidHeader("missing JSON value")
+  }
+  let c = s.get_char(i).unwrap()
+  if c == '"' {
+    return json_skip_string_value(s, i)
+  }
+  if c == '{' || c == '[' {
+    let mut depth = 0
+    while i < s.length() {
+      let x = s.get_char(i).unwrap()
+      if x == '"' {
+        i = json_skip_string_value(s, i)
+        continue
+      }
+      if x == '{' || x == '[' {
+        depth = depth + 1
+      } else if x == '}' || x == ']' {
+        depth = depth - 1
+        if depth == 0 {
+          return i + 1
+        }
+      }
+      i = i + 1
+    }
+    raise InvalidHeader("unterminated JSON container")
+  }
+  while i < s.length() {
+    let x = s.get_char(i).unwrap()
+    if x == ',' || x == '}' || x == ']' {
+      return i
+    }
+    i = i + 1
+  }
+  i
+}
+
+///|
+fn reject_duplicate_top_level_json_keys(s : String) -> Unit raise JweError {
+  let keys : Array[String] = []
+  let mut i = json_ws_skip(s, 0)
+  if i >= s.length() || s.get_char(i).unwrap() != '{' {
+    raise InvalidHeader("expected JSON object")
+  }
+  i = i + 1
+  let mut done = false
+  while !done {
+    i = json_ws_skip(s, i)
+    if i >= s.length() {
+      raise InvalidHeader("unterminated JSON object")
+    }
+    if s.get_char(i).unwrap() == '}' {
+      i = i + 1
+      done = true
+      continue
+    }
+    if s.get_char(i).unwrap() != '"' {
+      raise InvalidHeader("expected JSON member name")
+    }
+    let (key, next) = json_read_top_level_key(s, i)
+    for prev in keys {
+      if prev == key {
+        raise InvalidHeader("duplicate protected-header member '" + key + "'")
+      }
+    }
+    keys.push(key)
+    i = json_ws_skip(s, next)
+    if i >= s.length() || s.get_char(i).unwrap() != ':' {
+      raise InvalidHeader("expected ':' after JSON member")
+    }
+    i = json_skip_value(s, i + 1)
+    i = json_ws_skip(s, i)
+    if i >= s.length() {
+      raise InvalidHeader("unterminated JSON object")
+    }
+    let sep = s.get_char(i).unwrap()
+    if sep == ',' {
+      i = i + 1
+    } else if sep == '}' {
+      i = i + 1
+      done = true
+    } else {
+      raise InvalidHeader("expected ',' or '}'")
+    }
+  }
+  i = json_ws_skip(s, i)
+  if i != s.length() {
+    raise InvalidHeader("trailing data after JSON object")
   }
 }
 

@@ -24,13 +24,21 @@ pub(all) struct SignedCommit {
 } derive(Debug)
 
 ///|
+priv enum RawObjectKind {
+  NoRawHeader
+  RawCommit
+  RawTag
+}
+
+///|
 /// Parse a git commit or tag object and split out the signature. Accepts
 /// either the raw object storage form (`commit <len>\0...` / `tag <len>\0...`)
 /// or the object content returned by `git cat-file commit|tag`.
 pub fn parse_signed_object(
   object_bytes : Bytes,
 ) -> SignedCommit raise GitObjectError {
-  parse_signed_content(strip_raw_object_header(object_bytes))
+  let (content, _) = strip_raw_object_header(object_bytes)
+  parse_signed_content(content)
 }
 
 ///|
@@ -46,7 +54,13 @@ pub fn parse_signed_object(
 pub fn parse_signed_commit(
   commit_bytes : Bytes,
 ) -> SignedCommit raise GitObjectError {
-  parse_signed_object(commit_bytes)
+  let (content, kind) = strip_raw_object_header(commit_bytes)
+  match kind {
+    RawTag => raise Malformed("not a commit object")
+    NoRawHeader | RawCommit => ()
+  }
+  require_commit_content(content)
+  parse_signed_content(content)
 }
 
 ///|
@@ -143,7 +157,9 @@ fn parse_signed_content(
 // ─── helpers ─────────────────────────────────────────────────────────────
 
 ///|
-fn strip_raw_object_header(object_bytes : Bytes) -> Bytes raise GitObjectError {
+fn strip_raw_object_header(
+  object_bytes : Bytes,
+) -> (Bytes, RawObjectKind) raise GitObjectError {
   let mut nul_at = -1
   let mut newline_at = -1
   for i = 0; i < object_bytes.length(); i = i + 1 {
@@ -156,20 +172,19 @@ fn strip_raw_object_header(object_bytes : Bytes) -> Bytes raise GitObjectError {
     }
   }
   if nul_at < 0 {
-    return object_bytes
+    return (object_bytes, NoRawHeader)
   }
   if newline_at >= 0 && newline_at < nul_at {
-    return object_bytes
+    return (object_bytes, NoRawHeader)
   }
   let header = bytes_to_string(bytes_slice(object_bytes, 0, nul_at))
   let (kind, size_start) = if header.has_prefix("commit ") {
-    ("commit", 7)
+    (RawCommit, 7)
   } else if header.has_prefix("tag ") {
-    ("tag", 4)
+    (RawTag, 4)
   } else {
     raise Malformed("unsupported raw git object header")
   }
-  let _ = kind
   let size_text = substring(header, size_start, header.length())
   let expected_size = parse_canonical_decimal(size_text) catch {
     _ => raise Malformed("invalid raw git object size")
@@ -178,7 +193,42 @@ fn strip_raw_object_header(object_bytes : Bytes) -> Bytes raise GitObjectError {
   if expected_size != actual_size {
     raise Malformed("raw git object size mismatch")
   }
-  bytes_slice(object_bytes, nul_at + 1, object_bytes.length())
+  (bytes_slice(object_bytes, nul_at + 1, object_bytes.length()), kind)
+}
+
+///|
+fn require_commit_content(content : Bytes) -> Unit raise GitObjectError {
+  let text = bytes_to_string(content)
+  let header_end = find_header_end(text)
+  if header_end == text.length() {
+    raise Malformed("missing header/body separator")
+  }
+  let lines = split_lines_with_newlines(text)
+  let mut byte_index = 0
+  let mut line_no = 0
+  let mut saw_tree = false
+  let mut saw_author = false
+  let mut saw_committer = false
+  for raw in lines {
+    if byte_index > header_end {
+      break
+    }
+    if line_no == 0 {
+      if !header_name_matches(raw, "tree") {
+        raise Malformed("not a commit object")
+      }
+      saw_tree = true
+    } else if header_name_matches(raw, "author") {
+      saw_author = true
+    } else if header_name_matches(raw, "committer") {
+      saw_committer = true
+    }
+    byte_index = byte_index + raw.length()
+    line_no = line_no + 1
+  }
+  if !saw_tree || !saw_author || !saw_committer {
+    raise Malformed("not a commit object")
+  }
 }
 
 ///|

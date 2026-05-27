@@ -59,6 +59,23 @@ fn message_bytes() -> Bytes {
 }
 
 ///|
+fn concat_bytes(a : Bytes, b : Bytes) -> Bytes {
+  Bytes::makei(a.length() + b.length(), fn(i) {
+    if i < a.length() {
+      a[i]
+    } else {
+      b[i - a.length()]
+    }
+  })
+}
+
+///|
+fn armor_signature_no_crc(data : Bytes) -> String {
+  let b64 = @base64.encode(data[:])
+  "-----BEGIN PGP SIGNATURE-----\n\n" + b64 + "\n-----END PGP SIGNATURE-----\n"
+}
+
+///|
 test "pgp: armor decode roundtrips through CRC24" {
   let a = @pgp.decode_armor(pubkey_armor)
   @debug.assert_eq(a.label, "PUBLIC KEY BLOCK")
@@ -142,6 +159,31 @@ test "pgp: sign Ed25519 + verify roundtrip" {
     b"hello pgp ed25519",
   )
   assert_true(@pgp.verify_armor(armor, b"hello pgp ed25519", pk_pgp))
+}
+
+///|
+test "ATTACK pgp: detached signature armor rejects extra packets" {
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"hello pgp ed25519",
+  )
+  let decoded = @pgp.decode_armor(armor)
+  // New-format User ID packet (tag 13) with body "bad" appended after the
+  // valid signature packet. A detached-signature armor must not ignore it.
+  let extra_user_id_packet : Bytes = b"\xcd\x03bad"
+  let with_extra = armor_signature_no_crc(
+    concat_bytes(decoded.data, extra_user_id_packet),
+  )
+  try @pgp.verify_armor(with_extra, b"hello pgp ed25519", pk_pgp) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted detached signature armor with extra packet")
+    false => ()
+  }
 }
 
 ///|

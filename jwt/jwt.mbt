@@ -484,6 +484,183 @@ fn parse_json_object(s : String) -> Map[String, Json] raise JwtError {
 }
 
 ///|
+fn raise_json_shape_error(
+  header_context : Bool,
+  message : String,
+) -> Unit raise JwtError {
+  if header_context {
+    raise InvalidHeader(message)
+  } else {
+    raise ClaimsParseError(message)
+  }
+}
+
+///|
+fn skip_json_ws(s : String, start : Int) -> Int {
+  let mut i = start
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  i
+}
+
+///|
+fn read_top_level_json_key(
+  s : String,
+  start : Int,
+  header_context : Bool,
+) -> (String, Int) raise JwtError {
+  let buf = StringBuilder::new()
+  let mut i = start + 1
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '"' {
+      return (buf.to_string(), i + 1)
+    }
+    if c == '\\' {
+      raise_json_shape_error(
+        header_context, "escaped top-level JSON member names are not supported",
+      )
+    }
+    buf.write_char(c)
+    i = i + 1
+  }
+  raise_json_shape_error(header_context, "unterminated JSON member name")
+  ("", i)
+}
+
+///|
+fn skip_json_string_value(
+  s : String,
+  start : Int,
+  header_context : Bool,
+) -> Int raise JwtError {
+  let mut i = start + 1
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '"' {
+      return i + 1
+    }
+    if c == '\\' {
+      i = i + 2
+    } else {
+      i = i + 1
+    }
+  }
+  raise_json_shape_error(header_context, "unterminated JSON string")
+  i
+}
+
+///|
+fn skip_json_value(
+  s : String,
+  start : Int,
+  header_context : Bool,
+) -> Int raise JwtError {
+  let mut i = skip_json_ws(s, start)
+  if i >= s.length() {
+    raise_json_shape_error(header_context, "missing JSON value")
+  }
+  let c = s.get_char(i).unwrap()
+  if c == '"' {
+    return skip_json_string_value(s, i, header_context)
+  }
+  if c == '{' || c == '[' {
+    let mut depth = 0
+    while i < s.length() {
+      let x = s.get_char(i).unwrap()
+      if x == '"' {
+        i = skip_json_string_value(s, i, header_context)
+        continue
+      }
+      if x == '{' || x == '[' {
+        depth = depth + 1
+      } else if x == '}' || x == ']' {
+        depth = depth - 1
+        if depth == 0 {
+          return i + 1
+        }
+      }
+      i = i + 1
+    }
+    raise_json_shape_error(header_context, "unterminated JSON container")
+  }
+  while i < s.length() {
+    let x = s.get_char(i).unwrap()
+    if x == ',' || x == '}' || x == ']' {
+      return i
+    }
+    i = i + 1
+  }
+  i
+}
+
+///|
+fn reject_duplicate_top_level_json_keys(
+  s : String,
+  header_context : Bool,
+) -> Unit raise JwtError {
+  let keys : Array[String] = []
+  let mut i = skip_json_ws(s, 0)
+  if i >= s.length() || s.get_char(i).unwrap() != '{' {
+    raise_json_shape_error(header_context, "expected JSON object")
+  }
+  i = i + 1
+  let mut done = false
+  while !done {
+    i = skip_json_ws(s, i)
+    if i >= s.length() {
+      raise_json_shape_error(header_context, "unterminated JSON object")
+    }
+    if s.get_char(i).unwrap() == '}' {
+      i = i + 1
+      done = true
+      continue
+    }
+    if s.get_char(i).unwrap() != '"' {
+      raise_json_shape_error(header_context, "expected JSON member name")
+    }
+    let (key, next) = read_top_level_json_key(s, i, header_context)
+    for prev in keys {
+      if prev == key {
+        raise_json_shape_error(
+          header_context,
+          "duplicate top-level JSON member '" + key + "'",
+        )
+      }
+    }
+    keys.push(key)
+    i = skip_json_ws(s, next)
+    if i >= s.length() || s.get_char(i).unwrap() != ':' {
+      raise_json_shape_error(header_context, "expected ':' after JSON member")
+    }
+    i = skip_json_value(s, i + 1, header_context)
+    i = skip_json_ws(s, i)
+    if i >= s.length() {
+      raise_json_shape_error(header_context, "unterminated JSON object")
+    }
+    let sep = s.get_char(i).unwrap()
+    if sep == ',' {
+      i = i + 1
+    } else if sep == '}' {
+      i = i + 1
+      done = true
+    } else {
+      raise_json_shape_error(header_context, "expected ',' or '}'")
+    }
+  }
+  i = skip_json_ws(s, i)
+  if i != s.length() {
+    raise_json_shape_error(header_context, "trailing data after JSON object")
+  }
+}
+
+///|
 fn get_string(m : Map[String, Json], key : String) -> String? {
   match m.get(key) {
     Some(String(s)) => Some(s)
@@ -584,6 +761,7 @@ pub fn verify(
   let header_str = @utf8.decode(header_bytes[:]) catch {
     _ => raise InvalidHeader("header is not valid UTF-8")
   }
+  reject_duplicate_top_level_json_keys(header_str, true)
   let header = parse_json_object(header_str)
   let alg = match get_string(header, "alg") {
     Some(s) => alg_from_str(s)
@@ -772,6 +950,7 @@ pub fn verify(
   let payload_str = @utf8.decode(payload_bytes[:]) catch {
     _ => raise ClaimsParseError("payload is not valid UTF-8")
   }
+  reject_duplicate_top_level_json_keys(payload_str, false)
   // JWS payload is not required to be JSON, but JWT claims must be a JSON
   // object. Reject raw JWS payloads and JSON scalars so callers cannot
   // accidentally treat a non-JWT as an empty-claims JWT.
@@ -950,6 +1129,7 @@ pub fn peek_header(token : String) -> Map[String, Json] raise JwtError {
   let header_str = @utf8.decode(header_bytes[:]) catch {
     _ => raise InvalidHeader("header is not valid UTF-8")
   }
+  reject_duplicate_top_level_json_keys(header_str, true)
   parse_json_object(header_str)
 }
 
@@ -2455,6 +2635,7 @@ pub fn verify_self_issued_id_token(
   let payload_str = @utf8.decode(payload_bytes[:]) catch {
     _ => raise ClaimsParseError("payload not UTF-8")
   }
+  reject_duplicate_top_level_json_keys(payload_str, false)
   let claims = parse_json_object(payload_str)
   let sub_jwk_obj = match claims.get("sub_jwk") {
     Some(Object(m)) => m
@@ -2472,6 +2653,7 @@ pub fn verify_self_issued_id_token(
         let header_str = @utf8.decode(header_bytes[:]) catch {
           _ => raise InvalidHeader("not UTF-8")
         }
+        reject_duplicate_top_level_json_keys(header_str, true)
         let header = parse_json_object(header_str)
         let alg_str = match get_string(header, "alg") {
           Some(s) => s
@@ -2568,6 +2750,7 @@ pub fn verify_oidc_id_token_encrypted(
   let outer_header_str = @utf8.decode(outer_header_bytes[:]) catch {
     _ => raise InvalidHeader("JWE header not UTF-8")
   }
+  reject_duplicate_top_level_json_keys(outer_header_str, true)
   let outer_header = parse_json_object(outer_header_str)
   match get_string(outer_header, "cty") {
     Some(s) =>

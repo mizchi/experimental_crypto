@@ -470,6 +470,75 @@ test "ATTACK parse_cose_key: duplicate integer labels are rejected" {
 }
 
 ///|
+test "ATTACK parse_cose_key: mismatched OKP alg label is rejected" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let pk_bytes = @ed25519.PrivateKey::from_seed(seed).public_key().to_bytes()
+  let cose_key = @cbor.encode(
+    Map([
+      (Uint(1UL), Uint(1UL)), // kty = OKP
+      (Uint(3UL), Nint(6UL)), // alg = ES256, not EdDSA
+      (Nint(0UL), Uint(6UL)), // crv = Ed25519
+      (Nint(1UL), Bytes(pk_bytes)),
+    ]),
+  )
+  let r = try? @cose.parse_cose_key(cose_key)
+  match r {
+    Err(InvalidKey(_)) => ()
+    Ok(_) => abort("accepted Ed25519 COSE_Key with ES256 alg")
+    Err(e) => abort("expected InvalidKey, got " + repr(e))
+  }
+}
+
+///|
+test "ATTACK parse_cose_key: mismatched EC2 alg label is rejected" {
+  let gx = hex_to_bytes(
+    "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+  )
+  let gy = hex_to_bytes(
+    "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+  )
+  let cose_key = @cbor.encode(
+    Map([
+      (Uint(1UL), Uint(2UL)), // kty = EC2
+      (Uint(3UL), Nint(7UL)), // alg = EdDSA, not ES256
+      (Nint(0UL), Uint(1UL)), // crv = P-256
+      (Nint(1UL), Bytes(gx)),
+      (Nint(2UL), Bytes(gy)),
+    ]),
+  )
+  let r = try? @cose.parse_cose_key(cose_key)
+  match r {
+    Err(InvalidKey(_)) => ()
+    Ok(_) => abort("accepted P-256 COSE_Key with EdDSA alg")
+    Err(e) => abort("expected InvalidKey, got " + repr(e))
+  }
+}
+
+///|
+test "ATTACK parse_cose_key: unsupported RSA alg label is rejected" {
+  let n = hex_to_bytes(
+    "0cdb9c2e7e1c5fb9876c5d8c4af1ad6ad9bb6c44423c5f4afe7c93bb71f6c8df16ee5cf2c4f4b7e3ab9a9e9c1d3c8a5f2e1d4c3b2a1908070605040302010001",
+  )
+  let e = b"\x01\x00\x01"
+  let cose_key = @cbor.encode(
+    Map([
+      (Uint(1UL), Uint(3UL)), // kty = RSA
+      (Uint(3UL), Nint(36UL)), // alg = PS256 (-37), not supported here
+      (Nint(0UL), Bytes(n)),
+      (Nint(1UL), Bytes(e)),
+    ]),
+  )
+  let r = try? @cose.parse_cose_key(cose_key)
+  match r {
+    Err(InvalidKey(_)) => ()
+    Ok(_) => abort("accepted RSA COSE_Key with unsupported alg")
+    Err(e) => abort("expected InvalidKey, got " + repr(e))
+  }
+}
+
+///|
 test "ATTACK parse_attestation_object: duplicate text labels are rejected" {
   let att_obj = @cbor.encode(
     Map([

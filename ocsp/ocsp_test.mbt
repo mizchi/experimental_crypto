@@ -831,6 +831,49 @@ test "ATTACK ocsp: unsupported critical response extension is rejected" {
 }
 
 ///|
+test "ATTACK ocsp: unsupported non-critical response extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [ocsp_extension_elem(unknown_oid, false)]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported non-critical response extension")
+  }
+}
+
+///|
 test "ATTACK ocsp: unsupported critical single extension is rejected" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex,
@@ -874,6 +917,53 @@ test "ATTACK ocsp: unsupported critical single extension is rejected" {
     other => abort("expected Malformed, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted unsupported critical single extension")
+  }
+}
+
+///|
+test "ATTACK ocsp: unsupported non-critical single extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let single = append_sequence_field(
+    build_single_response_elem(
+      issuer,
+      cert.tbs.serial_number,
+      BGood,
+      "20240101000000Z",
+      Some("20300101000000Z"),
+      true,
+    ),
+    ocsp_extensions_explicit(1U, [ocsp_extension_elem(unknown_oid, false)]),
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported non-critical single extension")
   }
 }
 

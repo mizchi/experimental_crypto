@@ -135,9 +135,10 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
 2. [ ] **OCSP / CRL revocation semantics**: enforce nonce, delta CRL,
    distribution-point matching, indirect CRL, delegated responder
    `id-pkix-ocsp-nocheck`, and request/transport semantics.
-   - [x] Reject unsupported critical CRL / CRL-entry extensions instead of
-     silently ignoring them.
-   - [x] Reject unsupported critical OCSP single / response extensions.
+   - [x] Reject unsupported CRL / CRL-entry extensions instead of silently
+     ignoring scope, delta, or indirect-CRL semantics.
+   - [x] Reject unsupported OCSP single / response extensions, including
+     non-critical nonce-like extensions, until each supported OID is enforced.
 3. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg` / `sq` / `rsop`; implement production v6 caller-supplied salt.
    - [x] Expose caller-supplied v6 signature salt in `sign_armor` and reject
@@ -189,12 +190,88 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
    - [x] Add `parse_signed_object` for commit/tag content and raw
      `commit <len>\0...` / `tag <len>\0...` object headers.
    - [x] Add signed tag-object coverage.
+   - [x] Keep `parse_signed_commit` commit-only; reject tag content / raw tag
+     objects at the commit-specific API boundary.
    - [x] Keep duplicate `gpgsig` and body-only `gpgsig` rejection tests.
 10. [ ] **CI target parity**: run `moon test` on `wasm-gc`, `native`, and
     `js` targets so byte / integer / string behavior does not silently
     diverge.
     - [x] Split CI test job into a target matrix for `wasm-gc`, `native`,
       and `js`; keep `moon prove` as a separate job.
+
+### Authentication false-positive triage
+
+Policy: false negatives are acceptable for unsupported / ambiguous inputs.
+False positives are not. A feature can be deferred only if the verifier or
+parser fails closed before returning authenticated / verified / trusted.
+
+#### Cannot defer unless it already fails closed
+
+- **PKIX / CMS / COSE signature acceptance**: critical extensions,
+  AlgorithmIdentifier mismatches, signed-attribute digest binding, certificate
+  path constraints, name constraints, KU/EKU, and unknown critical structures
+  must reject. A partial implementation is acceptable only when unsupported
+  semantics return an error, never a successful verification.
+- **OCSP / CRL revocation decisions used for trust**: delta CRL, indirect CRL,
+  CRL distribution-point matching, delegated responder authorization, and
+  request-bound OCSP nonce semantics must either be implemented or explicitly
+  rejected by the high-level trust API. Parser-only support may be laxer, but
+  verification APIs must not treat unsupported revocation semantics as valid.
+- **JWT / OIDC / JARM / DPoP / JWKS trust boundaries**: `alg`, `kid`, `typ`,
+  issuer, audience, nonce/state, token binding (`cnf.jkt`, `ath`,
+  `at_hash`/`c_hash`), duplicate JWKS keys, and embedded remote key hints must
+  remain strict. Missing algorithm implementations such as `ES512` must stay
+  unsupported rather than falling through to another key type.
+- **SSH allowed_signers trust policy**: `cert-authority`, `valid-after`, and
+  `valid-before` must stay fail-closed until certificate and time-aware
+  verification APIs exist. Duplicate or unknown options must not widen trust.
+- **git signed-object canonical bytes**: raw object headers, tag objects,
+  multi-line `gpgsig` continuation, duplicate signatures, and body-only
+  `gpgsig` text must remain unambiguous. If the parser cannot reconstruct the
+  exact signed bytes, it must reject.
+- **PGP verify-side packet semantics**: signature type, hash algorithm,
+  public-key algorithm, v6 salt, MPI/raw signature encoding, and trailing packet
+  data must be strict. Sign-side interop can lag; verify-side acceptance cannot.
+- **Password / key container parsers that gate trust**: PHC, PBES2, PKCS#8,
+  ASN.1, PEM, and JWK parsers must reject duplicate fields, non-canonical
+  base64 / DER, impossible lengths, and unknown critical choices before using
+  the decoded key as trusted material.
+
+Current fail-closed fixes applied in this sweep:
+
+- [x] PKIX no longer treats recognised-but-unenforced critical extensions
+  (`certificatePolicies`, `policyConstraints`, `inhibitAnyPolicy`,
+  critical EKU/SAN policy gaps) as safe.
+- [x] OCSP and CRL verification reject all unsupported response / revocation
+  extensions, critical or non-critical, until the semantics are implemented.
+- [x] CMS detached verification now requires signedAttrs
+  `contentType=id-data` as well as a unique `messageDigest`.
+- [x] COSE_Key `alg` metadata, when present, must match the parsed key type.
+- [x] JWT/JWE/JWK reject duplicate JSON object members at trust boundaries
+  before Map-collapsing can change interpretation.
+- [x] PGP detached signature armor must contain exactly one Signature packet.
+- [x] `git_object.parse_signed_commit` rejects signed tag objects instead of
+  delegating to the generic signed-object parser.
+
+#### Can defer if fail-closed today
+
+- **New algorithm support**: `ES512` / P-521, Ed448 / X448, ML-KEM / ML-DSA,
+  AES-GCM-SIV / AES-SIV, `age`, EIP-712 / EIP-191, TLS 1.3, PKCS#12, and
+  BIP-32 CKDpub can wait while unsupported inputs raise errors.
+- **Interop-only sign output checks**: external `gpg` / `sq` / `rsop`
+  validation of signatures we produce is important for compatibility, but it
+  mostly causes false negatives with other tools rather than false positives in
+  our verifiers.
+- **PBES2 `id-scrypt` support**: encrypted private keys using scrypt may fail
+  to decrypt until implemented. That is acceptable as long as unknown KDFs
+  return `UnsupportedKdf` and do not silently use PBKDF2.
+- **Coverage expansion after strict behavior exists**: more fuzzing for
+  CMS→PKIX→PKIX_VERIFY and OCSP / CRL→PKIX_VERIFY is valuable, but the
+  immediate false-positive control is the fail-closed behavior above.
+- **Leakage measurement harnesses**: `dudect` / callgrind-style checks are not
+  authentication false-positive controls. They remain high priority for
+  production signing keys because leakage can become forgery risk, but they are
+  separable from verifier accept/reject correctness.
 
 ### Algorithm gaps — Tier 1
 

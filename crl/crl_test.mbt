@@ -229,6 +229,56 @@ fn build_crl_der(
 }
 
 ///|
+fn build_crl_der_with_revoked_entry_elems(
+  issuer_cert : @pkix.Certificate,
+  this_update : String,
+  next_update : String?,
+  revoked_entries : Array[@asn1.Element],
+  signer_seed_hex : String,
+) -> Bytes raise {
+  let signer_sk = @ed25519.PrivateKey::from_seed(hex_to_bytes(signer_seed_hex))
+  let items : Array[@asn1.Element] = []
+  items.push(@asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")))
+  items.push(ed25519_alg_elem(false))
+  let issuer_name_bytes = @pkix.serialize_name(issuer_cert.tbs.subject)
+  let issuer_elem = @asn1.decode_der(issuer_name_bytes) catch {
+    _ => abort("name")
+  }
+  items.push(issuer_elem)
+  let tu_elem = if this_update.length() == 13 {
+    @asn1.Element::new(@asn1.tag_utc_time, UtcTime(this_update))
+  } else {
+    @asn1.Element::new(@asn1.tag_generalized_time, GeneralizedTime(this_update))
+  }
+  items.push(tu_elem)
+  match next_update {
+    Some(nu) => {
+      let nu_elem = if nu.length() == 13 {
+        @asn1.Element::new(@asn1.tag_utc_time, UtcTime(nu))
+      } else {
+        @asn1.Element::new(@asn1.tag_generalized_time, GeneralizedTime(nu))
+      }
+      items.push(nu_elem)
+    }
+    None => ()
+  }
+  items.push(@asn1.Element::new(@asn1.tag_sequence, Sequence(revoked_entries)))
+  let tbs_elem = @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+  let tbs_bytes = @asn1.encode_der(tbs_elem)
+  let sig = signer_sk.sign(tbs_bytes)
+  let sig_bs_elem = @asn1.Element::new(
+    @asn1.tag_bit_string,
+    BitString({ bytes: sig, unused_bits: 0 }),
+  )
+  @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([tbs_elem, ed25519_alg_elem(false), sig_bs_elem]),
+    ),
+  )
+}
+
+///|
 fn crl_extension_elem(
   oid : @asn1.ObjectIdentifier,
   critical : Bool,
@@ -371,7 +421,7 @@ test "ATTACK crl: unsupported critical CRL extension is rejected" {
 }
 
 ///|
-test "crl: unknown non-critical CRL extension is ignored" {
+test "ATTACK crl: unsupported non-critical CRL extension is rejected" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
   )
@@ -386,8 +436,44 @@ test "crl: unknown non-critical CRL extension is ignored" {
     ed25519_alg_elem(false),
     [crl_extensions_explicit([crl_extension_elem(unknown_oid, false)])],
   )
-  let crl = @crl.verify(der, issuer, "250601000000Z")
-  @debug.assert_eq(crl.revoked.length(), 0)
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with unsupported non-critical extension")
+  }
+}
+
+///|
+test "ATTACK crl: unsupported non-critical entry extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let entry = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_integer, Integer(b"\x10")),
+      @asn1.Element::new(@asn1.tag_utc_time, UtcTime("240501000000Z")),
+      @asn1.Element::new(
+        @asn1.tag_sequence,
+        Sequence([crl_extension_elem(unknown_oid, false)]),
+      ),
+    ]),
+  )
+  let der = build_crl_der_with_revoked_entry_elems(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [entry],
+    issuer_seed_hex,
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with unsupported non-critical entry extension")
+  }
 }
 
 ///|

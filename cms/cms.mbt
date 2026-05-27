@@ -7,8 +7,8 @@
 //   - RSA-PKCS#1 v1.5 with SHA-256/384/512
 //   - ECDSA P-256/P-384 with SHA-256/384
 //   - signed_attrs MUST be present (modern signers always emit them) and
-//     MUST contain messageDigest matching H(message). The signature is
-//     then verified over the SET-OF re-encoding of signed_attrs.
+//     MUST contain contentType=id-data and messageDigest matching H(message).
+//     The signature is then verified over the SET-OF re-encoding of signed_attrs.
 //
 // Out of scope:
 //   - Encrypted CMS (EnvelopedData)
@@ -39,6 +39,9 @@ pub suberror CmsError {
 
 ///|
 pub(all) struct CmsSignedData {
+  // EncapsulatedContentInfo.eContentType. This detached verifier currently
+  // accepts only id-data and rejects embedded eContent.
+  encap_content_type : @asn1.ObjectIdentifier
   // Parsed signer certificate (the first one in `certificates`).
   signer_cert : @pkix.Certificate
   // Additional intermediate certificates carried in the CMS bundle.
@@ -68,6 +71,16 @@ pub(all) struct SignerInfoFields {
 ///|
 fn id_signed_data() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 7, 2])
+}
+
+///|
+fn id_data() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 7, 1])
+}
+
+///|
+fn id_content_type() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 9, 3])
 }
 
 ///|
@@ -222,7 +235,10 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
   }
   let _version = sd_items[0]
   let _digest_algs = sd_items[1]
-  let _encap = sd_items[2]
+  let encap_content_type = parse_encap_content_info(sd_items[2])
+  if encap_content_type != id_data() {
+    raise ContentTypeMismatch(encap_content_type)
+  }
   // certificates and crls are optional; signerInfos is mandatory and is
   // the LAST element. Walk to find them.
   let certs : Array[@pkix.Certificate] = []
@@ -288,7 +304,30 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
       extra_certs.push(certs[i])
     }
   }
-  { signer_cert, extra_certs, signer }
+  { encap_content_type, signer_cert, extra_certs, signer }
+}
+
+///|
+fn parse_encap_content_info(
+  elem : @asn1.Element,
+) -> @asn1.ObjectIdentifier raise CmsError {
+  let items = expect_sequence(elem, "EncapsulatedContentInfo")
+  if items.length() < 1 || items.length() > 2 {
+    raise Malformed("EncapsulatedContentInfo arity")
+  }
+  let content_type = expect_oid(
+    items[0],
+    "EncapsulatedContentInfo.eContentType",
+  )
+  if items.length() == 2 {
+    let item = items[1]
+    if item.tag.class_ == @asn1.TagClass::ContextSpecific &&
+      item.tag.number == 0U {
+      raise Malformed("embedded eContent not supported by detached verifier")
+    }
+    raise Malformed("EncapsulatedContentInfo unexpected field")
+  }
+  content_type
 }
 
 ///|
@@ -461,7 +500,8 @@ fn extract_context_implicit(elem : @asn1.Element) -> Bytes raise CmsError {
 ///
 /// Steps (RFC 5652 §5.4):
 ///   1. Compute H_digestAlg(message)
-///   2. Find messageDigest attribute in signed_attrs; assert equality
+///   2. Find contentType and messageDigest attributes in signed_attrs; assert
+///      contentType is id-data and messageDigest equals H(message)
 ///   3. Re-encode signed_attrs from [0] IMPLICIT to universal SET OF
 ///   4. Verify signer.signature over the re-encoded SET using
 ///      signer.signature_alg + signer_cert's public key
@@ -470,8 +510,12 @@ pub fn verify_detached(
   message : Bytes,
 ) -> Bool raise CmsError {
   let digest = digest_for_alg(sd.signer.digest_alg, message)
-  // Walk signed_attrs SET to find messageDigest.
+  // Walk signed_attrs SET to find contentType and messageDigest.
   let attrs = parse_attributes(sd.signer.signed_attrs_content)
+  let content_type = find_content_type_attr(attrs)
+  if content_type != sd.encap_content_type || content_type != id_data() {
+    raise ContentTypeMismatch(content_type)
+  }
   let md = find_message_digest_attr(attrs)
   if md != digest {
     raise MessageDigestMismatch
@@ -671,6 +715,36 @@ fn parse_attributes(
     out.push({ oid, values_set_content: values_content })
   }
   out
+}
+
+///|
+fn find_content_type_attr(
+  attrs : Array[CmsAttribute],
+) -> @asn1.ObjectIdentifier raise CmsError {
+  let mut ct_value : @asn1.ObjectIdentifier? = None
+  for a in attrs {
+    if a.oid == id_content_type() {
+      if ct_value is Some(_) {
+        raise Malformed("duplicate contentType attribute")
+      }
+      let dec = @asn1.Decoder::new(a.values_set_content)
+      if dec.is_empty() {
+        raise Malformed("contentType values empty")
+      }
+      let val_elem = dec.read_element() catch { e => raise Asn1(e) }
+      if !dec.is_empty() {
+        raise Malformed("contentType values arity != 1")
+      }
+      match val_elem.value {
+        Oid(o) => ct_value = Some(o)
+        _ => raise Malformed("contentType value not OID")
+      }
+    }
+  }
+  match ct_value {
+    Some(o) => o
+    None => raise Malformed("missing contentType attribute")
+  }
 }
 
 ///|

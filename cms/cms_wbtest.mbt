@@ -42,6 +42,11 @@ fn message_digest_attr_wb(digest_hex : String) -> Bytes {
 }
 
 ///|
+fn content_type_attr_wb() -> Bytes {
+  hex_wb("301806092a864886f70d010903310b06092a864886f70d010701")
+}
+
+///|
 test "ATTACK cms: duplicate messageDigest attributes are malformed" {
   let digest = "000102030405060708090a0b0c0d0e0f" +
     "101112131415161718191a1b1c1d1e1f"
@@ -52,6 +57,45 @@ test "ATTACK cms: duplicate messageDigest attributes are malformed" {
     _ => abort("unexpected error")
   } noraise {
     _ => abort("accepted duplicate messageDigest attributes")
+  }
+}
+
+///|
+test "ATTACK cms: duplicate contentType attributes are malformed" {
+  let attr = content_type_attr_wb()
+  let attrs = parse_attributes(concat_wb(attr, attr))
+  try find_content_type_attr(attrs) catch {
+    Malformed(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted duplicate contentType attributes")
+  }
+}
+
+///|
+test "ATTACK cms: contentType attribute with multiple values is malformed" {
+  let attr = hex_wb(
+    "302306092a864886f70d010903311606092a864886f70d01070106092a864886f70d010701",
+  )
+  let attrs = parse_attributes(attr)
+  try find_content_type_attr(attrs) catch {
+    Malformed(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted multi-valued contentType attribute")
+  }
+}
+
+///|
+test "ATTACK cms: missing contentType attribute is malformed" {
+  let digest = "000102030405060708090a0b0c0d0e0f" +
+    "101112131415161718191a1b1c1d1e1f"
+  let attrs = parse_attributes(message_digest_attr_wb(digest))
+  try find_content_type_attr(attrs) catch {
+    Malformed(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted signedAttrs without contentType")
   }
 }
 

@@ -9,12 +9,11 @@
 //   2. thisUpdate <= now (and now < nextUpdate, if present).
 //
 // What we do NOT do:
-//   - Indirect CRL / CRL distribution point handling (RFC 5280 §5.2.5).
-//   - CRL scope / revoked-only-by-issuer policy. Caller must ensure that
-//     `issuer_cert` is the actual cert that signed this CRL (matched by DN
-//     or via a CRL DP extension on the original cert).
-//   - Delta-CRLs (RFC 5280 §5.2.4).
 //   - Authority Key Identifier matching beyond the issuer parameter.
+//
+// Unsupported CRL / CRL-entry extensions are rejected. This keeps the verifier
+// from accepting revocation decisions whose scope or delta semantics it cannot
+// enforce yet.
 
 // ─── data types ──────────────────────────────────────────────────────────
 
@@ -172,23 +171,23 @@ fn parse_extension_meta(
 }
 
 ///|
-fn check_unsupported_critical_extensions(
+fn reject_unsupported_extensions(
   elem : @asn1.Element,
   context : String,
 ) -> Unit raise CrlError {
   let items = expect_sequence(elem)
   let seen : Array[@asn1.ObjectIdentifier] = []
   for item in items {
-    let (oid, critical) = parse_extension_meta(item)
+    let (oid, _) = parse_extension_meta(item)
     for prev in seen {
       if prev == oid {
         raise Malformed(context + ": duplicate extension")
       }
     }
     seen.push(oid)
-    if critical {
-      raise Malformed(context + ": unsupported critical extension")
-    }
+  }
+  if items.length() > 0 {
+    raise Malformed(context + ": unsupported extension")
   }
 }
 
@@ -208,11 +207,8 @@ fn parse_revoked_entry(elem : @asn1.Element) -> CrlEntry raise CrlError {
   let serial = expect_integer(items[0])
   let rev_date = expect_time(items[1])
   if items.length() == 3 {
-    check_unsupported_critical_extensions(items[2], "crlEntryExtensions")
+    reject_unsupported_extensions(items[2], "crlEntryExtensions")
   }
-  // crlEntryExtensions (if present) are ignored — RFC 5280 §5.3 defines
-  // reason / hold-instruction / invalidity-date / cert-issuer extensions
-  // which a richer caller can layer on top of this minimal parser.
   { serial, revocation_date: rev_date }
 }
 
@@ -290,11 +286,12 @@ fn parse_tbs_cert_list(
       idx = idx + 1
     }
   }
-  // crlExtensions [0] EXPLICIT — ignored for now.
+  // crlExtensions [0] EXPLICIT. Scope / delta / indirect-CRL semantics are not
+  // implemented, so reject rather than returning a trusted partial result.
   if idx < items.length() {
     match match_context_explicit(items[idx], 0U) {
       Some(exts) => {
-        check_unsupported_critical_extensions(exts, "crlExtensions")
+        reject_unsupported_extensions(exts, "crlExtensions")
         idx = idx + 1
       }
       None => raise Malformed("TBSCertList: unexpected trailing field")

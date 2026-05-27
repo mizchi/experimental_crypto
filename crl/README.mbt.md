@@ -14,7 +14,6 @@ X.509 Certificate Revocation List (CRL) parse + verify per RFC 5280 §5.
 ```
 
 Verifies the CRL signature against the issuer's `SubjectPublicKeyInfo`
-and checks `thisUpdate <= now < nextUpdate`. Supports RSA-SHA-256 and
-ECDSA-SHA-{256,384} CRL signatures. Extensions are parsed but not
-validated (delta-CRLs, CRL distribution points, indirect CRLs are not
-covered).
+and checks `thisUpdate <= now < nextUpdate`. Unsupported CRL and CRL-entry
+extensions are rejected rather than ignored; delta-CRLs, CRL distribution
+points, and indirect CRLs are not implemented yet.

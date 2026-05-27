@@ -188,18 +188,12 @@ fn require_signature_params_null_if_present(
 //     - basicConstraints (cA + pathLen)
 //     - keyUsage (keyCertSign on issuers, §6.1.4(n))
 //     - nameConstraints (DNS-name subtree matching, §6.1.3(b))
-//     - extendedKeyUsage (when caller requests a specific EKU via
-//       VerifyChainOptions.required_eku)
 //
-//   RECOGNISED-BUT-NOT-ENFORCED — accepted critical but not used in our
-//   verifier scope. Documented gaps:
-//     - subjectAltName: identity matching is the caller's concern;
-//       use `extract_dns_san` to retrieve the names.
-//     - certificatePolicies / policyConstraints / inhibitAnyPolicy:
-//       policy-graph processing (RFC 5280 §6.1.4(a)..(o)) is out of
-//       scope — this verifier returns "valid"/"invalid", not a set of
-//       valid policies. A caller that needs policy enforcement should
-//       layer it on top.
+// Extensions we can parse but do not enforce as certificate validity policy
+// (subjectAltName identity matching, certificate policies, policy constraints,
+// inhibitAnyPolicy, and critical EKU without an explicit caller purpose) are
+// deliberately NOT in this critical allow-list. False negatives are acceptable;
+// accepting a cert with unprocessed critical policy is not.
 
 ///|
 fn key_usage_oid() -> @asn1.ObjectIdentifier {
@@ -217,35 +211,15 @@ fn subject_alt_name_oid() -> @asn1.ObjectIdentifier {
 }
 
 ///|
-fn certificate_policies_oid() -> @asn1.ObjectIdentifier {
-  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32])
-}
-
-///|
 fn name_constraints_oid() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30])
-}
-
-///|
-fn policy_constraints_oid() -> @asn1.ObjectIdentifier {
-  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 36])
-}
-
-///|
-fn inhibit_any_policy_oid() -> @asn1.ObjectIdentifier {
-  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 54])
 }
 
 ///|
 fn is_recognised_critical_extension(oid : @asn1.ObjectIdentifier) -> Bool {
   oid == basic_constraints_oid() ||
   oid == key_usage_oid() ||
-  oid == extended_key_usage_oid() ||
-  oid == subject_alt_name_oid() ||
-  oid == certificate_policies_oid() ||
-  oid == name_constraints_oid() ||
-  oid == policy_constraints_oid() ||
-  oid == inhibit_any_policy_oid()
+  oid == name_constraints_oid()
 }
 
 ///|

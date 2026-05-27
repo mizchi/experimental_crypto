@@ -39,6 +39,7 @@ pub suberror CmsError {
 
 // Types and methods
 pub(all) struct CmsSignedData {
+  encap_content_type : @asn1.ObjectIdentifier
   signer_cert : @pkix.Certificate
   extra_certs : Array[@pkix.Certificate]
   signer : SignerInfoFields
