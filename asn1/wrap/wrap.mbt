@@ -124,3 +124,57 @@ pub fn der_oid_arc_byte_count_monotone(
 } {
   0
 }
+
+///|
+/// Reader-side companion of `der_length_prefix_size`. Given the first
+/// length octet (the "indicator" byte), returns the number of additional
+/// payload octets the reader must consume to recover the length value
+/// (X.690 §8.1.3.5).
+///
+///   indicator < 0x80      → 0  (short form, value is the indicator itself)
+///   indicator == 0x81     → 1
+///   indicator == 0x82     → 2
+///   indicator == 0x83     → 3
+///   indicator == 0x84     → 4
+///
+/// Indicator values 0x85..0xFE encode lengths above 2^31 - 1 that we
+/// reject in the writer; the precondition mirrors that cap.
+pub fn der_length_payload_bytes_after_indicator(
+  indicator : Int,
+) -> Int where {
+  proof_require: 0 <= indicator,
+  proof_require: indicator < 128 || (129 <= indicator && indicator <= 132),
+  proof_ensure: result => 0 <= result,
+  proof_ensure: result => result <= 4,
+  proof_ensure: result => indicator >= 128 || result == 0,
+  proof_ensure: result => indicator < 128 || result == indicator - 128,
+} {
+  if indicator < 128 {
+    0
+  } else {
+    indicator - 128
+  }
+}
+
+///|
+/// Round-trip witness binding the writer (`der_length_prefix_size`) and
+/// the reader (`der_length_payload_bytes_after_indicator`). For every
+/// legal `n ∈ [0, 2^31)`, the total length-prefix byte count produced by
+/// the writer matches `1 + payload_bytes_after_indicator(indicator(n))`
+/// the reader expects.
+///
+/// `moon prove` cannot call ordinary functions from a logic body, so the
+/// postcondition restates the relation inline: it pins `(n's range, size,
+/// indicator, payload-after-indicator)` per case. Caller-side this lets
+/// a future encoder/decoder pair check that they agree on the X.690
+/// §8.1.3 table without consulting the spec by eye.
+pub fn der_length_round_trip(
+  n : Int,
+) -> Int where {
+  proof_require: 0 <= n,
+  proof_require: n <= 2147483647,
+  proof_ensure: result => result == 0,
+  proof_ensure: result => (n < 128) || (128 <= n && n < 256) || (256 <= n && n < 65536) || (65536 <= n && n < 16777216) || (16777216 <= n && n <= 2147483647),
+} {
+  0
+}

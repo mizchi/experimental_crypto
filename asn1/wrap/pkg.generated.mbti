@@ -2,9 +2,13 @@
 package "mizchi/asn1/wrap"
 
 // Values
+pub fn der_length_payload_bytes_after_indicator(Int) -> Int
+
 pub fn der_length_prefix_size(Int) -> Int
 
 pub fn der_length_prefix_size_monotone(Int, Int) -> Int
+
+pub fn der_length_round_trip(Int) -> Int
 
 pub fn der_oid_arc_byte_count(Int) -> Int
 

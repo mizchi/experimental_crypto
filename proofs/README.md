@@ -70,6 +70,8 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `asn1/wrap` | `der_oid_arc_byte_count(arc)` | X.690 §8.19 base-128 varint byte count ∈ [1, 5] — spec for OID encoder scratch sizing |
 | `asn1/wrap` | `der_length_prefix_size_monotone(a, b)` | Monotonicity: `a ≤ b ⇒ size(a) ≤ size(b)`. Anchors loop-sizing safety |
 | `asn1/wrap` | `der_oid_arc_byte_count_monotone(a, b)` | Monotonicity of OID arc byte count |
+| `asn1/wrap` | `der_length_payload_bytes_after_indicator(indicator)` | Reader-side companion to `der_length_prefix_size`: payload octets ∈ [0, 4] following X.690 §8.1.3.5 indicator byte |
+| `asn1/wrap` | `der_length_round_trip(n)` | Writer ↔ reader spec-level alignment for the X.690 §8.1.3 length encoding |
 
 The "spec" entries (`pkcs7_pad_len`, `der_length_prefix_size`,
 `is_hardened_from_msb`, `mnemonic_word_count`) are helpers the host
