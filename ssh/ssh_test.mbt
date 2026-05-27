@@ -153,6 +153,36 @@ test "ATTACK: allowed_signers verification rejects lax SSHSIG armor" {
   assert_false(accepted)
 }
 
+///|
+fn inject_bare_cr_in_first_body_line(armor : String) -> String {
+  let sb = StringBuilder::new()
+  let mut saw_first_newline = false
+  let mut inserted = false
+  for c in armor {
+    sb.write_char(c)
+    if saw_first_newline && !inserted && c != '\n' && c != '\r' {
+      sb.write_char('\r')
+      inserted = true
+    }
+    if c == '\n' {
+      saw_first_newline = true
+    }
+  }
+  sb.to_string()
+}
+
+///|
+test "ATTACK: strict SSHSIG armor rejects bare CR inside base64 body" {
+  let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
+  let pk = @ssh.parse_ed25519_pubkey(parsed.blob)
+  let injected = inject_bare_cr_in_first_body_line(armored_signature)
+  let accepted = @ssh.verify_armor(injected, fixture_message(), pk) catch {
+    InvalidEncoding(_) => false
+    _ => false
+  }
+  assert_false(accepted)
+}
+
 // -----------------------------------------------------------------------------
 // allowed_signers parser + verify integration
 // -----------------------------------------------------------------------------
@@ -240,6 +270,24 @@ test "ATTACK: comma-separated allowed_signers options keep sig_namespace restric
     fixture_message(),
   )
   assert_false(ok)
+}
+
+///|
+test "ATTACK: malformed allowed_signers namespace quotes fail closed" {
+  let malformed_text =
+    #|attacker@evil.invalid namespaces="file,git ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let signers = @ssh.parse_allowed_signers(malformed_text)
+  @debug.assert_eq(signers.length(), 0)
+}
+
+///|
+test "ATTACK: duplicate allowed_signers namespaces fail closed" {
+  let same_token =
+    #|attacker@evil.invalid namespaces="file",namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  @debug.assert_eq(@ssh.parse_allowed_signers(same_token).length(), 0)
+  let split_tokens =
+    #|attacker@evil.invalid namespaces="file" namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  @debug.assert_eq(@ssh.parse_allowed_signers(split_tokens).length(), 0)
 }
 
 ///|
@@ -426,6 +474,20 @@ test "ATTACK: empty SSHSIG sig_namespace is rejected" {
 }
 
 ///|
+test "ATTACK: SSHSIG sig_namespace rejects control characters" {
+  let seed = Bytes::makei(32, fn(i) { (i + 4).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let raised = try {
+    let _ = @ssh.sign_armor(sk, b"control namespace", sig_namespace="git\n")
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
 test "ATTACK: SSH mpint rejects redundant leading zeroes" {
   let w = @ssh.WireWriter::new()
   w.write_string_ascii("ssh-rsa")
@@ -439,4 +501,38 @@ test "ATTACK: SSH mpint rejects redundant leading zeroes" {
     _ => false
   }
   assert_true(raised)
+}
+
+///|
+test "ATTACK: SSH wire reader rejects negative byte lengths" {
+  let r = @ssh.WireReader::new(b"abc")
+  let raised = try {
+    let _ = r.read_bytes(-1)
+    false
+  } catch {
+    InvalidEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
+test "ATTACK: SSH RSA public key rejects invalid public parameters" {
+  fn parse_rsa(e : Bytes, n : Bytes) -> Bool {
+    let w = @ssh.WireWriter::new()
+    w.write_string_ascii("ssh-rsa")
+    w.write_string(e)
+    w.write_string(n)
+    let rejected = try {
+      let _ = @ssh.parse_rsa_pubkey(w.to_bytes())
+      false
+    } catch {
+      InvalidEncoding(_) => true
+      _ => false
+    }
+    rejected
+  }
+  assert_true(parse_rsa(b"\x01", b"\x01\x01")) // e = 1
+  assert_true(parse_rsa(b"\x02", b"\x01\x01")) // e = 2 (even)
+  assert_true(parse_rsa(b"\x03", b"\x01\x00")) // even modulus
 }

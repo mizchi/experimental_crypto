@@ -80,6 +80,12 @@ fn left_pad(b : Bytes, target_len : Int) -> Bytes raise SshError {
 }
 
 ///|
+fn bigint_is_odd(n : BigInt) -> Bool {
+  let oct = n.to_octets()
+  oct.length() > 0 && (oct[oct.length() - 1].to_int() & 1) == 1
+}
+
+///|
 // Parse a single `algorithm base64 [comment]` line. Whitespace at line
 // boundaries is tolerated. Returns the algorithm tag, the wire-format
 // pubkey bytes (still tagged), and an optional comment.
@@ -201,11 +207,11 @@ pub fn parse_rsa_pubkey(blob : Bytes) -> @rsa.RsaPublicKey raise SshError {
   let n_mag = mpint_magnitude(n_bytes)
   let e = BigInt::from_octets(e_mag[:])
   let n = BigInt::from_octets(n_mag[:])
-  if e.compare_int(0) <= 0 {
-    raise InvalidEncoding("RSA exponent must be positive")
+  if e.compare_int(3) < 0 || !bigint_is_odd(e) {
+    raise InvalidEncoding("RSA exponent must be odd and >= 3")
   }
-  if n.compare_int(0) <= 0 {
-    raise InvalidEncoding("RSA modulus must be positive")
+  if n.compare_int(1) <= 0 || !bigint_is_odd(n) {
+    raise InvalidEncoding("RSA modulus must be odd and greater than 1")
   }
   { n, e, n_bytes_len: n_mag.length() }
 }

@@ -181,3 +181,31 @@ test "scrypt: verify_encoded rejects malformed PHC strings" {
     _ => @debug.assert_eq(true, false, msg="expected InvalidEncoded")
   }
 }
+
+///|
+test "ATTACK scrypt: PHC parser rejects duplicate params and padded base64" {
+  try
+    @scrypt.verify_encoded("$scrypt$ln=4,r=1,p=1,p=1$c2FsdA$AAAAAA", b"x")
+  catch {
+    @scrypt.InvalidEncoded(_) => ()
+    other => abort("expected InvalidEncoded, got " + repr(other))
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected duplicate param reject")
+  }
+  try
+    @scrypt.verify_encoded("$scrypt$ln=04,r=1,p=1$c2FsdA$AAAAAA", b"x")
+  catch {
+    @scrypt.InvalidEncoded(_) => ()
+    other => abort("expected InvalidEncoded, got " + repr(other))
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected non-canonical reject")
+  }
+  try
+    @scrypt.verify_encoded("$scrypt$ln=4,r=1,p=1$c2FsdA=$AAAAAA", b"x")
+  catch {
+    @scrypt.InvalidEncoded(_) => ()
+    other => abort("expected InvalidEncoded, got " + repr(other))
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected padded base64 reject")
+  }
+}

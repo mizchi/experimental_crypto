@@ -173,6 +173,27 @@ fn is_canonical_decimal(s : String) -> Bool {
 }
 
 ///|
+fn is_phc_base64_nopad_segment(s : String) -> Bool {
+  if s.length() == 0 || s.length() > 4096 {
+    return false
+  }
+  if s.length() % 4 == 1 {
+    return false
+  }
+  for c in s {
+    let ok = (c >= 'A' && c <= 'Z') ||
+      (c >= 'a' && c <= 'z') ||
+      (c >= '0' && c <= '9') ||
+      c == '+' ||
+      c == '/'
+    if !ok {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Parses a PHC-formatted Argon2 string. Returns the params plus the decoded
 /// salt and hash bytes. Raises `InvalidEncoded` on malformed input.
 fn parse_phc(encoded : String) -> ParsedPhc raise Argon2Error {
@@ -246,6 +267,12 @@ fn parse_phc(encoded : String) -> ParsedPhc raise Argon2Error {
   }
   if m_cost < 0 || t_cost < 0 || parallelism < 0 {
     raise InvalidEncoded("missing m/t/p parameter")
+  }
+  if !is_phc_base64_nopad_segment(parts[4].to_owned()) {
+    raise InvalidEncoded("invalid base64 salt")
+  }
+  if !is_phc_base64_nopad_segment(parts[5].to_owned()) {
+    raise InvalidEncoded("invalid base64 hash")
   }
   let salt = @base64.decode(parts[4]) catch {
     _ => raise InvalidEncoded("invalid base64 salt")

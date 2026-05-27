@@ -213,6 +213,34 @@ test "hpke: invalid sk_e length is rejected" {
 }
 
 ///|
+test "ATTACK hpke: low-order recipient public key is rejected during encap" {
+  let low_order_pk = Bytes::makei(32, fn(_) { b'\x00' })
+  let mut got_err = false
+  let _ = @hpke.setup_base_s(low_order_pk, test_info, sk_e=test_sk_e) catch {
+    KemFailure => {
+      got_err = true
+      (b"", { key: b"", base_nonce: b"", sequence: 0UL, exporter_secret: b"" })
+    }
+    e => raise e
+  }
+  assert_true(got_err)
+}
+
+///|
+test "ATTACK hpke: low-order encapsulated public key is rejected during decap" {
+  let low_order_enc = Bytes::makei(32, fn(_) { b'\x00' })
+  let mut got_err = false
+  let _ = @hpke.setup_base_r(low_order_enc, test_sk_r, test_info) catch {
+    KemFailure => {
+      got_err = true
+      { key: b"", base_nonce: b"", sequence: 0UL, exporter_secret: b"" }
+    }
+    e => raise e
+  }
+  assert_true(got_err)
+}
+
+///|
 test "hpke: seal refuses exhausted sequence before AEAD" {
   let ctx : @hpke.HpkeContext = {
     key: b"short",

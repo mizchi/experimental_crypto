@@ -24,5 +24,6 @@ keywords = [ ]
 description = "EXPERIMENTAL — pbkdf2: not production-grade. Audit before use. No warranty."
 
 import {
+  "mizchi/hash@0.1.0",
   "moonbitlang/x@0.4.43",
 }

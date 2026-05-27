@@ -1,9 +1,7 @@
-// RSA PKCS#1 v1.5 signature verification (RFC 8017).
+// RSA PKCS#1 v1.5 / RSASSA-PSS signing and verification (RFC 8017).
 //
-// Verify-only: there is no sign / decrypt / key generation path because
-// this module exists to unlock RS256 in `mizchi/jwt` and OAuth / OIDC
-// JWKS-style verification flows. Adding sign requires a CRT private-key
-// path and side-channel discipline that is intentionally deferred.
+// This module supports signatures only. It does not expose RSA encryption,
+// decryption, key generation, or CRT-accelerated private operations.
 
 ///|
 // Hash algorithm tag carried in the public API.
@@ -88,6 +86,78 @@ fn integer_to_bigint(bytes : Bytes) -> BigInt raise RsaError {
 }
 
 ///|
+fn bigint_is_odd(n : BigInt) -> Bool {
+  let oct = n.to_octets()
+  oct.length() > 0 && (oct[oct.length() - 1].to_int() & 1) == 1
+}
+
+///|
+fn validate_rsa_public_params(n : BigInt, e : BigInt) -> Unit raise RsaError {
+  if n.compare_int(1) <= 0 || !bigint_is_odd(n) {
+    raise InvalidEncoding("modulus must be odd and greater than 1")
+  }
+  if e.compare_int(3) < 0 || !bigint_is_odd(e) {
+    raise InvalidEncoding("public exponent must be odd and >= 3")
+  }
+  if e.compare(n) >= 0 {
+    raise InvalidEncoding("public exponent must be smaller than modulus")
+  }
+}
+
+///|
+fn validate_rsa_prime_factor(x : BigInt, name : String) -> Unit raise RsaError {
+  if x.compare_int(1) <= 0 || !bigint_is_odd(x) {
+    raise InvalidEncoding(name + " must be odd and greater than 1")
+  }
+}
+
+///|
+fn validate_positive_lt(
+  x : BigInt,
+  upper : BigInt,
+  name : String,
+) -> Unit raise RsaError {
+  if x.compare_int(0) <= 0 || x.compare(upper) >= 0 {
+    raise InvalidEncoding(name + " must be in [1, upper)")
+  }
+}
+
+///|
+fn validate_rsa_crt_params(
+  n : BigInt,
+  d : BigInt,
+  p : BigInt,
+  q : BigInt,
+  d_p : BigInt,
+  d_q : BigInt,
+  q_inv : BigInt,
+) -> Unit raise RsaError {
+  validate_rsa_prime_factor(p, "prime1")
+  validate_rsa_prime_factor(q, "prime2")
+  if p.compare(q) == 0 {
+    raise InvalidEncoding("RSA prime factors must be distinct")
+  }
+  if (p * q).compare(n) != 0 {
+    raise InvalidEncoding("RSA prime factors do not multiply to modulus")
+  }
+  let one = BigInt::from_int(1)
+  let p_minus_one = p - one
+  let q_minus_one = q - one
+  validate_positive_lt(d_p, p_minus_one, "exponent1")
+  validate_positive_lt(d_q, q_minus_one, "exponent2")
+  validate_positive_lt(q_inv, p, "coefficient")
+  if d_p.compare(d % p_minus_one) != 0 {
+    raise InvalidEncoding("exponent1 does not match private exponent")
+  }
+  if d_q.compare(d % q_minus_one) != 0 {
+    raise InvalidEncoding("exponent2 does not match private exponent")
+  }
+  if (q_inv * q % p).compare(one) != 0 {
+    raise InvalidEncoding("coefficient is not q^-1 mod p")
+  }
+}
+
+///|
 fn decode_one(der : Bytes) -> @asn1.Element raise RsaError {
   @asn1.decode_der(der) catch {
     e => raise Asn1(e)
@@ -108,12 +178,7 @@ fn parse_rsa_public_key_elem(
   let e_bytes = expect_integer_bytes(items[1])
   let n = integer_to_bigint(n_bytes)
   let e = integer_to_bigint(e_bytes)
-  if n.compare_int(0) <= 0 {
-    raise InvalidEncoding("modulus must be positive")
-  }
-  if e.compare_int(0) <= 0 {
-    raise InvalidEncoding("public exponent must be positive")
-  }
+  validate_rsa_public_params(n, e)
   let n_bytes_len = (n.bit_length() + 7) / 8
   { n, e, n_bytes_len }
 }
@@ -153,6 +218,15 @@ pub fn RsaPublicKey::from_spki_der(der : Bytes) -> RsaPublicKey raise RsaError {
   }
   if oid.to_string() != rsa_encryption_oid_str {
     raise UnsupportedAlgorithm(oid.to_string())
+  }
+  if alg_items.length() == 2 {
+    match alg_items[1].value {
+      Null => ()
+      _ => raise InvalidEncoding("rsaEncryption parameters must be NULL")
+    }
+    if alg_items[1].tag != @asn1.tag_null {
+      raise InvalidEncoding("rsaEncryption parameters must be NULL")
+    }
   }
   // subjectPublicKey is a BIT STRING wrapping a DER RSAPublicKey.
   let bs = match items[1].value {
@@ -321,8 +395,8 @@ pub fn verify(
 // ─── private key + PKCS#1 v1.5 sign ──────────────────────────────────────
 
 ///|
-/// RSA private key. The CRT parameters (p, q, dP, dQ, qInv) are recommended
-/// for performance but optional — basic `(n, d)` is enough for sign.
+/// RSA private key. The PKCS#1 loader validates CRT parameters for key
+/// consistency, but the sign path stores and uses only `(n, e, d)`.
 pub(all) struct RsaPrivateKey {
   n : BigInt
   e : BigInt
@@ -341,15 +415,15 @@ pub(all) struct RsaPrivateKey {
 ///     prime1, prime2, exponent1, exponent2, coefficient INTEGER
 ///   }
 ///
-/// Only the first four fields (version, n, e, d) are read; the CRT
-/// parameters are skipped.
+/// The CRT parameters are required and validated for consistency, but not
+/// stored or used for signing.
 pub fn RsaPrivateKey::from_pkcs1_der(
   der : Bytes,
 ) -> RsaPrivateKey raise RsaError {
   let elem = decode_one(der)
   let items = expect_sequence(elem)
-  if items.length() < 4 {
-    raise InvalidEncoding("RSAPrivateKey arity < 4")
+  if items.length() != 9 {
+    raise InvalidEncoding("RSAPrivateKey must have 9 two-prime fields")
   }
   // version must be 0 (two-prime) per RFC 8017 §A.1.2.
   let v = integer_to_bigint(expect_integer_bytes(items[0]))
@@ -362,6 +436,16 @@ pub fn RsaPrivateKey::from_pkcs1_der(
   let n = integer_to_bigint(n_bytes)
   let e = integer_to_bigint(e_bytes)
   let d = integer_to_bigint(d_bytes)
+  let p = integer_to_bigint(expect_integer_bytes(items[4]))
+  let q = integer_to_bigint(expect_integer_bytes(items[5]))
+  let d_p = integer_to_bigint(expect_integer_bytes(items[6]))
+  let d_q = integer_to_bigint(expect_integer_bytes(items[7]))
+  let q_inv = integer_to_bigint(expect_integer_bytes(items[8]))
+  validate_rsa_public_params(n, e)
+  if d.compare_int(0) <= 0 || d.compare(n) >= 0 {
+    raise InvalidEncoding("private exponent must be in [1, n)")
+  }
+  validate_rsa_crt_params(n, d, p, q, d_p, d_q, q_inv)
   // n_bytes_len = ceil(bit_length(n) / 8). Deriving from the parsed BigInt
   // (rather than the raw DER bytes) makes the value robust against
   // non-canonical INTEGER encodings that happen to include extra leading
@@ -416,6 +500,25 @@ fn rsa_encryption_oid_for_pkcs8() -> @asn1.ObjectIdentifier {
 }
 
 ///|
+fn require_rsa_encryption_parameters_null(
+  params : Bytes?,
+) -> Unit raise RsaError {
+  match params {
+    None => ()
+    Some(bytes) => {
+      let elem = decode_one(bytes)
+      match elem.value {
+        Null => ()
+        _ => raise InvalidEncoding("rsaEncryption parameters must be NULL")
+      }
+      if elem.tag != @asn1.tag_null {
+        raise InvalidEncoding("rsaEncryption parameters must be NULL")
+      }
+    }
+  }
+}
+
+///|
 /// Load an RSA private key from a PKCS#8 PrivateKeyInfo DER blob (the
 /// `BEGIN PRIVATE KEY` PEM body, post-base64-decode). Verifies the
 /// algorithm OID is rsaEncryption (1.2.840.113549.1.1.1).
@@ -428,6 +531,7 @@ pub fn RsaPrivateKey::from_pkcs8_der(
   if info.algorithm.algorithm != rsa_encryption_oid_for_pkcs8() {
     raise UnsupportedAlgorithm(info.algorithm.algorithm.to_string())
   }
+  require_rsa_encryption_parameters_null(info.algorithm.parameters)
   RsaPrivateKey::from_pkcs1_der(info.private_key)
 }
 

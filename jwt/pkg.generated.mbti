@@ -161,6 +161,9 @@ pub(all) struct ClientAssertionVerifyOptions {
   expected_client_id : String
   token_endpoint : String
   allowed_algorithms : Array[Algorithm]?
+  require_jti : Bool
+  max_iat_age_sec : Int64?
+  max_exp_lifetime_sec : Int64?
 } derive(Eq, @debug.Debug)
 pub fn ClientAssertionVerifyOptions::default(Int64, String, String) -> Self
 
@@ -227,7 +230,9 @@ pub(all) struct JarmVerifyOptions {
   client_id : String
   expected_state : String?
   allowed_algorithms : Array[Algorithm]?
+  typ_allowed : Array[String]?
 } derive(Eq, @debug.Debug)
+pub fn JarmVerifyOptions::strict(Int64, String, String, String) -> Self
 
 pub(all) enum Key {
   Hs256(secret~ : Bytes)
@@ -336,8 +341,12 @@ pub(all) struct RequestObjectVerifyOptions {
   clock_skew_sec : Int64
   expected_client_id : String
   expected_aud : String
+  require_exp : Bool
+  max_iat_age_sec : Int64?
   allowed_algorithms : Array[Algorithm]?
+  typ_allowed : Array[String]?
 } derive(Eq, @debug.Debug)
+pub fn RequestObjectVerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) struct Rfc9068Token {
   iss : String

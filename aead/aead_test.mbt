@@ -410,6 +410,30 @@ test "XChaCha20-Poly1305 invalid nonce size" {
 }
 
 ///|
+fn assert_rejects_truncated_tag(alg : @aead.Algorithm) -> Unit raise {
+  let key = Bytes::makei(alg.key_size(), fn(i) { (0x21 + i).to_byte() })
+  let nonce = Bytes::makei(alg.nonce_size(), fn(i) { (0x42 + i).to_byte() })
+  let (ct, tag) = @aead.seal_detached(alg, key, nonce, b"aad", b"message")
+  let short_tag = Bytes::makei(15, fn(i) { tag[i] })
+  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+    alg, key, nonce, b"aad", ct, short_tag,
+  )
+  match result {
+    Err(@aead.InvalidTagSize(expected=16, got=15)) => ()
+    Ok(_) => abort("expected InvalidTagSize")
+    Err(e) => abort("expected InvalidTagSize but got " + repr(e))
+  }
+}
+
+///|
+test "ATTACK AEAD open_detached rejects truncated tags for every algorithm" {
+  assert_rejects_truncated_tag(@aead.ChaCha20Poly1305)
+  assert_rejects_truncated_tag(@aead.XChaCha20Poly1305)
+  assert_rejects_truncated_tag(@aead.Aes128Gcm)
+  assert_rejects_truncated_tag(@aead.Aes256Gcm)
+}
+
+///|
 test "XChaCha20-Poly1305 empty plaintext round-trip" {
   let key = Bytes::makei(32, fn(_) { b'\x00' })
   let nonce = Bytes::makei(24, fn(_) { b'\x00' })

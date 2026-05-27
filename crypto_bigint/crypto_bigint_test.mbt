@@ -123,6 +123,25 @@ test "ct_lt ordering" {
 }
 
 ///|
+test "ct_eq treats different limb widths as zero-extended" {
+  let short = make_uint(1, [5UL])
+  let long_same = make_uint(3, [5UL, 0UL, 0UL])
+  let long_diff = make_uint(3, [5UL, 0UL, 1UL])
+  assert_true(@crypto_bigint.Uint::ct_eq(short, long_same))
+  assert_false(@crypto_bigint.Uint::ct_eq(short, long_diff))
+}
+
+///|
+test "ct_lt handles borrow across limbs and zero-extension" {
+  let low_high = make_uint(2, [0UL, 1UL])
+  let high_low = make_uint(2, [0xffff_ffff_ffff_ffffUL, 0UL])
+  assert_true(@crypto_bigint.Uint::ct_lt(high_low, low_high))
+  assert_false(@crypto_bigint.Uint::ct_lt(low_high, high_low))
+  assert_true(@crypto_bigint.Uint::ct_lt(make_uint(1, [1UL]), low_high))
+  assert_false(@crypto_bigint.Uint::ct_lt(low_high, make_uint(1, [1UL])))
+}
+
+///|
 test "add_mod" {
   let a = make_uint(2, [100UL])
   let b = make_uint(2, [200UL])

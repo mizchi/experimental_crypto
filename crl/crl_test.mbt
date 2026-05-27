@@ -41,6 +41,20 @@ fn ed25519_alg_id() -> @pkix.AlgorithmIdentifier {
 }
 
 ///|
+fn ed25519_alg_elem(with_null_params : Bool) -> @asn1.Element {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(
+      @asn1.tag_oid,
+      Oid(@asn1.ObjectIdentifier::from_arcs([1U, 3, 101, 112])),
+    ),
+  ]
+  if with_null_params {
+    items.push(@asn1.Element::new(@asn1.tag_null, Null))
+  }
+  @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
 fn ed25519_spki(pk : @ed25519.PublicKey) -> @pkix.SubjectPublicKeyInfo {
   {
     algorithm: ed25519_alg_id(),
@@ -106,12 +120,15 @@ priv struct RevokedSpec {
 }
 
 ///|
-fn build_crl_der(
+fn build_crl_der_with_options(
   issuer_cert : @pkix.Certificate,
   this_update : String,
   next_update : String?,
   revoked : Array[RevokedSpec],
   signer_seed_hex : String,
+  inner_sig_alg_elem : @asn1.Element,
+  outer_sig_alg_elem : @asn1.Element,
+  extra_tbs_fields : Array[@asn1.Element],
 ) -> Bytes raise {
   let signer_sk = @ed25519.PrivateKey::from_seed(hex_to_bytes(signer_seed_hex))
   // tbsCertList ::= SEQUENCE {
@@ -126,17 +143,7 @@ fn build_crl_der(
   // version = 1 (v2)
   items.push(@asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")))
   // signature algorithm: ed25519
-  items.push(
-    @asn1.Element::new(
-      @asn1.tag_sequence,
-      Sequence([
-        @asn1.Element::new(
-          @asn1.tag_oid,
-          Oid(@asn1.ObjectIdentifier::from_arcs([1U, 3, 101, 112])),
-        ),
-      ]),
-    ),
-  )
+  items.push(inner_sig_alg_elem)
   // issuer: re-decode the serialized subject of issuer_cert to get an Element.
   let issuer_name_bytes = @pkix.serialize_name(issuer_cert.tbs.subject)
   let issuer_elem = @asn1.decode_der(issuer_name_bytes) catch {
@@ -183,18 +190,12 @@ fn build_crl_der(
     }
     items.push(@asn1.Element::new(@asn1.tag_sequence, Sequence(entries)))
   }
+  for extra in extra_tbs_fields {
+    items.push(extra)
+  }
   let tbs_elem = @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
   let tbs_bytes = @asn1.encode_der(tbs_elem)
   let sig = signer_sk.sign(tbs_bytes)
-  let outer_sig_alg = @asn1.Element::new(
-    @asn1.tag_sequence,
-    Sequence([
-      @asn1.Element::new(
-        @asn1.tag_oid,
-        Oid(@asn1.ObjectIdentifier::from_arcs([1U, 3, 101, 112])),
-      ),
-    ]),
-  )
   let sig_bs_elem = @asn1.Element::new(
     @asn1.tag_bit_string,
     BitString({ bytes: sig, unused_bits: 0 }),
@@ -202,8 +203,54 @@ fn build_crl_der(
   @asn1.encode_der(
     @asn1.Element::new(
       @asn1.tag_sequence,
-      Sequence([tbs_elem, outer_sig_alg, sig_bs_elem]),
+      Sequence([tbs_elem, outer_sig_alg_elem, sig_bs_elem]),
     ),
+  )
+}
+
+///|
+fn build_crl_der(
+  issuer_cert : @pkix.Certificate,
+  this_update : String,
+  next_update : String?,
+  revoked : Array[RevokedSpec],
+  signer_seed_hex : String,
+) -> Bytes raise {
+  build_crl_der_with_options(
+    issuer_cert,
+    this_update,
+    next_update,
+    revoked,
+    signer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [],
+  )
+}
+
+///|
+fn crl_extension_elem(
+  oid : @asn1.ObjectIdentifier,
+  critical : Bool,
+) -> @asn1.Element {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_oid, Oid(oid)),
+  ]
+  if critical {
+    items.push(@asn1.Element::new(@asn1.tag_boolean, Boolean(true)))
+  }
+  items.push(
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"\x05\x00")),
+  )
+  @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
+fn crl_extensions_explicit(exts : Array[@asn1.Element]) -> @asn1.Element {
+  let seq = @asn1.Element::new(@asn1.tag_sequence, Sequence(exts))
+  @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    Unknown(@asn1.encode_der(seq)),
   )
 }
 
@@ -250,6 +297,97 @@ test "crl: verify signature with correct issuer" {
   )
   let crl = @crl.verify(der, issuer, "250601000000Z")
   @debug.assert_eq(crl.revoked.length(), 1)
+}
+
+///|
+test "ATTACK crl: inner and outer signature AlgorithmIdentifier must match exactly" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+    ed25519_alg_elem(true),
+    ed25519_alg_elem(false),
+    [],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    AlgorithmMismatch => ()
+    Malformed(_) => ()
+    other => abort("expected AlgorithmMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with mismatched AlgorithmIdentifier parameters")
+  }
+}
+
+///|
+test "ATTACK crl: unexpected trailing TBSCertList field is malformed" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [@asn1.Element::new(@asn1.tag_null, Null)],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with unexpected trailing TBSCertList field")
+  }
+}
+
+///|
+test "ATTACK crl: unsupported critical CRL extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [crl_extensions_explicit([crl_extension_elem(unknown_oid, true)])],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with unsupported critical extension")
+  }
+}
+
+///|
+test "crl: unknown non-critical CRL extension is ignored" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [crl_extensions_explicit([crl_extension_elem(unknown_oid, false)])],
+  )
+  let crl = @crl.verify(der, issuer, "250601000000Z")
+  @debug.assert_eq(crl.revoked.length(), 0)
 }
 
 ///|

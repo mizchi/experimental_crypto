@@ -80,6 +80,30 @@ fn expect_integer(elem : @asn1.Element) -> Bytes raise CrlError {
 }
 
 ///|
+fn expect_oid(elem : @asn1.Element) -> @asn1.ObjectIdentifier raise CrlError {
+  match elem.value {
+    Oid(o) => o
+    _ => raise Malformed("expected OID")
+  }
+}
+
+///|
+fn expect_bool(elem : @asn1.Element) -> Bool raise CrlError {
+  match elem.value {
+    Boolean(b) => b
+    _ => raise Malformed("expected BOOLEAN")
+  }
+}
+
+///|
+fn expect_octet_string(elem : @asn1.Element) -> Bytes raise CrlError {
+  match elem.value {
+    OctetString(b) => b
+    _ => raise Malformed("expected OCTET STRING")
+  }
+}
+
+///|
 fn expect_integer_small(elem : @asn1.Element) -> Int raise CrlError {
   let bytes = expect_integer(elem)
   if bytes.length() == 0 || bytes.length() > 4 {
@@ -127,6 +151,47 @@ fn match_context_explicit(
   }
 }
 
+///|
+fn parse_extension_meta(
+  elem : @asn1.Element,
+) -> (@asn1.ObjectIdentifier, Bool) raise CrlError {
+  let items = expect_sequence(elem)
+  if items.length() < 2 || items.length() > 3 {
+    raise Malformed("Extension arity")
+  }
+  let oid = expect_oid(items[0])
+  let mut critical = false
+  let value_index = if items.length() == 3 {
+    critical = expect_bool(items[1])
+    2
+  } else {
+    1
+  }
+  let _ = expect_octet_string(items[value_index])
+  (oid, critical)
+}
+
+///|
+fn check_unsupported_critical_extensions(
+  elem : @asn1.Element,
+  context : String,
+) -> Unit raise CrlError {
+  let items = expect_sequence(elem)
+  let seen : Array[@asn1.ObjectIdentifier] = []
+  for item in items {
+    let (oid, critical) = parse_extension_meta(item)
+    for prev in seen {
+      if prev == oid {
+        raise Malformed(context + ": duplicate extension")
+      }
+    }
+    seen.push(oid)
+    if critical {
+      raise Malformed(context + ": unsupported critical extension")
+    }
+  }
+}
+
 // ─── revokedCertificates entry ──────────────────────────────────────────
 //
 // SEQUENCE {
@@ -137,11 +202,14 @@ fn match_context_explicit(
 ///|
 fn parse_revoked_entry(elem : @asn1.Element) -> CrlEntry raise CrlError {
   let items = expect_sequence(elem)
-  if items.length() < 2 {
-    raise Malformed("revokedCertificate: too few fields")
+  if items.length() < 2 || items.length() > 3 {
+    raise Malformed("revokedCertificate: arity")
   }
   let serial = expect_integer(items[0])
   let rev_date = expect_time(items[1])
+  if items.length() == 3 {
+    check_unsupported_critical_extensions(items[2], "crlEntryExtensions")
+  }
   // crlEntryExtensions (if present) are ignored — RFC 5280 §5.3 defines
   // reason / hold-instruction / invalidity-date / cert-issuer extensions
   // which a richer caller can layer on top of this minimal parser.
@@ -224,7 +292,16 @@ fn parse_tbs_cert_list(
   }
   // crlExtensions [0] EXPLICIT — ignored for now.
   if idx < items.length() {
-    let _ = match_context_explicit(items[idx], 0U)
+    match match_context_explicit(items[idx], 0U) {
+      Some(exts) => {
+        check_unsupported_critical_extensions(exts, "crlExtensions")
+        idx = idx + 1
+      }
+      None => raise Malformed("TBSCertList: unexpected trailing field")
+    }
+  }
+  if idx != items.length() {
+    raise Malformed("TBSCertList: trailing fields")
   }
   {
     inner_signature_alg: inner_sig_alg,
@@ -276,7 +353,7 @@ fn parse_certificate_list(der : Bytes) -> ParsedCertificateList raise CrlError {
   let sig = expect_bit_string(items[2])
   // RFC 5280 §5.1.1.2 / §5.1.2.2: the outer signatureAlgorithm MUST match
   // the inner TBSCertList.signature.
-  if outer_alg.algorithm != tbs.inner_signature_alg.algorithm {
+  if outer_alg != tbs.inner_signature_alg {
     raise AlgorithmMismatch
   }
   { tbs_bytes, tbs, outer_signature_alg: outer_alg, signature: sig }

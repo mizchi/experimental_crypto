@@ -187,6 +187,9 @@ fn base64url_decode(s : String) -> Bytes raise JweError {
     buf.write_char(c2)
     n = n + 1
   }
+  if n % 4 == 1 {
+    raise InvalidToken("invalid base64url length")
+  }
   let pad_count = (4 - n % 4) % 4
   for _ in 0..<pad_count {
     buf.write_char('=')
@@ -199,7 +202,33 @@ fn base64url_decode(s : String) -> Bytes raise JweError {
 // ─── JOSE header ──────────────────────────────────────────────────────────
 
 ///|
-fn build_header(alg : JweAlg, enc : JweEnc, extra : Map[String, Json]?) -> Json {
+fn validate_extra_header(extra : Map[String, Json]?) -> Unit raise JweError {
+  match extra {
+    None => ()
+    Some(extras) =>
+      for k, _v in extras {
+        if k == "alg" || k == "enc" {
+          raise InvalidHeader("extra protected header must not override " + k)
+        }
+        if k == "crit" {
+          raise InvalidHeader(
+            "crit header is present but no extensions are supported",
+          )
+        }
+        if k == "zip" {
+          raise UnsupportedAlgorithm("zip header is not supported")
+        }
+      }
+  }
+}
+
+///|
+fn build_header(
+  alg : JweAlg,
+  enc : JweEnc,
+  extra : Map[String, Json]?,
+) -> Json raise JweError {
+  validate_extra_header(extra)
   let m : Map[String, Json] = Map([])
   // RFC 7516 §4.1.1 / §4.1.2: alg + enc are the only two required.
   m["alg"] = Json::string(alg_to_str(alg))

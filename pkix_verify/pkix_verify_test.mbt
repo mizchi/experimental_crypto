@@ -43,6 +43,24 @@ fn ed25519_alg_id() -> @pkix.AlgorithmIdentifier {
 }
 
 ///|
+fn rsa_encryption_alg_id(params : Bytes?) -> @pkix.AlgorithmIdentifier {
+  {
+    algorithm: @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 113549, 1, 1, 1]),
+    parameters: params,
+  }
+}
+
+///|
+fn der_null() -> Bytes {
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_null, Null))
+}
+
+///|
+fn der_empty_octet_string() -> Bytes {
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")))
+}
+
+///|
 fn cn_name(cn : String) -> @pkix.Name {
   let cn_oid = @asn1.ObjectIdentifier::from_arcs([2U, 5, 4, 3])
   let av : @pkix.AttributeTypeAndValue = {
@@ -93,6 +111,39 @@ fn basic_constraints_ca_pathlen_ext(path_len : Int) -> @pkix.Extension {
     oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19]),
     critical: true,
     value,
+  }
+}
+
+///|
+fn basic_constraints_ca_pathlen_raw_ext(path_len : Bytes) -> @pkix.Extension {
+  let elem = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_boolean, Boolean(true)),
+      @asn1.Element::new(@asn1.tag_integer, Integer(path_len)),
+    ]),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19]),
+    critical: true,
+    value: @asn1.encode_der(elem),
+  }
+}
+
+///|
+fn basic_constraints_with_extra_field_ext() -> @pkix.Extension {
+  let elem = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_boolean, Boolean(true)),
+      @asn1.Element::new(@asn1.tag_integer, Integer(b"\x00")),
+      @asn1.Element::new(@asn1.tag_boolean, Boolean(false)),
+    ]),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19]),
+    critical: true,
+    value: @asn1.encode_der(elem),
   }
 }
 
@@ -196,6 +247,70 @@ test "extract_public_key: unsupported OID raises" {
   }
   try @pkix_verify.extract_public_key(spki) catch {
     UnsupportedPublicKeyAlgorithm(_) => ()
+    _ => assert_true(false)
+  } noraise {
+    _ => assert_true(false)
+  }
+}
+
+///|
+test "ATTACK pkix_verify: Ed25519 SPKI parameters must be absent" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let pk = @ed25519.PrivateKey::from_seed(seed).public_key()
+  let spki : @pkix.SubjectPublicKeyInfo = {
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_arcs([1U, 3, 101, 112]),
+      parameters: Some(der_null()),
+    },
+    subject_public_key: { bytes: pk.to_bytes(), unused_bits: 0 },
+  }
+  try @pkix_verify.extract_public_key(spki) catch {
+    UnsupportedPublicKeyAlgorithm(_) => ()
+    _ => assert_true(false)
+  } noraise {
+    _ => assert_true(false)
+  }
+}
+
+///|
+test "ATTACK pkix_verify: RSA SPKI rsaEncryption parameters must be NULL when present" {
+  let rsa_pkcs1 = hex_to_bytes("300702020101020103") // n=257, e=3
+  let spki : @pkix.SubjectPublicKeyInfo = {
+    algorithm: rsa_encryption_alg_id(Some(der_empty_octet_string())),
+    subject_public_key: { bytes: rsa_pkcs1, unused_bits: 0 },
+  }
+  try @pkix_verify.extract_public_key(spki) catch {
+    UnsupportedPublicKeyAlgorithm(_) => ()
+    _ => assert_true(false)
+  } noraise {
+    _ => assert_true(false)
+  }
+}
+
+///|
+test "ATTACK pkix_verify: Ed25519 signature AlgorithmIdentifier parameters must be absent" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk = sk.public_key()
+  let msg = b"pkix parameter check"
+  let sig = sk.sign(msg)
+  let bad_alg : @pkix.AlgorithmIdentifier = {
+    algorithm: @asn1.ObjectIdentifier::from_arcs([1U, 3, 101, 112]),
+    parameters: Some(der_null()),
+  }
+  try
+    @pkix_verify.verify_signature(
+      msg,
+      bad_alg,
+      { bytes: sig, unused_bits: 0 },
+      Ed25519(pk),
+    )
+  catch {
+    MalformedExtension(_) => ()
     _ => assert_true(false)
   } noraise {
     _ => assert_true(false)
@@ -695,6 +810,33 @@ fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
 }
 
 ///|
+fn name_constraints_excluded_with_maximum_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  let base = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let maximum = @asn1.Element::new(
+    @asn1.Tag::context(1U),
+    @asn1.Value::Unknown(b"\x01"),
+  )
+  let gst = @asn1.Element::new(@asn1.tag_sequence, Sequence([base, maximum]))
+  let gst_bytes = @asn1.encode_der(gst)
+  let excluded_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(1U, constructed=true),
+    @asn1.Value::Unknown(gst_bytes),
+  )
+  let nc = @asn1.Element::new(@asn1.tag_sequence, Sequence([excluded_subtrees]))
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value: @asn1.encode_der(nc),
+  }
+}
+
+///|
 // extendedKeyUsage with one explicit OID (e.g. id-kp-serverAuth).
 fn eku_ext_server_auth() -> @pkix.Extension {
   let server_auth = @asn1.ObjectIdentifier::from_arcs([
@@ -793,6 +935,37 @@ test "keyUsage WITH keyCertSign passes" {
   @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
 }
 
+///|
+test "ATTACK RFC 5280 §4.2: duplicate extension OIDs are rejected before use" {
+  let inter_seed = "9192939495969798999a9b9c9d9e9fa09192939495969798999a9b9c9d9e9fa0"
+  let leaf_seed = "a1a2a3a4a5a6a7a8a9aaabacadaeafa0a1a2a3a4a5a6a7a8a9aaabacadaeafa0"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Duplicate Extension CA",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), basic_constraints_non_ca_ext()],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Duplicate Extension CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    MalformedExtension(_) => ()
+    other => abort("duplicate extension OID not rejected: " + repr(other))
+  } noraise {
+    other => abort("duplicate extension OID not rejected: " + repr(other))
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Compliance: nameConstraints (DNS) enforcement
 // -----------------------------------------------------------------------------
@@ -863,6 +1036,41 @@ test "nameConstraints excludedSubtrees lets through a different DNS suffix" {
     inter.tbs.subject_public_key_info,
   )
   @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+///|
+test "ATTACK nameConstraints: unsupported GeneralSubtree maximum is rejected" {
+  let inter_seed = "7172737475767778797a7b7c7d7e7f807172737475767778797a7b7c7d7e7f80"
+  let leaf_seed = "8182838485868788898a8b8c8d8e8f908182838485868788898a8b8c8d8e8f90"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Bounded NC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_excluded_with_maximum_ext("evil.com"),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Bounded NC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("api.good.com")],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    MalformedExtension(_) => ()
+    other => abort("GeneralSubtree maximum not rejected: " + repr(other))
+  } noraise {
+    other => abort("GeneralSubtree maximum not rejected: " + repr(other))
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -1053,6 +1261,74 @@ test "ATTACK: pathLenConstraint=0 with intermediate before leaf must reject" {
   } noraise {
     other =>
       abort("pathLen=0 + 1 intermediate NOT rejected: " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK: negative pathLenConstraint is malformed, not a large limit" {
+  let inter_seed = "abababababababababababababababababababababababababababababababab"
+  let leaf_seed = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Bad pathLen CA",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_pathlen_raw_ext(b"\xff"), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Bad pathLen CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try
+    @pkix_verify.verify_chain(leaf, [inter], anchor_pk, "250601000000Z")
+  catch {
+    MalformedExtension(_) => ()
+    other => abort("negative pathLen not rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("negative pathLen not rejected: " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK: basicConstraints with trailing fields is malformed" {
+  let inter_seed = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  let leaf_seed = "5656565656565656565656565656565656565656565656565656565656565656"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Trailing basicConstraints CA",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_with_extra_field_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Trailing basicConstraints CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try
+    @pkix_verify.verify_chain(leaf, [inter], anchor_pk, "250601000000Z")
+  catch {
+    MalformedExtension(_) => ()
+    other =>
+      abort("trailing basicConstraints not rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("trailing basicConstraints not rejected: " + repr(other) + "")
   }
 }
 

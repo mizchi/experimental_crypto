@@ -107,8 +107,8 @@ fn validate_namespace(ns : String) -> Unit raise SshError {
   }
   for c in ns {
     let v = c.to_int()
-    if v < 0 || v > 0x7f {
-      raise InvalidEncoding("SSHSIG sig_namespace must be ASCII")
+    if v < 0x21 || v > 0x7e {
+      raise InvalidEncoding("SSHSIG sig_namespace must be printable ASCII")
     }
   }
 }
@@ -197,7 +197,7 @@ pub fn decode_sshsig_armor(input : String) -> Bytes raise SshError {
 // lines, no surrounding whitespace, base64-only body lines, and no data after
 // the end marker (apart from the single final newline).
 pub fn decode_sshsig_armor_strict(input : String) -> Bytes raise SshError {
-  let lines = split_lines(input)
+  let lines = split_lines_strict(input)
   if lines.length() < 3 || lines[0] != sshsig_begin {
     raise InvalidEncoding("missing -----BEGIN SSH SIGNATURE-----")
   }
@@ -275,6 +275,34 @@ fn split_lines(s : String) -> Array[String] {
       ()
     } else {
       buf.write_char(c)
+    }
+  }
+  out.push(buf.to_string())
+  out
+}
+
+///|
+fn split_lines_strict(s : String) -> Array[String] raise SshError {
+  let out : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    let c = s.get_char(i).unwrap()
+    if c == '\n' {
+      out.push(buf.to_string())
+      buf.reset()
+      i = i + 1
+    } else if c == '\r' {
+      if i + 1 < s.length() && s.get_char(i + 1).unwrap() == '\n' {
+        out.push(buf.to_string())
+        buf.reset()
+        i = i + 2
+      } else {
+        raise InvalidEncoding("bare CR in sshsig armor")
+      }
+    } else {
+      buf.write_char(c)
+      i = i + 1
     }
   }
   out.push(buf.to_string())

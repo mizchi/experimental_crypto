@@ -1,4 +1,4 @@
-// mizchi/pgp — OpenPGP v4 signature verification.
+// mizchi/pgp — OpenPGP signature verification and detached signing.
 //
 // Scope:
 //   - Verify a `-----BEGIN PGP SIGNATURE-----` armor against a message
@@ -9,8 +9,8 @@
 //       ECDSA P-256 (algo 19) + SHA-256
 //       ECDSA P-384 (algo 19) + SHA-384
 //
-// Out of scope: signing, key generation, v6 packets, partial-body
-// streaming lengths, subkey selection, trust signatures, revocation.
+// Out of scope: key generation, partial-body streaming lengths, subkey
+// selection, trust signatures, revocation.
 
 ///|
 /// Verify a detached OpenPGP signature.
@@ -249,10 +249,9 @@ pub(all) enum PgpPrivateKey {
 /// `version`: 4 (default) or 6. Selects the Signature Packet wire format.
 /// When `version=6` we emit:
 ///   - the v6 packet layout with 4-byte hashed/unhashed length fields
-///   - an empty salt (salt_len = 0) for reproducible test output. RFC 9580
-///     §5.2.3.3 mandates a non-empty random salt for SHA-512 (16-byte
-///     minimum) etc. for real signatures — pass a real salt for production
-///     by extending this API (currently caller-supplied salt is not exposed)
+///   - `salt` as the v6 salt field. The default is empty only for
+///     reproducible tests; production callers should pass a random salt with
+///     the algorithm-specific minimum from RFC 9580 §5.2.3.3.
 ///   - Ed25519 raises to algo 27 with raw 64-byte signature material (no MPI)
 ///   - v6 trailer byte 0x06
 pub fn sign_armor(
@@ -261,9 +260,16 @@ pub fn sign_armor(
   hash_algo? : Int = 0,
   creation_time? : UInt = 1700000000U,
   version? : Int = 4,
+  salt? : Bytes = b"",
 ) -> String raise PgpError {
   if version != 4 && version != 6 {
     raise UnsupportedPacketVersion(version)
+  }
+  if version != 6 && salt.length() != 0 {
+    raise Crypto("OpenPGP signature salt is only valid for v6 signatures")
+  }
+  if salt.length() > 255 {
+    raise Crypto("OpenPGP v6 signature salt must fit in one octet")
   }
   let chosen_hash = if hash_algo == 0 {
     match privkey {
@@ -308,10 +314,6 @@ pub fn sign_armor(
     prelude[4 + len_field + i] = hashed_sub[i]
   }
   let prelude_bytes = Bytes::makei(prelude_len, fn(j) { prelude[j] })
-  // For deterministic test output: empty salt for v6. RFC 9580 §5.2.3.3
-  // recommends a non-empty random salt; production callers should not
-  // ship this default.
-  let salt : Bytes = b""
   // Compute digest = H(salt || message || prelude || trailer); for v4 the
   // salt is b"" and the trailer's version byte is 0x04.
   let digest = digest_for_pgp_sign(

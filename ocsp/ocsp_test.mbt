@@ -141,11 +141,27 @@ fn id_pkix_ocsp_basic_oid() -> @asn1.ObjectIdentifier {
 }
 
 ///|
+fn hash_algorithm_elem(
+  alg_oid : @asn1.ObjectIdentifier,
+  params : @asn1.Element?,
+) -> @asn1.Element {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_oid, Oid(alg_oid)),
+  ]
+  match params {
+    Some(p) => items.push(p)
+    None => ()
+  }
+  @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
 // Build the OCTET STRING content of a CertID for (issuer_cert, target_serial).
-fn build_cert_id_elem(
+fn build_cert_id_elem_with_params(
   issuer_cert : @pkix.Certificate,
   target_serial : Bytes,
   use_sha256 : Bool,
+  params : @asn1.Element?,
 ) -> @asn1.Element {
   let alg_oid = if use_sha256 { id_sha256_oid() } else { id_sha1_oid() }
   let name_der = @pkix.serialize_name(issuer_cert.tbs.subject)
@@ -163,10 +179,7 @@ fn build_cert_id_elem(
   // CertID's hashAlgorithm is an AlgorithmIdentifier; many real responders
   // omit parameters for these hash OIDs, some emit NULL. Use absent (the
   // RFC 4055 recommended form for SHA-256, and acceptable for SHA-1 here).
-  let hash_alg_elem = @asn1.Element::new(
-    @asn1.tag_sequence,
-    Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(alg_oid))]),
-  )
+  let hash_alg_elem = hash_algorithm_elem(alg_oid, params)
   @asn1.Element::new(
     @asn1.tag_sequence,
     Sequence([
@@ -176,6 +189,15 @@ fn build_cert_id_elem(
       @asn1.Element::new(@asn1.tag_integer, Integer(target_serial)),
     ]),
   )
+}
+
+///|
+fn build_cert_id_elem(
+  issuer_cert : @pkix.Certificate,
+  target_serial : Bytes,
+  use_sha256 : Bool,
+) -> @asn1.Element {
+  build_cert_id_elem_with_params(issuer_cert, target_serial, use_sha256, None)
 }
 
 ///|
@@ -195,6 +217,18 @@ fn build_single_response_elem(
   use_sha256 : Bool,
 ) -> @asn1.Element {
   let cert_id = build_cert_id_elem(issuer_cert, target_serial, use_sha256)
+  build_single_response_elem_with_cert_id(
+    cert_id, status, this_update, next_update,
+  )
+}
+
+///|
+fn build_single_response_elem_with_cert_id(
+  cert_id : @asn1.Element,
+  status : BuildStatus,
+  this_update : String,
+  next_update : String?,
+) -> @asn1.Element {
   let status_elem = match status {
     BGood =>
       // good [0] IMPLICIT NULL — content empty.
@@ -243,6 +277,36 @@ fn build_single_response_elem(
 }
 
 ///|
+fn build_single_response_elem_with_status(
+  cert_id : @asn1.Element,
+  status_elem : @asn1.Element,
+  this_update : String,
+  next_update : String?,
+) -> @asn1.Element {
+  let items : Array[@asn1.Element] = [
+    cert_id,
+    status_elem,
+    @asn1.Element::new(@asn1.tag_generalized_time, GeneralizedTime(this_update)),
+  ]
+  match next_update {
+    Some(nu) => {
+      let nu_elem = @asn1.Element::new(
+        @asn1.tag_generalized_time,
+        GeneralizedTime(nu),
+      )
+      items.push(
+        @asn1.Element::new(
+          @asn1.Tag::context(0U, constructed=true),
+          Unknown(@asn1.encode_der(nu_elem)),
+        ),
+      )
+    }
+    None => ()
+  }
+  @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
 fn build_response_data_elem(
   responder_id_by_name : @pkix.Name,
   produced_at : String,
@@ -272,10 +336,58 @@ fn build_response_data_elem(
 }
 
 ///|
-fn build_basic_ocsp_der(
+fn append_sequence_field(
+  elem : @asn1.Element,
+  extra : @asn1.Element,
+) -> @asn1.Element {
+  match elem.value {
+    Sequence(items) => {
+      let out : Array[@asn1.Element] = []
+      for item in items {
+        out.push(item)
+      }
+      out.push(extra)
+      @asn1.Element::new(elem.tag, Sequence(out))
+    }
+    _ => abort("append_sequence_field expects SEQUENCE")
+  }
+}
+
+///|
+fn ocsp_extension_elem(
+  oid : @asn1.ObjectIdentifier,
+  critical : Bool,
+) -> @asn1.Element {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_oid, Oid(oid)),
+  ]
+  if critical {
+    items.push(@asn1.Element::new(@asn1.tag_boolean, Boolean(true)))
+  }
+  items.push(
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"\x05\x00")),
+  )
+  @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
+fn ocsp_extensions_explicit(
+  number : UInt,
+  exts : Array[@asn1.Element],
+) -> @asn1.Element {
+  let seq = @asn1.Element::new(@asn1.tag_sequence, Sequence(exts))
+  @asn1.Element::new(
+    @asn1.Tag::context(number, constructed=true),
+    Unknown(@asn1.encode_der(seq)),
+  )
+}
+
+///|
+fn build_basic_ocsp_der_with_extra(
   response_data_elem : @asn1.Element,
   signer_seed_hex : String,
   embedded_cert : @pkix.Certificate?,
+  extra_fields : Array[@asn1.Element],
 ) -> Bytes raise {
   let signer_sk = @ed25519.PrivateKey::from_seed(hex_to_bytes(signer_seed_hex))
   let tbs_bytes = @asn1.encode_der(response_data_elem)
@@ -316,7 +428,24 @@ fn build_basic_ocsp_der(
     }
     None => ()
   }
+  for extra in extra_fields {
+    items.push(extra)
+  }
   @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence(items)))
+}
+
+///|
+fn build_basic_ocsp_der(
+  response_data_elem : @asn1.Element,
+  signer_seed_hex : String,
+  embedded_cert : @pkix.Certificate?,
+) -> Bytes raise {
+  build_basic_ocsp_der_with_extra(
+    response_data_elem,
+    signer_seed_hex,
+    embedded_cert,
+    [],
+  )
 }
 
 ///|
@@ -521,6 +650,231 @@ test "ocsp: SHA-1 CertID also accepted" {
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")
   @debug.assert_eq(status, Good)
+}
+
+///|
+test "ATTACK ocsp: CertID hashAlgorithm rejects non-NULL parameters" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert_id = build_cert_id_elem_with_params(
+    issuer,
+    cert.tbs.serial_number,
+    true,
+    Some(@asn1.Element::new(@asn1.tag_octet_string, OctetString(b""))),
+  )
+  let single = build_single_response_elem_with_cert_id(
+    cert_id,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    UnsupportedHashAlgorithm(_) => ()
+    other => abort("expected malformed hashAlgorithm, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CertID hashAlgorithm with non-NULL parameters")
+  }
+}
+
+///|
+test "ATTACK ocsp: good CertStatus must have empty NULL content" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert_id = build_cert_id_elem(issuer, cert.tbs.serial_number, true)
+  let single = build_single_response_elem_with_status(
+    cert_id,
+    @asn1.Element::new(@asn1.Tag::context(0U), Unknown(b"\x05\x00")),
+    "20240101000000Z",
+    Some("20300101000000Z"),
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted non-empty good CertStatus")
+  }
+}
+
+///|
+test "ATTACK ocsp: unexpected BasicOCSPResponse trailing field is malformed" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der_with_extra(rd, issuer_seed_hex, None, [
+    @asn1.Element::new(@asn1.tag_null, Null),
+  ])
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted BasicOCSPResponse with trailing field")
+  }
+}
+
+///|
+test "ATTACK ocsp: unsupported critical response extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let rd = append_sequence_field(
+    build_response_data_elem(issuer.tbs.subject, "20240101000000Z", single),
+    ocsp_extensions_explicit(1U, [ocsp_extension_elem(unknown_oid, true)]),
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported critical response extension")
+  }
+}
+
+///|
+test "ATTACK ocsp: unsupported critical single extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let unknown_oid = @asn1.ObjectIdentifier::from_arcs([1U, 2, 3, 4])
+  let single = append_sequence_field(
+    build_single_response_elem(
+      issuer,
+      cert.tbs.serial_number,
+      BGood,
+      "20240101000000Z",
+      Some("20300101000000Z"),
+      true,
+    ),
+    ocsp_extensions_explicit(1U, [ocsp_extension_elem(unknown_oid, true)]),
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported critical single extension")
+  }
 }
 
 ///|
@@ -772,4 +1126,60 @@ test "ocsp: delegated responder cert path" {
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z")
   @debug.assert_eq(status, Good)
+}
+
+///|
+test "ATTACK ocsp: delegated responderID must match embedded responder cert" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let resp_seed_hex = "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+  let responder = build_ed25519_cert(
+    resp_seed_hex,
+    "OCSP Responder",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [ext_key_usage_ocsp_signing()],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  // The signature and embedded cert are from the delegated responder, but
+  // responderID falsely names the issuer. The responderID must identify the
+  // certificate whose key verified the BasicOCSPResponse signature.
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, resp_seed_hex, Some(responder))
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    ResponderIdMismatch => ()
+    other => abort("expected ResponderIdMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted delegated OCSP with mismatched responderID")
+  }
 }

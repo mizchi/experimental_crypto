@@ -93,6 +93,9 @@ fn b64url_decode(s : String) -> Bytes raise JwkError {
     buf.write_char(c2)
     n = n + 1
   }
+  if n % 4 == 1 {
+    raise InvalidBase64Url("invalid base64url length")
+  }
   let pad = (4 - n % 4) % 4
   for _ in 0..<pad {
     buf.write_char('=')

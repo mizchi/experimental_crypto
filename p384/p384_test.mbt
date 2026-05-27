@@ -174,6 +174,47 @@ test "p384: from_uncompressed rejects compressed tag byte" {
 }
 
 ///|
+test "p384: from_uncompressed rejects non-canonical field coordinates" {
+  let p = hex(
+    "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff",
+  )
+  let gy = hex(
+    "3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f",
+  )
+  fn assert_invalid(point : Bytes) -> Unit raise {
+    let raised = try {
+      let _ = @p384.PublicKey::from_uncompressed(point)
+      false
+    } catch {
+      InvalidPointEncoding(_) => true
+      _ => false
+    }
+    assert_true(raised)
+  }
+  let bad_x = Bytes::makei(97, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i < 49 {
+      p[i - 1]
+    } else {
+      gy[i - 49]
+    }
+  })
+  assert_invalid(bad_x)
+  let gx = vec_uncompressed()[1:49]
+  let bad_y = Bytes::makei(97, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i < 49 {
+      gx[i - 1]
+    } else {
+      p[i - 49]
+    }
+  })
+  assert_invalid(bad_y)
+}
+
+///|
 test "p384: SPKI rejects wrong namedCurve" {
   // Hand-craft an SPKI with secp256r1 OID instead of secp384r1. The OID at
   // bytes 18..23 is `2b8104002203` (= 1.3.132.0.34); we replace it with

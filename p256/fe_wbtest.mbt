@@ -27,12 +27,15 @@ fn be32_to_bigint(b : FixedArray[Byte]) -> BigInt {
 }
 
 ///|
-test "fe_zero / fe_one round-trip through bytes" {
-  let zero_be = fe_to_bytes(fe_zero())
+test "fe zero / one round-trip through bytes" {
+  let zero = FixedArray::make(10, 0UL)
+  let zero_be = fe_to_bytes(zero)
   for i = 0; i < 32; i = i + 1 {
     @debug.assert_eq(zero_be[i], b'\x00')
   }
-  let one_be = fe_to_bytes(fe_one())
+  let one = FixedArray::make(10, 0UL)
+  one[0] = 1UL
+  let one_be = fe_to_bytes(one)
   for i = 0; i < 31; i = i + 1 {
     @debug.assert_eq(one_be[i], b'\x00')
   }
@@ -44,20 +47,20 @@ test "fe_from_bytes / fe_to_bytes round-trip on generator coordinates" {
   // P-256 Gx and Gy from FIPS 186-4. These are already < p so the
   // round-trip must reproduce the exact input.
   let gx_be : FixedArray[Byte] = [
-    b'\x6b', b'\x17', b'\xd1', b'\xf2', b'\xe1', b'\x2c', b'\x42', b'\x47',
-    b'\xf8', b'\xbc', b'\xe6', b'\xe5', b'\x63', b'\xa4', b'\x40', b'\xf2',
-    b'\x77', b'\x03', b'\x7d', b'\x81', b'\x2d', b'\xeb', b'\x33', b'\xa0',
-    b'\xf4', b'\xa1', b'\x39', b'\x45', b'\xd8', b'\x98', b'\xc2', b'\x96',
+    b'\x6b', b'\x17', b'\xd1', b'\xf2', b'\xe1', b'\x2c', b'\x42', b'\x47', b'\xf8',
+    b'\xbc', b'\xe6', b'\xe5', b'\x63', b'\xa4', b'\x40', b'\xf2', b'\x77', b'\x03',
+    b'\x7d', b'\x81', b'\x2d', b'\xeb', b'\x33', b'\xa0', b'\xf4', b'\xa1', b'\x39',
+    b'\x45', b'\xd8', b'\x98', b'\xc2', b'\x96',
   ]
   let gx_round = fe_to_bytes(fe_from_bytes(gx_be))
   for i = 0; i < 32; i = i + 1 {
     @debug.assert_eq(gx_round[i], gx_be[i])
   }
   let gy_be : FixedArray[Byte] = [
-    b'\x4f', b'\xe3', b'\x42', b'\xe2', b'\xfe', b'\x1a', b'\x7f', b'\x9b',
-    b'\x8e', b'\xe7', b'\xeb', b'\x4a', b'\x7c', b'\x0f', b'\x9e', b'\x16',
-    b'\x2b', b'\xce', b'\x33', b'\x57', b'\x6b', b'\x31', b'\x5e', b'\xce',
-    b'\xcb', b'\xb6', b'\x40', b'\x68', b'\x37', b'\xbf', b'\x51', b'\xf5',
+    b'\x4f', b'\xe3', b'\x42', b'\xe2', b'\xfe', b'\x1a', b'\x7f', b'\x9b', b'\x8e',
+    b'\xe7', b'\xeb', b'\x4a', b'\x7c', b'\x0f', b'\x9e', b'\x16', b'\x2b', b'\xce',
+    b'\x33', b'\x57', b'\x6b', b'\x31', b'\x5e', b'\xce', b'\xcb', b'\xb6', b'\x40',
+    b'\x68', b'\x37', b'\xbf', b'\x51', b'\xf5',
   ]
   let gy_round = fe_to_bytes(fe_from_bytes(gy_be))
   for i = 0; i < 32; i = i + 1 {
@@ -74,15 +77,12 @@ test "fe round-trip vs @bigint for random values mod p" {
   // Fixed deterministic seeds; pick values that exercise different
   // bit patterns (low values, near-p values, mid-range).
   let seeds : Array[String] = [
-    "0", "1", "2", "ffff", "100000000",
-    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    "fffffffe0000000000000000000000000000000000000000fffffffffffffffe",
-    "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
+    "0", "1", "2", "ffff", "100000000", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "fffffffe0000000000000000000000000000000000000000fffffffffffffffe", "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     // Values straddling p (mod-reduce in the test so the round-trip
     // matches; fe_to_bytes emits the canonical [0,p) representative).
-    "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
-    "ffffffff00000001000000000000000000000000fffffffffffffffffffffffe",
+     "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", "ffffffff00000001000000000000000000000000fffffffffffffffffffffffe",
   ]
   for s in seeds {
     let v_raw = BigInt::from_string(s, radix=16)
@@ -122,7 +122,8 @@ test "p256_p_limbs reconstructs to the FIPS 186-4 prime" {
   let base = BigInt::from_int(1) << 26
   let mut shift = BigInt::from_int(1)
   for i = 0; i < 10; i = i + 1 {
-    acc = acc + BigInt::from_int64(p256_p_limbs[i].reinterpret_as_int64()) * shift
+    acc = acc +
+      BigInt::from_int64(p256_p_limbs[i].reinterpret_as_int64()) * shift
     shift = shift * base
   }
   let expected = BigInt::from_string(

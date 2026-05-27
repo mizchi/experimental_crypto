@@ -12,9 +12,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: test + prove (ubuntu-latest, nix devShell)
+  test:
+    name: test (${{ matrix.target }}, ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wasm-gc, native, js]
     steps:
       - uses: actions/checkout@v6
 
@@ -43,7 +47,33 @@ jobs:
           nix develop --impure --command bash -c '
             unset MOON_HOME
             moon update >/dev/null
-            moon test
+            moon test --target "${{ matrix.target }}"
+          '
+
+  prove:
+    name: prove (ubuntu-latest, nix devShell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: Preflight (provers visible)
+        run: |
+          nix develop --impure --command bash -c '
+            why3 --version | head -1
+            z3 --version | head -1
+            cvc5 --version | head -1
+            alt-ergo --version | head -1
+            moon version | head -1
           '
 
       - name: moon prove

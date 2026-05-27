@@ -1,5 +1,5 @@
 // Property-based fuzz tests for AEAD constructions. For each supported
-// algorithm (ChaCha20Poly1305, Aes128Gcm, Aes256Gcm) we check four
+// algorithm (ChaCha20Poly1305, XChaCha20Poly1305, Aes128Gcm, Aes256Gcm) we check four
 // invariants on random inputs drawn from core/quickcheck:
 //   (1) seal/open is a roundtrip: open(seal(p)) == p
 //   (2) flipping any single bit in the sealed_bytes output causes open to fail
@@ -41,12 +41,22 @@ fn flip_bit(b : Bytes, bit_index : Int) -> Bytes {
 
 ///|
 fn algs() -> Array[@aead.Algorithm] {
-  [@aead.ChaCha20Poly1305, @aead.Aes128Gcm, @aead.Aes256Gcm]
+  [
+    @aead.ChaCha20Poly1305,
+    @aead.XChaCha20Poly1305,
+    @aead.Aes128Gcm,
+    @aead.Aes256Gcm,
+  ]
 }
 
 ///|
 test "fuzz aead: seal/open roundtrip (ChaCha20Poly1305)" {
   fuzz_roundtrip(@aead.ChaCha20Poly1305)
+}
+
+///|
+test "fuzz aead: seal/open roundtrip (XChaCha20Poly1305)" {
+  fuzz_roundtrip(@aead.XChaCha20Poly1305)
 }
 
 ///|
@@ -80,6 +90,11 @@ fn fuzz_roundtrip(alg : @aead.Algorithm) -> Unit raise {
 ///|
 test "fuzz aead: tampered ciphertext rejects (ChaCha20Poly1305)" {
   fuzz_tamper(@aead.ChaCha20Poly1305)
+}
+
+///|
+test "fuzz aead: tampered ciphertext rejects (XChaCha20Poly1305)" {
+  fuzz_tamper(@aead.XChaCha20Poly1305)
 }
 
 ///|
@@ -120,13 +135,7 @@ fn fuzz_tamper(alg : @aead.Algorithm) -> Unit raise {
     try @aead.open(alg, key, nonce, aad, tampered) catch {
       _ => () // expected
     } noraise {
-      out =>
-        // A bit flip in the ciphertext (not the tag) can in principle yield
-        // a plaintext that authenticates; only fail if the recovered text
-        // somehow matches the original (which would mean no tamper at all).
-        if out == p {
-          fail("tampered ciphertext decrypted to original plaintext")
-        }
+      _ => fail("tampered ciphertext must reject")
     }
   }
 }
@@ -134,6 +143,11 @@ fn fuzz_tamper(alg : @aead.Algorithm) -> Unit raise {
 ///|
 test "fuzz aead: wrong AAD rejects (ChaCha20Poly1305)" {
   fuzz_wrong_aad(@aead.ChaCha20Poly1305)
+}
+
+///|
+test "fuzz aead: wrong AAD rejects (XChaCha20Poly1305)" {
+  fuzz_wrong_aad(@aead.XChaCha20Poly1305)
 }
 
 ///|
@@ -174,6 +188,11 @@ test "fuzz aead: open of random bytes does not crash (ChaCha20Poly1305)" {
 }
 
 ///|
+test "fuzz aead: open of random bytes does not crash (XChaCha20Poly1305)" {
+  fuzz_random_open(@aead.XChaCha20Poly1305)
+}
+
+///|
 test "fuzz aead: open of random bytes does not crash (Aes128Gcm)" {
   fuzz_random_open(@aead.Aes128Gcm)
 }
@@ -208,5 +227,5 @@ fn algs_used() -> Int {
 
 ///|
 test "fuzz aead: algorithm list sanity" {
-  @debug.assert_eq(algs_used(), 3)
+  @debug.assert_eq(algs_used(), 4)
 }

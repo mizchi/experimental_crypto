@@ -60,6 +60,17 @@ fn fuzz_bad_kid(raw : Bytes) -> String {
 }
 
 ///|
+fn fuzz_bytes(raw : Bytes, len : Int) -> Bytes {
+  Bytes::makei(len, fn(i) {
+    if raw.length() == 0 {
+      ((i * 29 + 11) & 0xff).to_byte()
+    } else {
+      ((raw[i % raw.length()].to_int() + i * 29) & 0xff).to_byte()
+    }
+  })
+}
+
+///|
 fn fuzz_jwks_two_same_kid(kid : String) -> String {
   "{ \"keys\": [ " +
   "{ \"kty\": \"oct\", \"kid\": \"" +
@@ -162,6 +173,44 @@ test "fuzz jwks kid: duplicate kid never selects a first matching key" {
       _ => false
     }
     assert_true(rejected)
+  }
+}
+
+///|
+test "fuzz jwk+jwt+jwe: signed JWT survives JWKS selection inside JWE" {
+  for sample in (@quickcheck.samples(50) : Array[(Bytes, Bytes, Bytes)]) {
+    let (secret_raw, cek_raw, iv_raw) = sample
+    let secret = fuzz_bytes(secret_raw, secret_raw.length() % 48 + 16)
+    let cek = fuzz_bytes(cek_raw, 32)
+    let iv = fuzz_bytes(iv_raw, 12)
+    let kid = "kid-" + secret_raw.length().to_string()
+    let claims : Map[String, Json] = Map([])
+    claims["sub"] = Json::string("cross-format")
+    let token = @jwt.sign(Json::object(claims), @jwt.Key::Hs256(secret~), kid~)
+    let jwks = "{ \"keys\": [ { \"kty\": \"oct\", \"kid\": \"" +
+      kid +
+      "\", \"alg\": \"HS256\", \"k\": \"" +
+      fuzz_b64u_encode(secret) +
+      "\" } ] }"
+    let header = @jwt.peek_header(token)
+    let key = @jwt.select_verify_key(@jwk.parse_set(jwks), header)
+    let wrapped = @jwe.encrypt(
+      @utf8.encode(token[:]),
+      @jwe.JweAlg::Dir,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncDir(cek~),
+      iv~,
+    )
+    let decrypted = @jwe.decrypt(wrapped, @jwe.DecryptionKey::DecDir(cek~))
+    let decrypted_token = @utf8.decode(decrypted[:]) catch {
+      _ => abort("JWE plaintext should be UTF-8 JWT")
+    }
+    let verified = @jwt.verify(
+      decrypted_token,
+      key,
+      @jwt.VerifyOptions::default(0L),
+    )
+    @debug.assert_eq(verified.kid, Some(kid))
   }
 }
 
@@ -272,6 +321,7 @@ test "fuzz oidc profiles: high-level verifiers never panic on random compact str
     require_exp: false,
     max_iat_age_sec: None,
     allowed_algorithms: None,
+    typ_allowed: None,
   }
   let jarm_opts : @jwt.JarmVerifyOptions = {
     now,
@@ -280,6 +330,7 @@ test "fuzz oidc profiles: high-level verifiers never panic on random compact str
     client_id: "client-abc",
     expected_state: Some("state-1"),
     allowed_algorithms: None,
+    typ_allowed: None,
   }
   let entity_opts : @jwt.EntityStatementVerifyOptions = {
     now,
@@ -510,7 +561,11 @@ test "fuzz oidc userinfo request and jarm bindings reject substitution" {
     jar_claims["client_id"] = Json::string("client-abc")
     jar_claims["response_type"] = Json::string("code")
     jar_claims["redirect_uri"] = Json::string("https://rp.example/cb")
-    let jar = @jwt.sign(Json::object(jar_claims), @jwt.Key::Hs256(secret~))
+    let jar = @jwt.sign(
+      Json::object(jar_claims),
+      @jwt.Key::Hs256(secret~),
+      typ="oauth-authz-req+jwt",
+    )
     let request_opts = @jwt.RequestObjectVerifyOptions::default(
       now, "client-abc", "https://issuer.example/",
     )
@@ -546,7 +601,11 @@ test "fuzz oidc userinfo request and jarm bindings reject substitution" {
     jarm_claims["iat"] = Json::number(now.to_double())
     jarm_claims["state"] = Json::string(state)
     jarm_claims["code"] = Json::string("code-" + fuzz_safe_kid(raw))
-    let jarm = @jwt.sign(Json::object(jarm_claims), @jwt.Key::Hs256(secret~))
+    let jarm = @jwt.sign(
+      Json::object(jarm_claims),
+      @jwt.Key::Hs256(secret~),
+      typ="oauth-authz-resp+jwt",
+    )
     let jarm_opts : @jwt.JarmVerifyOptions = {
       now,
       clock_skew_sec: 0L,
@@ -554,6 +613,9 @@ test "fuzz oidc userinfo request and jarm bindings reject substitution" {
       client_id: "client-abc",
       expected_state: Some(state),
       allowed_algorithms: None,
+      typ_allowed: Some([
+        "oauth-authz-resp+jwt", "application/oauth-authz-resp+jwt",
+      ]),
     }
     let r = @jwt.verify_jarm(jarm, @jwt.VerifyKey::Hs256(secret~), jarm_opts)
     @debug.assert_eq(r.exp, now + 600L)

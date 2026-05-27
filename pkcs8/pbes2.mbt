@@ -2,14 +2,13 @@
 //
 // Supported parameters:
 //   keyDerivationFunc : id-PBKDF2 (1.2.840.113549.1.5.12)
-//     prf : hmacWithSHA256 (1.2.840.113549.2.9). hmacWithSHA384/512 and
-//           hmacWithSHA1 are recognized but rejected with UnsupportedKdf
-//           because @pbkdf2 only implements SHA-256 today.
+//     prf : hmacWithSHA1/256/384/512
 //   encryptionScheme : aes128-cbc (2.16.840.1.101.3.4.1.2) or
+//                      aes192-cbc (2.16.840.1.101.3.4.1.22) or
 //                      aes256-cbc (2.16.840.1.101.3.4.1.42).
 //
 // `openssl pkcs8 -topk8 -v2 aes-256-cbc -v2prf hmacWithSHA256` produces this
-// shape. The LibreSSL default PRF (HMAC-SHA1) is *not* supported here.
+// shape. LibreSSL / OpenSSL HMAC-SHA1 defaults are also accepted.
 //
 // Padding: PKCS#7 (RFC 8018 §6.1.1) is stripped after decryption. A wrong
 // password produces an InvalidPadding error with overwhelming probability
@@ -78,10 +77,10 @@ priv struct Pbes2Kdf {
 
 ///|
 priv struct Pbes2Cipher {
-  // We only support AES-{128,256}-CBC; the cipher is implied by key_size +
+  // We only support AES-{128,192,256}-CBC; the cipher is implied by key_size +
   // the AES-CBC entry point. Keeping this struct minimal so it does not
   // pretend to express more than we actually decrypt.
-  key_size : Int // 16 or 32
+  key_size : Int // 16, 24, or 32
   iv : Bytes
 }
 
@@ -110,13 +109,27 @@ fn parse_pbkdf2(
   // optional; if present they appear in this order.
   let mut key_length : Int? = None
   let mut prf : @pbkdf2.HashAlg = @pbkdf2.HashAlg::Sha1 // RFC default
+  let mut saw_key_length = false
+  let mut saw_prf = false
   let mut i = 2
   while i < items.length() {
     let it = items[i]
     if it.tag == @asn1.tag_integer {
-      key_length = Some(expect_integer_small(it))
+      if saw_key_length {
+        raise UnexpectedStructure("PBKDF2: duplicate keyLength")
+      }
+      let k = expect_integer_small(it)
+      if k < 1 {
+        raise UnexpectedStructure("PBKDF2 keyLength must be >= 1")
+      }
+      key_length = Some(k)
+      saw_key_length = true
     } else if it.tag == @asn1.tag_sequence {
+      if saw_prf {
+        raise UnexpectedStructure("PBKDF2: duplicate prf")
+      }
       let prf_alg = parse_algorithm_identifier_elem(it)
+      validate_prf_params(prf_alg)
       prf = match prf_alg.algorithm.to_string() {
         s if s == oid_hmac_sha1 => @pbkdf2.HashAlg::Sha1
         s if s == oid_hmac_sha256 => @pbkdf2.HashAlg::Sha256
@@ -124,6 +137,7 @@ fn parse_pbkdf2(
         s if s == oid_hmac_sha512 => @pbkdf2.HashAlg::Sha512
         _ => raise UnsupportedKdf(prf_alg.algorithm)
       }
+      saw_prf = true
     } else {
       raise UnexpectedStructure("PBKDF2: unrecognized field")
     }
@@ -133,17 +147,48 @@ fn parse_pbkdf2(
 }
 
 ///|
+fn validate_prf_params(
+  alg : @pkix.AlgorithmIdentifier,
+) -> Unit raise Pkcs8Error {
+  match alg.parameters {
+    None => ()
+    Some(bytes) =>
+      if !is_der_null(bytes) {
+        raise UnexpectedStructure(
+          "PBKDF2 PRF parameters must be NULL if present",
+        )
+      }
+  }
+}
+
+///|
+fn is_der_null(bytes : Bytes) -> Bool {
+  try @asn1.decode_der(bytes) catch {
+    _ => false
+  } noraise {
+    elem =>
+      if elem.tag != @asn1.tag_null {
+        false
+      } else {
+        match elem.value {
+          Null => true
+          _ => false
+        }
+      }
+  }
+}
+
+///|
 fn parse_encryption_scheme(
   enc_alg : @pkix.AlgorithmIdentifier,
 ) -> Pbes2Cipher raise Pkcs8Error {
   let oid_str = enc_alg.algorithm.to_string()
   let key_size : Int = if oid_str == oid_aes128_cbc {
     16
+  } else if oid_str == oid_aes192_cbc {
+    24
   } else if oid_str == oid_aes256_cbc {
     32
-  } else if oid_str == oid_aes192_cbc {
-    // @aead's AES key schedule supports 16 and 32; AES-192 (24) is rejected.
-    raise UnsupportedCipher(enc_alg.algorithm)
   } else {
     raise UnsupportedCipher(enc_alg.algorithm)
   }
@@ -187,8 +232,8 @@ fn strip_pkcs7_padding(data : Bytes) -> Bytes raise Pkcs8Error {
 /// Decrypt an `EncryptedPrivateKeyInfo` using the given password. Returns
 /// the parsed inner `PrivateKeyInfo`.
 ///
-/// Supports PBES2 (RFC 8018) with PBKDF2-HMAC-SHA256 (today the only PRF
-/// `@pbkdf2` implements) and AES-128 / AES-256 CBC. A wrong password
+/// Supports PBES2 (RFC 8018) with PBKDF2-HMAC-SHA1/256/384/512 and
+/// AES-128 / AES-192 / AES-256 CBC. A wrong password
 /// surfaces as `InvalidPadding` in almost all cases; in the rare case the
 /// (random) padding byte happens to be valid, the subsequent
 /// `parse_der` will raise `Asn1` / `UnexpectedStructure` instead.

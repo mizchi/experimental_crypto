@@ -94,6 +94,53 @@ test "fuzz jwe: wrong dir key rejects as authentication failure" {
 }
 
 ///|
+test "fuzz jwe: A256KW A256GCM round-trip on generated KEKs, CEKs, and IVs" {
+  for quad in (@quickcheck.samples(50) : Array[(Bytes, Bytes, Bytes, Bytes)]) {
+    let (plaintext, kek_raw, cek_raw, iv_raw) = quad
+    let kek = fuzz_jwe_bytes(kek_raw, 32)
+    let cek = fuzz_jwe_bytes(cek_raw, 32)
+    let iv = fuzz_jwe_bytes(iv_raw, 12)
+    let token = @jwe.encrypt(
+      plaintext,
+      @jwe.JweAlg::A256kw,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncAes256Kw(kek~),
+      cek~,
+      iv~,
+    )
+    let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecAes256Kw(kek~))
+    @debug.assert_eq(decoded, plaintext)
+  }
+}
+
+///|
+test "fuzz jwe: wrong A256KW KEK rejects as authentication failure" {
+  for quad in (@quickcheck.samples(50) : Array[(Bytes, Bytes, Bytes, Bytes)]) {
+    let (plaintext, kek_raw, cek_raw, iv_raw) = quad
+    let kek = fuzz_jwe_bytes(kek_raw, 32)
+    let wrong = fuzz_jwe_flip_first(kek)
+    let cek = fuzz_jwe_bytes(cek_raw, 32)
+    let iv = fuzz_jwe_bytes(iv_raw, 12)
+    let token = @jwe.encrypt(
+      plaintext,
+      @jwe.JweAlg::A256kw,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncAes256Kw(kek~),
+      cek~,
+      iv~,
+    )
+    let rejected = try {
+      let _ = @jwe.decrypt(token, @jwe.DecryptionKey::DecAes256Kw(kek=wrong))
+      false
+    } catch {
+      @jwe.AuthenticationFailed => true
+      _ => false
+    }
+    assert_true(rejected)
+  }
+}
+
+///|
 test "fuzz jwe: invalid dir CEK and IV sizes reject before encryption" {
   for pair in (@quickcheck.samples(80) : Array[(Bytes, Bytes)]) {
     let (key_raw, iv_raw) = pair

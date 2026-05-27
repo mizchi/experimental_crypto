@@ -248,6 +248,68 @@ test "box rejects tag tamper" {
 }
 
 ///|
+test "ATTACK box_beforenm rejects low-order public key" {
+  let alice = alice_keypair()
+  let low_order = @x25519.PublicKey::from_bytes(
+    Bytes::makei(32, fn(_) { b'\x00' }),
+  )
+  let result : Result[@naclbox.SharedKey, @naclbox.NaclBoxError] = try? @naclbox.box_beforenm(
+    low_order,
+    alice.secret_key,
+  )
+  match result {
+    Err(@naclbox.KeyGenerationError(_)) => ()
+    Ok(_) => abort("expected KeyGenerationError")
+    Err(e) => abort("expected KeyGenerationError but got " + repr(e))
+  }
+}
+
+///|
+test "ATTACK box_open rejects wrong sender public key" {
+  let alice = alice_keypair()
+  let bob = bob_keypair()
+  let mallory = @naclbox.KeyPair::from_seed(
+    Bytes::makei(32, fn(i) { (0xa0 + i).to_byte() }),
+  )
+  let nonce = Bytes::makei(24, fn(i) { (0x30 + i).to_byte() })
+  let msg_bytes = b"authenticated sender"
+  let ct = @naclbox.box_(bob.public_key, alice.secret_key, nonce, msg_bytes)
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.box_open(
+    mallory.public_key,
+    bob.secret_key,
+    nonce,
+    ct,
+  )
+  match result {
+    Err(@naclbox.AuthenticationFailed) => ()
+    Ok(_) => abort("expected AuthenticationFailed")
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
+  }
+}
+
+///|
+test "ATTACK secretbox_open rejects ciphertext body tamper" {
+  let key = Bytes::makei(32, fn(i) { (0x55 + i).to_byte() })
+  let nonce = Bytes::makei(24, fn(i) { (0x33 + i).to_byte() })
+  let sealed_box = @naclbox.secretbox(key, nonce, b"ciphertext body")
+  let tampered = Bytes::makei(sealed_box.length(), fn(i) {
+    if i == 16 {
+      (sealed_box[i].to_int() ^ 0x01).to_byte()
+    } else {
+      sealed_box[i]
+    }
+  })
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox_open(
+    key, nonce, tampered,
+  )
+  match result {
+    Err(@naclbox.AuthenticationFailed) => ()
+    Ok(_) => abort("expected AuthenticationFailed")
+    Err(e) => abort("expected AuthenticationFailed but got " + repr(e))
+  }
+}
+
+///|
 test "KeyPair::from_seed rejects wrong length" {
   let bad = Bytes::makei(16, fn(_) { b'\x00' })
   let result : Result[@naclbox.KeyPair, @naclbox.NaclBoxError] = try? @naclbox.KeyPair::from_seed(

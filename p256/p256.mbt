@@ -238,6 +238,22 @@ pub suberror P256Error {
 } derive(Debug)
 
 ///|
+fn bytes_to_fixed32(b : Bytes, offset : Int) -> FixedArray[Byte] {
+  FixedArray::makei(32, fn(i) { b[offset + i] })
+}
+
+///|
+fn field_bytes_are_canonical(be : FixedArray[Byte]) -> Bool {
+  let round = fe_to_bytes(fe_from_bytes(be))
+  for i = 0; i < 32; i = i + 1 {
+    if round[i] != be[i] {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Parse an uncompressed SEC1 point `04 || X(32) || Y(32)` (65 bytes total).
 /// Rejects the compressed (`02`/`03`) and hybrid (`06`/`07`) forms — none of
 /// our consumers (JWT, X.509 for the named curves we care about) use them.
@@ -248,8 +264,13 @@ pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise P256Error {
   if b[0].to_int() != 0x04 {
     raise InvalidPointEncoding("expected uncompressed (0x04)")
   }
-  let x_bytes = Bytes::makei(32, fn(i) { b[i + 1] })
-  let y_bytes = Bytes::makei(32, fn(i) { b[i + 33] })
+  let x_fixed = bytes_to_fixed32(b, 1)
+  let y_fixed = bytes_to_fixed32(b, 33)
+  if !field_bytes_are_canonical(x_fixed) || !field_bytes_are_canonical(y_fixed) {
+    raise InvalidPointEncoding("coordinate must be canonical field element")
+  }
+  let x_bytes = Bytes::makei(32, fn(i) { x_fixed[i] })
+  let y_bytes = Bytes::makei(32, fn(i) { y_fixed[i] })
   let x = BigInt::from_octets(x_bytes[:])
   let y = BigInt::from_octets(y_bytes[:])
   let point : Point = { x, y, inf: false }

@@ -88,6 +88,7 @@ pub fn parse_cose_key(cbor : Bytes) -> CoseKey raise CoseError {
 
 ///|
 pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
+  require_unique_int_labels(v, "COSE_Key")
   let kty = require_int(v, 1L, "kty")
   match kty {
     // kty = 1 (OKP)
@@ -195,10 +196,19 @@ pub fn verify_sign1(
   //
   // Element 1: unprotected header (a map; we don't need its contents
   // for signature verification).
+  let unprotected = match items[1] {
+    Map(_) => items[1]
+    _ => raise InvalidStructure("unprotected must be a map")
+  }
   //
   // Element 2: payload (bstr or null).
-  let _ = match items[2] {
-    Bytes(_) => ()
+  match items[2] {
+    Bytes(b) =>
+      if b != payload {
+        raise InvalidStructure(
+          "embedded payload does not match supplied payload",
+        )
+      }
     Null => ()
     _ => raise InvalidStructure("payload must be bstr or null")
   }
@@ -207,11 +217,9 @@ pub fn verify_sign1(
     Bytes(b) => b
     _ => raise InvalidStructure("signature must be a bstr")
   }
-  // Resolve the algorithm. RFC 9052 §3 says alg MUST be in the protected
-  // header for COSE_Sign1, but a number of real-world senders put it in
-  // the unprotected header anyway. We accept either, preferring the
-  // protected copy when both are present.
-  let alg = resolve_alg(protected_bytes, items[1])
+  // Resolve the algorithm. We require alg in the protected header and
+  // reject an unprotected alg header to avoid algorithm-confusion inputs.
+  let alg = resolve_alg(protected_bytes, unprotected)
   // Build the Sig_structure for Signature1 and CBOR-encode it.
   //   Sig_structure = ["Signature1", body_protected, external_aad, payload]
   // body_protected is the *bstr* from element 0 — i.e. the wrapping
@@ -226,13 +234,13 @@ pub fn verify_sign1(
   // Verify against the matching primitive.
   match key {
     OkpEd25519(pubkey~) =>
-      if !alg_matches(alg, EdDSA) {
+      if alg != EdDSA {
         raise AlgorithmKeyMismatch
       } else {
         pubkey.verify(tbs, signature)
       }
     Ec2P256(pubkey~) =>
-      if !alg_matches(alg, ES256) {
+      if alg != ES256 {
         raise AlgorithmKeyMismatch
       } else {
         if signature.length() != 64 {
@@ -243,7 +251,7 @@ pub fn verify_sign1(
         }
       }
     Ec2P384(pubkey~) =>
-      if !alg_matches(alg, ES384) {
+      if alg != ES384 {
         raise AlgorithmKeyMismatch
       } else {
         if signature.length() != 96 {
@@ -254,7 +262,7 @@ pub fn verify_sign1(
         }
       }
     Rsa(pubkey~) =>
-      if !alg_matches(alg, RS256) {
+      if alg != RS256 {
         raise AlgorithmKeyMismatch
       } else {
         pubkey.verify(tbs, signature, @rsa.HashAlg::Sha256) catch {
@@ -267,54 +275,162 @@ pub fn verify_sign1(
 // --- Helpers -------------------------------------------------------------
 
 ///|
-fn alg_matches(declared : CoseAlg?, expected : CoseAlg) -> Bool {
-  match declared {
-    Some(a) => a == expected
-    // If the sender didn't include `alg` we don't fail closed — we just
-    // assume the caller's key was the intended one and let the primitive
-    // do its job. WebAuthn assertion / packed attestation always include
-    // alg, so this is more of a courtesy for malformed senders.
-    None => true
-  }
-}
-
-///|
 fn resolve_alg(
   protected_bytes : Bytes,
   unprotected : @cbor.CborValue,
-) -> CoseAlg? {
-  // First try the protected header.
-  if protected_bytes.length() > 0 {
-    try @cbor.decode(protected_bytes) catch {
-      _ => ()
-    } noraise {
-      m =>
-        match alg_from_map(m) {
-          Some(a) => return Some(a)
-          None => ()
-        }
-    }
+) -> CoseAlg raise CoseError {
+  if count_int_label(unprotected, 1L) > 0 {
+    raise InvalidStructure("alg must be protected, not unprotected")
   }
-  // Fallback to the unprotected header.
-  alg_from_map(unprotected)
+  if protected_bytes.length() > 0 {
+    let m = @cbor.decode(protected_bytes) catch { e => raise CborDecode(e) }
+    if @cbor.encode(m) != protected_bytes {
+      raise InvalidStructure(
+        "protected header must use preferred CBOR encoding",
+      )
+    }
+    alg_from_protected_map(m)
+  } else {
+    raise InvalidStructure("protected alg required")
+  }
 }
 
 ///|
-fn alg_from_map(m : @cbor.CborValue) -> CoseAlg? {
-  let id = match @cbor.map_get_int(m, 1L) {
-    Some(Uint(n)) =>
-      if n <= 0x7FFFFFFFUL {
-        n.reinterpret_as_int64()
-      } else {
-        return None
+fn alg_from_protected_map(m : @cbor.CborValue) -> CoseAlg raise CoseError {
+  match m {
+    Map(_) => {
+      let count = count_int_label(m, 1L)
+      if count == 0 {
+        raise InvalidStructure("protected alg required")
       }
-    Some(Nint(n)) => -1L - n.reinterpret_as_int64()
-    _ => return None
+      if count > 1 {
+        raise InvalidStructure("duplicate protected alg header")
+      }
+      let id = match @cbor.map_get_int(m, 1L) {
+        Some(Uint(n)) =>
+          if n <= 0x7FFFFFFFUL {
+            n.reinterpret_as_int64()
+          } else {
+            raise InvalidStructure("alg integer out of range")
+          }
+        Some(Nint(n)) => -1L - n.reinterpret_as_int64()
+        _ => raise InvalidStructure("alg must be integer")
+      }
+      alg_from_id(id)
+    }
+    _ => raise InvalidStructure("protected header must be a map")
   }
-  try alg_from_id(id) catch {
+}
+
+///|
+fn count_int_label(m : @cbor.CborValue, key : Int64) -> Int {
+  match m {
+    Map(pairs) => {
+      let mut count = 0
+      for pair in pairs {
+        let (k, _) = pair
+        match k {
+          Uint(n) =>
+            if key >= 0L && n == key.reinterpret_as_uint64() {
+              count = count + 1
+            }
+          Nint(n) =>
+            if key < 0L {
+              let expected = (-1L - key).reinterpret_as_uint64()
+              if n == expected {
+                count = count + 1
+              }
+            }
+          _ => ()
+        }
+      }
+      count
+    }
+    _ => 0
+  }
+}
+
+///|
+fn int_label_of_key(k : @cbor.CborValue) -> Int64? {
+  match k {
+    Uint(n) =>
+      if n <= 0x7FFFFFFFFFFFFFFFUL {
+        Some(n.reinterpret_as_int64())
+      } else {
+        None
+      }
+    Nint(n) => Some(-1L - n.reinterpret_as_int64())
     _ => None
-  } noraise {
-    a => Some(a)
+  }
+}
+
+///|
+fn require_unique_int_labels(
+  m : @cbor.CborValue,
+  context : String,
+) -> Unit raise CoseError {
+  match m {
+    Map(pairs) =>
+      for i in 0..<pairs.length() {
+        let (ki, _) = pairs[i]
+        match int_label_of_key(ki) {
+          None => ()
+          Some(label) => {
+            let mut j = i + 1
+            while j < pairs.length() {
+              let (kj, _) = pairs[j]
+              match int_label_of_key(kj) {
+                Some(other) =>
+                  if other == label {
+                    raise InvalidKey(context + " duplicate integer label")
+                  }
+                None => ()
+              }
+              j = j + 1
+            }
+          }
+        }
+      }
+    _ => raise InvalidKey(context + " must be a map")
+  }
+}
+
+///|
+fn text_label_of_key(k : @cbor.CborValue) -> String? {
+  match k {
+    Text(s) => Some(s)
+    _ => None
+  }
+}
+
+///|
+fn require_unique_text_labels(
+  m : @cbor.CborValue,
+  context : String,
+) -> Unit raise CoseError {
+  match m {
+    Map(pairs) =>
+      for i in 0..<pairs.length() {
+        let (ki, _) = pairs[i]
+        match text_label_of_key(ki) {
+          None => ()
+          Some(label) => {
+            let mut j = i + 1
+            while j < pairs.length() {
+              let (kj, _) = pairs[j]
+              match text_label_of_key(kj) {
+                Some(other) =>
+                  if other == label {
+                    raise InvalidStructure(context + " duplicate text label")
+                  }
+                None => ()
+              }
+              j = j + 1
+            }
+          }
+        }
+      }
+    _ => raise InvalidStructure(context + " must be a map")
   }
 }
 
@@ -431,6 +547,7 @@ pub fn parse_attestation_object(
   cbor : Bytes,
 ) -> AttestationObject raise CoseError {
   let v = @cbor.decode(cbor) catch { e => raise CborDecode(e) }
+  require_unique_text_labels(v, "attestationObject")
   let fmt = match @cbor.map_get_str(v, "fmt") {
     Some(Text(s)) => s
     _ => raise InvalidStructure("attestationObject missing fmt")

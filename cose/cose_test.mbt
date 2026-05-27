@@ -26,6 +26,42 @@ fn hex_nibble(c : Int) -> Int {
   }
 }
 
+///|
+fn ed25519_test_private_key() -> @ed25519.PrivateKey raise {
+  @ed25519.PrivateKey::from_seed(
+    hex_to_bytes(
+      "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+    ),
+  )
+}
+
+///|
+fn build_ed25519_sign1(
+  protected_bytes : Bytes,
+  unprotected : @cbor.CborValue,
+  embedded_payload : @cbor.CborValue,
+  signed_payload : Bytes,
+) -> Bytes raise {
+  let sk = ed25519_test_private_key()
+  let sig_struct = @cbor.encode(
+    Array([
+      Text("Signature1"),
+      Bytes(protected_bytes),
+      Bytes(b""),
+      Bytes(signed_payload),
+    ]),
+  )
+  let signature = sk.sign(sig_struct)
+  @cbor.encode(
+    Array([
+      Bytes(protected_bytes),
+      unprotected,
+      embedded_payload,
+      Bytes(signature),
+    ]),
+  )
+}
+
 // --- COSE_Sign1 verify (Ed25519) -----------------------------------------
 
 ///|
@@ -199,6 +235,114 @@ test "verify_sign1: external_aad is bound into the signature" {
   assert_false(@cose.verify_sign1(cose_sign1, payload, key))
 }
 
+///|
+test "ATTACK verify_sign1: unsupported protected alg does not fail open" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  let protected_bytes = @cbor.encode(Map([(Uint(1UL), Nint(998UL))])) // -999
+  let payload = b"alg confusion"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([]),
+    Bytes(payload),
+    payload,
+  )
+  try @cose.verify_sign1(cose_sign1, payload, key) catch {
+    UnsupportedAlgorithm(-999L) => ()
+    InvalidStructure(_) => ()
+    other => abort("expected alg rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported protected alg")
+  }
+}
+
+///|
+test "ATTACK verify_sign1: alg in unprotected header is rejected" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  let protected_bytes = b""
+  let payload = b"unprotected alg"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([(Uint(1UL), Nint(7UL))]),
+    Bytes(payload),
+    payload,
+  )
+  try @cose.verify_sign1(cose_sign1, payload, key) catch {
+    InvalidStructure(_) => ()
+    other =>
+      abort("expected protected alg requirement, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted alg only in unprotected header")
+  }
+}
+
+///|
+test "ATTACK verify_sign1: duplicate protected alg labels are rejected" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  let protected_bytes = @cbor.encode(
+    Map([(Uint(1UL), Nint(7UL)), (Uint(1UL), Nint(6UL))]),
+  )
+  let payload = b"duplicate alg"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([]),
+    Bytes(payload),
+    payload,
+  )
+  try @cose.verify_sign1(cose_sign1, payload, key) catch {
+    InvalidStructure(_) => ()
+    other => abort("expected duplicate alg rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted duplicate protected alg labels")
+  }
+}
+
+///|
+test "ATTACK verify_sign1: protected header must use preferred CBOR encoding" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  // { 1: -8 }, but -8 is encoded in non-preferred two-byte form 0x38 0x07
+  // instead of the canonical single-byte 0x27.
+  let protected_bytes = hex_to_bytes("a1013807")
+  let payload = b"non-minimal protected"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([]),
+    Bytes(payload),
+    payload,
+  )
+  try @cose.verify_sign1(cose_sign1, payload, key) catch {
+    InvalidStructure(_) => ()
+    other =>
+      abort("expected preferred-encoding rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted non-preferred protected header encoding")
+  }
+}
+
+///|
+test "ATTACK verify_sign1: embedded payload must match supplied payload" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  let protected_bytes = @cbor.encode(Map([(Uint(1UL), Nint(7UL))]))
+  let signed_payload = b"payload actually signed"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([]),
+    Bytes(b"payload displayed elsewhere"),
+    signed_payload,
+  )
+  try @cose.verify_sign1(cose_sign1, signed_payload, key) catch {
+    InvalidStructure(_) => ()
+    other =>
+      abort("expected embedded payload mismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted mismatched embedded payload")
+  }
+}
+
 // --- COSE_Key parsing ----------------------------------------------------
 
 ///|
@@ -257,7 +401,7 @@ test "parse_cose_key: RSA with small modulus" {
   // exercise the parser, not actually verify. Pick a fake 64-byte modulus
   // (so it's >> e but small enough to keep the test fast).
   let n = hex_to_bytes(
-    "c0cdb9c2e7e1c5fb9876c5d8c4af1ad6ad9bb6c44423c5f4afe7c93bb71f6c8df16ee5cf2c4f4b7e3ab9a9e9c1d3c8a5f2e1d4c3b2a1908070605040302010001",
+    "0cdb9c2e7e1c5fb9876c5d8c4af1ad6ad9bb6c44423c5f4afe7c93bb71f6c8df16ee5cf2c4f4b7e3ab9a9e9c1d3c8a5f2e1d4c3b2a1908070605040302010001",
   )
   let e = b"\x01\x00\x01"
   let cose_key = @cbor.encode(
@@ -300,6 +444,46 @@ test "parse_cose_key: unknown OKP curve rejected" {
   match r {
     Err(InvalidKey(_)) => ()
     _ => abort("expected InvalidKey")
+  }
+}
+
+///|
+test "ATTACK parse_cose_key: duplicate integer labels are rejected" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let pk_bytes = @ed25519.PrivateKey::from_seed(seed).public_key().to_bytes()
+  let cose_key = @cbor.encode(
+    Map([
+      (Uint(1UL), Uint(1UL)),
+      (Uint(1UL), Uint(1UL)),
+      (Nint(0UL), Uint(6UL)),
+      (Nint(1UL), Bytes(pk_bytes)),
+    ]),
+  )
+  let r = try? @cose.parse_cose_key(cose_key)
+  match r {
+    Err(InvalidKey(_)) => ()
+    Ok(_) => abort("accepted duplicate COSE_Key integer label")
+    Err(e) => abort("expected InvalidKey, got " + repr(e))
+  }
+}
+
+///|
+test "ATTACK parse_attestation_object: duplicate text labels are rejected" {
+  let att_obj = @cbor.encode(
+    Map([
+      (Text("fmt"), Text("packed")),
+      (Text("fmt"), Text("none")),
+      (Text("authData"), Bytes(b"auth")),
+      (Text("attStmt"), Map([])),
+    ]),
+  )
+  let r = try? @cose.parse_attestation_object(att_obj)
+  match r {
+    Err(InvalidStructure(_)) => ()
+    Ok(_) => abort("accepted duplicate attestationObject text label")
+    Err(e) => abort("expected InvalidStructure, got " + repr(e))
   }
 }
 

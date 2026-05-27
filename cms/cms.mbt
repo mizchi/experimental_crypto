@@ -120,6 +120,80 @@ fn id_ecdsa_with_sha384() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([1U, 2, 840, 10045, 4, 3, 3])
 }
 
+///|
+fn is_der_null(elem : @asn1.Element) -> Bool {
+  let der = @asn1.encode_der(elem)
+  der.length() == 2 && der[0] == b'\x05' && der[1] == b'\x00'
+}
+
+///|
+fn parse_algorithm_identifier(
+  elem : @asn1.Element,
+  ctx : String,
+) -> (@asn1.ObjectIdentifier, @asn1.Element?) raise CmsError {
+  let items = expect_sequence(elem, ctx)
+  if items.length() < 1 || items.length() > 2 {
+    raise Malformed(ctx + " arity")
+  }
+  let oid = expect_oid(items[0], ctx + ".algorithm")
+  let params = if items.length() == 2 { Some(items[1]) } else { None }
+  (oid, params)
+}
+
+///|
+fn require_params_absent(
+  params : @asn1.Element?,
+  name : String,
+) -> Unit raise CmsError {
+  match params {
+    Some(_) => raise Malformed(name + " parameters must be absent")
+    None => ()
+  }
+}
+
+///|
+fn require_params_null_if_present(
+  params : @asn1.Element?,
+  name : String,
+) -> Unit raise CmsError {
+  match params {
+    Some(p) =>
+      if !is_der_null(p) {
+        raise Malformed(name + " parameters must be DER NULL")
+      }
+    None => ()
+  }
+}
+
+///|
+fn validate_digest_algorithm_identifier(
+  oid : @asn1.ObjectIdentifier,
+  params : @asn1.Element?,
+) -> Unit raise CmsError {
+  if oid == id_sha256() || oid == id_sha384() || oid == id_sha512() {
+    require_params_absent(params, "SHA-2 digestAlgorithm")
+  } else {
+    raise UnsupportedDigestAlgorithm(oid)
+  }
+}
+
+///|
+fn validate_signature_algorithm_identifier(
+  oid : @asn1.ObjectIdentifier,
+  params : @asn1.Element?,
+) -> Unit raise CmsError {
+  if oid == id_sha256_with_rsa() ||
+    oid == id_sha384_with_rsa() ||
+    oid == id_sha512_with_rsa() ||
+    oid == id_rsa_encryption() {
+    require_params_null_if_present(params, "RSA signatureAlgorithm")
+  } else if oid == id_ecdsa_with_sha256() || oid == id_ecdsa_with_sha384() {
+    require_params_absent(params, "ECDSA signatureAlgorithm")
+  } else {
+    raise UnsupportedSignatureAlgorithm(oid)
+  }
+}
+
 // ─── parse CMS ContentInfo + SignedData ──────────────────────────────────
 
 ///|
@@ -229,8 +303,11 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
   // 3 (optional): [0] IMPLICIT signedAttrs
   // -3 .. -1: signatureAlgorithm, signature, [optional [1] unsignedAttrs]
   let (sid_issuer, sid_serial) = parse_signer_identifier(items[1])
-  let digest_alg_items = expect_sequence(items[2], "SignerInfo.digestAlgorithm")
-  let digest_alg = expect_oid(digest_alg_items[0], "digestAlgorithm.algorithm")
+  let (digest_alg, digest_params) = parse_algorithm_identifier(
+    items[2],
+    "SignerInfo.digestAlgorithm",
+  )
+  validate_digest_algorithm_identifier(digest_alg, digest_params)
   let mut idx = 3
   let mut signed_attrs : Bytes? = None
   if items[idx].tag.class_ == @asn1.TagClass::ContextSpecific &&
@@ -238,14 +315,11 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
     signed_attrs = Some(extract_context_implicit(items[idx]))
     idx = idx + 1
   }
-  let sig_alg_items = expect_sequence(
+  let (signature_alg, signature_params) = parse_algorithm_identifier(
     items[idx],
     "SignerInfo.signatureAlgorithm",
   )
-  let signature_alg = expect_oid(
-    sig_alg_items[0],
-    "signatureAlgorithm.algorithm",
-  )
+  validate_signature_algorithm_identifier(signature_alg, signature_params)
   idx = idx + 1
   let signature = match items[idx].value {
     OctetString(b) => b
@@ -398,29 +472,7 @@ pub fn verify_detached(
   let digest = digest_for_alg(sd.signer.digest_alg, message)
   // Walk signed_attrs SET to find messageDigest.
   let attrs = parse_attributes(sd.signer.signed_attrs_content)
-  let mut md_value : Bytes? = None
-  for a in attrs {
-    if a.oid == id_message_digest() {
-      // Attribute values is a SET OF; for messageDigest there's exactly
-      // one OCTET STRING value.
-      let inner = @asn1.decode_der(a.values_set_content) catch {
-        e => raise Asn1(e)
-      }
-      // We've extracted the SET content; the first element should be
-      // the OCTET STRING.
-      let _ = inner
-      let dec = @asn1.Decoder::new(a.values_set_content)
-      let val_elem = dec.read_element() catch { e => raise Asn1(e) }
-      match val_elem.value {
-        OctetString(b) => md_value = Some(b)
-        _ => raise Malformed("messageDigest value not OCTET STRING")
-      }
-    }
-  }
-  let md = match md_value {
-    Some(b) => b
-    None => raise MissingMessageDigest
-  }
+  let md = find_message_digest_attr(attrs)
   if md != digest {
     raise MessageDigestMismatch
   }
@@ -619,6 +671,38 @@ fn parse_attributes(
     out.push({ oid, values_set_content: values_content })
   }
   out
+}
+
+///|
+fn find_message_digest_attr(
+  attrs : Array[CmsAttribute],
+) -> Bytes raise CmsError {
+  let mut md_value : Bytes? = None
+  for a in attrs {
+    if a.oid == id_message_digest() {
+      if md_value is Some(_) {
+        raise Malformed("duplicate messageDigest attribute")
+      }
+      // Attribute values is a SET OF; for messageDigest there must be
+      // exactly one OCTET STRING value.
+      let dec = @asn1.Decoder::new(a.values_set_content)
+      if dec.is_empty() {
+        raise Malformed("messageDigest values empty")
+      }
+      let val_elem = dec.read_element() catch { e => raise Asn1(e) }
+      if !dec.is_empty() {
+        raise Malformed("messageDigest values arity != 1")
+      }
+      match val_elem.value {
+        OctetString(b) => md_value = Some(b)
+        _ => raise Malformed("messageDigest value not OCTET STRING")
+      }
+    }
+  }
+  match md_value {
+    Some(b) => b
+    None => raise MissingMessageDigest
+  }
 }
 
 // ─── chain integration helper ────────────────────────────────────────────

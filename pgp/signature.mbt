@@ -69,6 +69,9 @@ pub fn parse_signature_packet(body : Bytes) -> PgpSignature raise PgpError {
   } else {
     (body[4].to_int() << 8) | body[5].to_int()
   }
+  if hashed_len < 0 {
+    raise PacketTooShort("hashed subpacket area")
+  }
   let hashed_start = 4 + len_field
   if hashed_start + hashed_len + len_field > body.length() {
     raise PacketTooShort("hashed subpacket area")
@@ -88,6 +91,9 @@ pub fn parse_signature_packet(body : Bytes) -> PgpSignature raise PgpError {
     body[unhashed_len_pos + 3].to_int()
   } else {
     (body[unhashed_len_pos].to_int() << 8) | body[unhashed_len_pos + 1].to_int()
+  }
+  if unhashed_len < 0 {
+    raise PacketTooShort("unhashed subpacket area")
   }
   let after_unhashed = unhashed_len_pos + len_field + unhashed_len
   if after_unhashed + 2 > body.length() {

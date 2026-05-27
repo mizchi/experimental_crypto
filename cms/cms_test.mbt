@@ -28,6 +28,47 @@ fn hex_to_bytes(s : String) -> Bytes {
 }
 
 ///|
+fn bytes_match_at(haystack : Bytes, needle : Bytes, offset : Int) -> Bool {
+  if offset + needle.length() > haystack.length() {
+    return false
+  }
+  for i = 0; i < needle.length(); i = i + 1 {
+    if haystack[offset + i] != needle[i] {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn replace_last_bytes(
+  haystack : Bytes,
+  needle : Bytes,
+  replacement : Bytes,
+) -> Bytes {
+  if needle.length() == 0 || needle.length() != replacement.length() {
+    abort("invalid replacement")
+  }
+  let mut last = -1
+  let stop = haystack.length() - needle.length()
+  for i = 0; i <= stop; i = i + 1 {
+    if bytes_match_at(haystack, needle, i) {
+      last = i
+    }
+  }
+  if last < 0 {
+    abort("needle not found")
+  }
+  Bytes::makei(haystack.length(), fn(i) {
+    if i >= last && i < last + replacement.length() {
+      replacement[i - last]
+    } else {
+      haystack[i]
+    }
+  })
+}
+
+///|
 // Real CMS detached signature. Generated with:
 //   openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
 //     -subj "/CN=mizchi-cms-test/emailAddress=mizchi@cms.test" \
@@ -61,6 +102,22 @@ test "cms: parse_signed_data extracts signer cert + signer info" {
 test "cms: verify_detached against real openssl signature" {
   let sd = @cms.parse_signed_data(cms_signature_der())
   assert_true(@cms.verify_detached(sd, cms_message()))
+}
+
+///|
+test "ATTACK cms: SignerInfo RSA signatureAlgorithm rejects non-NULL params" {
+  let good_alg = hex_to_bytes("300d06092a864886f70d0101010500")
+  // Same-length AlgorithmIdentifier with id-rsaEncryption parameters
+  // encoded as an empty OCTET STRING instead of DER NULL.
+  let bad_alg = hex_to_bytes("300d06092a864886f70d0101010400")
+  let tampered = replace_last_bytes(cms_signature_der(), good_alg, bad_alg)
+  try @cms.parse_signed_data(tampered) catch {
+    Malformed(_) => ()
+    UnsupportedSignatureAlgorithm(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted malformed SignerInfo.signatureAlgorithm")
+  }
 }
 
 ///|

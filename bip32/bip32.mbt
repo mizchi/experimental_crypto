@@ -207,8 +207,9 @@ pub fn derive_path(
       raise InvalidPath("empty component")
     }
     let last_ch = p.code_unit_at(p.length() - 1).to_int()
-    // 0x27 = "'", 0x68 = "h" (some wallets write hardened as 0h, 0H)
-    let hardened = p.length() > 0 && (last_ch == 0x27 || last_ch == 0x68)
+    // 0x27 = "'", 0x68/0x48 = "h"/"H" (some wallets write hardened as 0h).
+    let hardened = p.length() > 0 &&
+      (last_ch == 0x27 || last_ch == 0x68 || last_ch == 0x48)
     let num_part = if hardened { p[0:p.length() - 1].to_owned() } else { p }
     let idx = parse_uint_decimal(num_part)
     let raw_idx = if hardened { idx + hardened_threshold() } else { idx }
@@ -292,13 +293,24 @@ fn parse_uint_decimal(s : String) -> UInt raise Bip32Error {
   if s.length() == 0 {
     raise InvalidPath("empty index")
   }
-  let mut v : UInt = 0U
+  if s.length() > 1 && s.code_unit_at(0).to_int() == 0x30 {
+    raise InvalidPath("non-canonical index with leading zero: " + s)
+  }
+  let mut v : UInt64 = 0UL
+  let max_child_index = 0x7fffffffUL
   for ch in s {
     let c = ch.to_int()
     if c < 0x30 || c > 0x39 {
       raise InvalidPath("non-decimal index: " + s)
     }
-    v = v * 10U + (c - 0x30).reinterpret_as_uint()
+    let digit = (c - 0x30).to_uint64()
+    if v > (max_child_index - digit) / 10UL {
+      raise InvalidPath("index out of range: " + s)
+    }
+    v = v * 10UL + digit
+    if v > max_child_index {
+      raise InvalidPath("index out of range: " + s)
+    }
   }
-  v
+  v.to_uint()
 }

@@ -1,4 +1,8 @@
 import {
+  "mizchi/hash",
+}
+
+import {
   "moonbitlang/core/debug",
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",

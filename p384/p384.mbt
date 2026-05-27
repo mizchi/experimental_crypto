@@ -101,15 +101,6 @@ fn is_on_curve(p_pt : Point) -> Bool {
 }
 
 ///|
-fn point_neg(pt : Point) -> Point {
-  if pt.inf {
-    return pt
-  }
-  let p = p384_p()
-  { x: pt.x, y: mod_pos(p - pt.y, p), inf: false }
-}
-
-///|
 fn point_double(pt : Point) -> Point {
   if pt.inf {
     return pt
@@ -182,7 +173,6 @@ fn scalar_mult(k : BigInt, pt : Point) -> Point {
       }
     }
   }
-  ignore(point_neg)
   r
 }
 
@@ -206,6 +196,16 @@ pub suberror P384Error {
 } derive(Debug)
 
 ///|
+fn coordinate_from_bytes(b : Bytes, offset : Int) -> BigInt raise P384Error {
+  let coord_bytes = Bytes::makei(48, fn(i) { b[offset + i] })
+  let coord = BigInt::from_octets(coord_bytes[:])
+  if coord.compare(p384_p()) >= 0 {
+    raise InvalidPointEncoding("coordinate must be canonical field element")
+  }
+  coord
+}
+
+///|
 /// Parse an uncompressed SEC1 point `04 || X(48) || Y(48)` (97 bytes total).
 pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise P384Error {
   if b.length() != 97 {
@@ -214,10 +214,8 @@ pub fn PublicKey::from_uncompressed(b : Bytes) -> PublicKey raise P384Error {
   if b[0].to_int() != 0x04 {
     raise InvalidPointEncoding("expected uncompressed (0x04)")
   }
-  let x_bytes = Bytes::makei(48, fn(i) { b[i + 1] })
-  let y_bytes = Bytes::makei(48, fn(i) { b[i + 49] })
-  let x = BigInt::from_octets(x_bytes[:])
-  let y = BigInt::from_octets(y_bytes[:])
+  let x = coordinate_from_bytes(b, 1)
+  let y = coordinate_from_bytes(b, 49)
   let point : Point = { x, y, inf: false }
   if !is_on_curve(point) {
     raise PointNotOnCurve

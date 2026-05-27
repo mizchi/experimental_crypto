@@ -183,6 +183,20 @@ test "verify_totp — invalid timing and skew parameters fail closed" {
 }
 
 ///|
+test "ATTACK TOTP — empty secret cannot generate or verify codes" {
+  let empty : Bytes = b""
+  @debug.assert_eq(@totp.hotp(empty, 0UL), "")
+  @debug.assert_eq(@totp.totp(empty, 59L), "")
+  assert_false(@totp.verify_totp(empty, "000000", 59L))
+}
+
+///|
+test "ATTACK TOTP — non-ASCII digit lookalikes are rejected" {
+  let key = ascii_to_bytes("12345678901234567890")
+  assert_false(@totp.verify_totp(key, "１２３４５６", 59L))
+}
+
+///|
 test "TOTP — invalid generation parameters return empty code" {
   let key = ascii_to_bytes("12345678901234567890")
   @debug.assert_eq(@totp.hotp(key, 0UL, digits=5), "")

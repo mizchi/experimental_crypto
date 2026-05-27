@@ -24,6 +24,16 @@ pub(all) struct SignedCommit {
 } derive(Debug)
 
 ///|
+/// Parse a git commit or tag object and split out the signature. Accepts
+/// either the raw object storage form (`commit <len>\0...` / `tag <len>\0...`)
+/// or the object content returned by `git cat-file commit|tag`.
+pub fn parse_signed_object(
+  object_bytes : Bytes,
+) -> SignedCommit raise GitObjectError {
+  parse_signed_content(strip_raw_object_header(object_bytes))
+}
+
+///|
 /// Parse a git commit object and split out the signature. Returns
 /// `NotSigned` if the commit has no `gpgsig` (or `gpgsig-sha256`) header.
 ///
@@ -36,9 +46,19 @@ pub(all) struct SignedCommit {
 pub fn parse_signed_commit(
   commit_bytes : Bytes,
 ) -> SignedCommit raise GitObjectError {
+  parse_signed_object(commit_bytes)
+}
+
+///|
+fn parse_signed_content(
+  commit_bytes : Bytes,
+) -> SignedCommit raise GitObjectError {
   let text = bytes_to_string(commit_bytes)
   // Find the blank-line boundary between headers and message.
   let header_end = find_header_end(text)
+  if header_end == text.length() {
+    raise Malformed("missing header/body separator")
+  }
   // Walk the header section line by line. A line that starts with "gpgsig"
   // (followed by ' ' or end-of-line) opens a multi-line header value; its
   // continuation lines begin with a single space.
@@ -84,9 +104,11 @@ pub fn parse_signed_commit(
         seen_gpgsig = true
         // First gpgsig line: "gpgsig -----BEGIN SSH SIGNATURE-----"
         let after_name = skip_header_name(raw)
-        if after_name != "" {
-          gpgsig_lines.push(trim_trailing_newline(after_name))
+        let first_sig_line = trim_trailing_newline(after_name)
+        if first_sig_line == "" {
+          raise Malformed("empty gpgsig header")
         }
+        gpgsig_lines.push(first_sig_line)
         in_sig_header = true
         byte_index = logical_end
         continue
@@ -119,6 +141,78 @@ pub fn parse_signed_commit(
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
+
+///|
+fn strip_raw_object_header(object_bytes : Bytes) -> Bytes raise GitObjectError {
+  let mut nul_at = -1
+  let mut newline_at = -1
+  for i = 0; i < object_bytes.length(); i = i + 1 {
+    if object_bytes[i] == b'\x00' {
+      nul_at = i
+      break
+    }
+    if object_bytes[i] == b'\n' && newline_at < 0 {
+      newline_at = i
+    }
+  }
+  if nul_at < 0 {
+    return object_bytes
+  }
+  if newline_at >= 0 && newline_at < nul_at {
+    return object_bytes
+  }
+  let header = bytes_to_string(bytes_slice(object_bytes, 0, nul_at))
+  let (kind, size_start) = if header.has_prefix("commit ") {
+    ("commit", 7)
+  } else if header.has_prefix("tag ") {
+    ("tag", 4)
+  } else {
+    raise Malformed("unsupported raw git object header")
+  }
+  let _ = kind
+  let size_text = substring(header, size_start, header.length())
+  let expected_size = parse_canonical_decimal(size_text) catch {
+    _ => raise Malformed("invalid raw git object size")
+  }
+  let actual_size = object_bytes.length() - nul_at - 1
+  if expected_size != actual_size {
+    raise Malformed("raw git object size mismatch")
+  }
+  bytes_slice(object_bytes, nul_at + 1, object_bytes.length())
+}
+
+///|
+fn parse_canonical_decimal(s : String) -> Int raise GitObjectError {
+  if s.length() == 0 {
+    raise Malformed("empty decimal")
+  }
+  if s.length() > 1 && s.get_char(0).unwrap() == '0' {
+    raise Malformed("non-canonical decimal")
+  }
+  let mut out = 0
+  for i = 0; i < s.length(); i = i + 1 {
+    let c = s.get_char(i).unwrap()
+    if c < '0' || c > '9' {
+      raise Malformed("non-decimal digit")
+    }
+    out = out * 10 + (c.to_int() - '0'.to_int())
+  }
+  out
+}
+
+///|
+fn bytes_slice(b : Bytes, start : Int, end : Int) -> Bytes {
+  Bytes::makei(end - start, fn(i) { b[start + i] })
+}
+
+///|
+fn substring(s : String, start : Int, end : Int) -> String {
+  let sb = StringBuilder::new()
+  for i = start; i < end; i = i + 1 {
+    sb.write_char(s.get_char(i).unwrap())
+  }
+  sb.to_string()
+}
 
 ///|
 fn find_header_end(text : String) -> Int {

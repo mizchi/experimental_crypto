@@ -121,7 +121,7 @@ pub fn hotp(
   digits? : Int = 6,
   hash? : TotpHash = Sha1,
 ) -> String {
-  if !valid_digits(digits) {
+  if key.length() == 0 || !valid_digits(digits) {
     return ""
   }
   let tag = totp_hmac(hash, key, counter_be_8(counter))
@@ -173,7 +173,7 @@ pub fn totp(
   digits? : Int = 6,
   hash? : TotpHash = Sha1,
 ) -> String {
-  if !valid_digits(digits) {
+  if key.length() == 0 || !valid_digits(digits) {
     return ""
   }
   match totp_counter_checked(now_seconds, step_seconds, t0) {
@@ -197,7 +197,8 @@ pub fn verify_totp(
   hash? : TotpHash = Sha1,
   skew? : Int = 1,
 ) -> Bool {
-  if !valid_digits(digits) ||
+  if key.length() == 0 ||
+    !valid_digits(digits) ||
     code.length() != digits ||
     !is_decimal_string(code) ||
     skew < 0 ||

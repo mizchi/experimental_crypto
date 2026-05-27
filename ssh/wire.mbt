@@ -55,6 +55,9 @@ pub fn WireReader::read_bytes(
   self : WireReader,
   n : Int,
 ) -> Bytes raise SshError {
+  if n < 0 {
+    raise InvalidEncoding("negative byte length")
+  }
   if self.remaining() < n {
     raise TruncatedInput("bytes(" + n.to_string() + ")")
   }

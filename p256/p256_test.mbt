@@ -199,6 +199,33 @@ test "p256: from_uncompressed rejects bad tag byte" {
 }
 
 ///|
+test "p256: from_uncompressed rejects non-canonical field coordinates" {
+  let p = hex(
+    "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
+  )
+  let gy = hex(
+    "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+  )
+  let bad = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i < 33 {
+      p[i - 1]
+    } else {
+      gy[i - 33]
+    }
+  })
+  let raised = try {
+    let _ = @p256.PublicKey::from_uncompressed(bad)
+    false
+  } catch {
+    InvalidPointEncoding(_) => true
+    _ => false
+  }
+  assert_true(raised)
+}
+
+///|
 test "p256: DER signature round (re-encode A.3 r/s as SEQUENCE)" {
   // Manually wrap the A.3 r,s into ASN.1 DER SEQUENCE { INTEGER r, INTEGER s }
   // and verify the Der format path. r and s both have high bit set in some

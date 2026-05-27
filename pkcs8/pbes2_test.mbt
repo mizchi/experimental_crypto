@@ -12,6 +12,157 @@
 let rsa_oid_str : String = "1.2.840.113549.1.1.1"
 
 ///|
+fn oid(s : String) -> @asn1.ObjectIdentifier raise {
+  @asn1.ObjectIdentifier::from_string(s)
+}
+
+///|
+fn der_null() -> Bytes {
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_null, Null))
+}
+
+///|
+fn alg_elem(oid_s : String, params : Bytes?) -> @asn1.Element raise {
+  @pkix.algorithm_identifier_to_element({
+    algorithm: oid(oid_s),
+    parameters: params,
+  })
+}
+
+///|
+fn pbes2_params(pbkdf2_params : Bytes) -> Bytes raise {
+  let kdf = alg_elem("1.2.840.113549.1.5.12", Some(pbkdf2_params))
+  let iv = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_octet_string,
+      OctetString(Bytes::makei(16, fn(_) { b'\x00' })),
+    ),
+  )
+  let enc = alg_elem("2.16.840.1.101.3.4.1.42", Some(iv))
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence([kdf, enc])))
+}
+
+///|
+fn encrypted_with_pbkdf2_params(
+  pbkdf2_params : Bytes,
+) -> @pkcs8.EncryptedPrivateKeyInfo raise {
+  {
+    algorithm: {
+      algorithm: oid("1.2.840.113549.1.5.13"),
+      parameters: Some(pbes2_params(pbkdf2_params)),
+    },
+    encrypted_data: Bytes::makei(16, fn(_) { b'\x00' }),
+  }
+}
+
+///|
+fn test_private_key_info() -> @pkcs8.PrivateKeyInfo raise {
+  let inner = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([@asn1.Element::new(@asn1.tag_integer, Integer(b"\x00"))]),
+    ),
+  )
+  {
+    version: 0,
+    algorithm: { algorithm: oid(rsa_oid_str), parameters: Some(der_null()) },
+    private_key: inner,
+    attributes: [],
+    public_key: None,
+  }
+}
+
+///|
+fn pkcs7_pad_for_test(plain : Bytes) -> Bytes {
+  let rem = plain.length() % 16
+  let pad = if rem == 0 { 16 } else { 16 - rem }
+  Bytes::makei(plain.length() + pad, fn(i) {
+    if i < plain.length() {
+      plain[i]
+    } else {
+      pad.to_byte()
+    }
+  })
+}
+
+///|
+fn pbkdf2_params_for_test(
+  hash : @pbkdf2.HashAlg,
+  prf_oid : String,
+  key_len : Int,
+) -> Bytes raise {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"salt")),
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x02")),
+    @asn1.Element::new(
+      @asn1.tag_integer,
+      Integer(Bytes::makei(1, fn(_) { key_len.to_byte() })),
+    ),
+    alg_elem(prf_oid, Some(der_null())),
+  ]
+  // Keep hash referenced by the caller-side fixture builder so a mismatched
+  // OID / enum pair fails in decryption rather than silently reusing SHA-256.
+  let _ = hash
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence(items)))
+}
+
+///|
+fn pbes2_params_for_test(
+  hash : @pbkdf2.HashAlg,
+  prf_oid : String,
+  cipher_oid : String,
+  key_len : Int,
+  iv : Bytes,
+) -> Bytes raise {
+  let pbkdf2_params = pbkdf2_params_for_test(hash, prf_oid, key_len)
+  let kdf = alg_elem("1.2.840.113549.1.5.12", Some(pbkdf2_params))
+  let enc = alg_elem(
+    cipher_oid,
+    Some(
+      @asn1.encode_der(
+        @asn1.Element::new(@asn1.tag_octet_string, OctetString(iv)),
+      ),
+    ),
+  )
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence([kdf, enc])))
+}
+
+///|
+fn encrypted_fixture_for_test(
+  hash : @pbkdf2.HashAlg,
+  prf_oid : String,
+  cipher_oid : String,
+  key_len : Int,
+) -> @pkcs8.EncryptedPrivateKeyInfo raise {
+  let password : Bytes = b"pw"
+  let iv = Bytes::makei(16, fn(i) { i.to_byte() })
+  let plain = @pkcs8.serialize_der(test_private_key_info())
+  let key = @pbkdf2.pbkdf2(hash, password, b"salt", 2, key_len)
+  let encrypted_data = @aead.aes_cbc_encrypt(key, iv, pkcs7_pad_for_test(plain))
+  {
+    algorithm: {
+      algorithm: oid("1.2.840.113549.1.5.13"),
+      parameters: Some(
+        pbes2_params_for_test(hash, prf_oid, cipher_oid, key_len, iv),
+      ),
+    },
+    encrypted_data,
+  }
+}
+
+///|
+fn pbkdf2_params_with_tail(tail : Array[@asn1.Element]) -> Bytes {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"salt")),
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+  ]
+  for item in tail {
+    items.push(item)
+  }
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence(items)))
+}
+
+///|
 let enc_rsa_pem : String =
   #|-----BEGIN ENCRYPTED PRIVATE KEY-----
   #|MIIFNTBfBgkqhkiG9w0BBQ0wUjAxBgkqhkiG9w0BBQwwJAQQ7antkrKEL1UdXF1a
@@ -107,4 +258,116 @@ test "pbes2: parse_encrypted_pem still works without decryption (regression)" {
   @debug.assert_eq(enc.algorithm.algorithm, pbes2_oid)
   assert_true(enc.encrypted_data.length() > 0)
   assert_true(enc.encrypted_data.length() % 16 == 0)
+}
+
+///|
+test "pbes2: decrypts PBKDF2-HMAC-SHA1/SHA384/SHA512 fixtures" {
+  let expected = test_private_key_info()
+  let sha1 = @pkcs8.decrypt(
+    encrypted_fixture_for_test(
+      @pbkdf2.HashAlg::Sha1,
+      "1.2.840.113549.2.7",
+      "2.16.840.1.101.3.4.1.42",
+      32,
+    ),
+    b"pw",
+  )
+  @debug.assert_eq(sha1.private_key, expected.private_key)
+  let sha384 = @pkcs8.decrypt(
+    encrypted_fixture_for_test(
+      @pbkdf2.HashAlg::Sha384,
+      "1.2.840.113549.2.10",
+      "2.16.840.1.101.3.4.1.42",
+      32,
+    ),
+    b"pw",
+  )
+  @debug.assert_eq(sha384.private_key, expected.private_key)
+  let sha512 = @pkcs8.decrypt(
+    encrypted_fixture_for_test(
+      @pbkdf2.HashAlg::Sha512,
+      "1.2.840.113549.2.11",
+      "2.16.840.1.101.3.4.1.42",
+      32,
+    ),
+    b"pw",
+  )
+  @debug.assert_eq(sha512.private_key, expected.private_key)
+}
+
+///|
+test "pbes2: decrypts AES-192-CBC fixture" {
+  let expected = test_private_key_info()
+  let got = @pkcs8.decrypt(
+    encrypted_fixture_for_test(
+      @pbkdf2.HashAlg::Sha256,
+      "1.2.840.113549.2.9",
+      "2.16.840.1.101.3.4.1.22",
+      24,
+    ),
+    b"pw",
+  )
+  @debug.assert_eq(got.private_key, expected.private_key)
+}
+
+///|
+test "ATTACK pbes2: duplicate PBKDF2 keyLength is rejected" {
+  let params = pbkdf2_params_with_tail([
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x20")),
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x20")),
+    alg_elem("1.2.840.113549.2.9", Some(der_null())),
+  ])
+  try @pkcs8.decrypt(encrypted_with_pbkdf2_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted duplicate PBKDF2 keyLength")
+  }
+}
+
+///|
+test "ATTACK pbes2: duplicate PBKDF2 prf is rejected" {
+  let prf = alg_elem("1.2.840.113549.2.9", Some(der_null()))
+  let params = pbkdf2_params_with_tail([
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x20")),
+    prf,
+    prf,
+  ])
+  try @pkcs8.decrypt(encrypted_with_pbkdf2_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted duplicate PBKDF2 prf")
+  }
+}
+
+///|
+test "ATTACK pbes2: PBKDF2 prf rejects non-NULL parameters" {
+  let bad_prf_params = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+  )
+  let params = pbkdf2_params_with_tail([
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x20")),
+    alg_elem("1.2.840.113549.2.9", Some(bad_prf_params)),
+  ])
+  try @pkcs8.decrypt(encrypted_with_pbkdf2_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted PBKDF2 prf with non-NULL parameters")
+  }
+}
+
+///|
+test "ATTACK pbes2: PBKDF2 keyLength must be positive" {
+  let params = pbkdf2_params_with_tail([
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x00")),
+    alg_elem("1.2.840.113549.2.9", Some(der_null())),
+  ])
+  try @pkcs8.decrypt(encrypted_with_pbkdf2_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted PBKDF2 keyLength=0")
+  }
 }

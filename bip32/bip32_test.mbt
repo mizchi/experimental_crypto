@@ -228,3 +228,55 @@ test "derive_path: invalid path string raises InvalidPath" {
     other => raise other
   }
 }
+
+///|
+test "ATTACK derive_path: component above uint32 range is rejected, not wrapped" {
+  let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
+  let m = @bip32.master_from_seed(seed)
+  try {
+    let _ = @bip32.derive_path(m, "m/4294967296")
+    abort("expected InvalidPath, got Ok")
+  } catch {
+    @bip32.InvalidPath(_) => ()
+    other => raise other
+  }
+}
+
+///|
+test "ATTACK derive_path: hardened component must be below 2^31 before hardening" {
+  let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
+  let m = @bip32.master_from_seed(seed)
+  try {
+    let _ = @bip32.derive_path(m, "m/2147483648'")
+    abort("expected InvalidPath, got Ok")
+  } catch {
+    @bip32.InvalidPath(_) => ()
+    other => raise other
+  }
+}
+
+///|
+test "ATTACK derive_path: overlong decimal component cannot overflow into range" {
+  let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
+  let m = @bip32.master_from_seed(seed)
+  try {
+    let _ = @bip32.derive_path(m, "m/184467440737095516160")
+    abort("expected InvalidPath, got Ok")
+  } catch {
+    @bip32.InvalidPath(_) => ()
+    other => raise other
+  }
+}
+
+///|
+test "ATTACK derive_path: non-canonical leading-zero components are rejected" {
+  let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
+  let m = @bip32.master_from_seed(seed)
+  try {
+    let _ = @bip32.derive_path(m, "m/0001")
+    abort("expected InvalidPath, got Ok")
+  } catch {
+    @bip32.InvalidPath(_) => ()
+    other => raise other
+  }
+}

@@ -378,6 +378,41 @@ test "secp256k1: wrong signature length rejected (Raw)" {
 }
 
 ///|
+fn add_extra_zero_to_first_der_integer(sig : Bytes) -> Bytes {
+  // Test helper for signatures emitted by this module: SEQUENCE short len,
+  // INTEGER short len for r, INTEGER short len for s.
+  let seq_len = sig[1].to_int()
+  let r_len = sig[3].to_int()
+  Bytes::makei(sig.length() + 1, fn(i) {
+    if i == 1 {
+      (seq_len + 1).to_byte()
+    } else if i == 3 {
+      (r_len + 1).to_byte()
+    } else if i == 4 {
+      b'\x00'
+    } else if i < 4 {
+      sig[i]
+    } else {
+      sig[i - 1]
+    }
+  })
+}
+
+///|
+test "ATTACK secp256k1: DER INTEGER with redundant leading zero is rejected" {
+  let sk = @secp256k1.PrivateKey::from_bytes(hex(test_scalar))
+  let pk = sk.public_key()
+  let der_sig = sk.sign(b"sample", format=Der)
+  let non_minimal = add_extra_zero_to_first_der_integer(der_sig)
+  try @secp256k1.verify(pk, b"sample", non_minimal, Der) catch {
+    InvalidDerSignature(_) => ()
+    other => abort("expected InvalidDerSignature, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted non-minimal DER INTEGER")
+  }
+}
+
+///|
 test "secp256k1: SignatureFormat Debug" {
   @debug.assert_eq(@debug.to_string(@secp256k1.SignatureFormat::Raw), "Raw")
   @debug.assert_eq(@debug.to_string(@secp256k1.SignatureFormat::Der), "Der")

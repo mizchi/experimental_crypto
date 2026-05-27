@@ -147,6 +147,35 @@ test "mnemonic_to_entropy: rejects bad word count" {
 }
 
 ///|
+test "ATTACK mnemonic_to_entropy: non-ASCII separators are not treated as spaces" {
+  let m = "abandon\u{00a0}abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+  try mnemonic_to_entropy(m) catch {
+    InvalidMnemonicWordCount(_) | UnknownWord(_) => ()
+    other => abort("expected separator rejection, got " + repr(other))
+  } noraise {
+    other => abort("expected separator rejection, got " + repr(other))
+  }
+}
+
+///|
+test "ATTACK entropy_to_mnemonic: unsupported entropy lengths are rejected" {
+  try entropy_to_mnemonic(b"") catch {
+    InvalidEntropyLength(0) => ()
+    other => abort("expected InvalidEntropyLength(0), got " + repr(other))
+  } noraise {
+    other => abort("expected InvalidEntropyLength(0), got " + repr(other))
+  }
+  try
+    entropy_to_mnemonic(hex_to_bytes("000102030405060708090a0b0c0d0e"))
+  catch {
+    InvalidEntropyLength(15) => ()
+    other => abort("expected InvalidEntropyLength(15), got " + repr(other))
+  } noraise {
+    other => abort("expected InvalidEntropyLength(15), got " + repr(other))
+  }
+}
+
+///|
 test "mnemonic_to_seed: trezor vector 1 (128-bit all zero, TREZOR pass)" {
   let m = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
   let seed = mnemonic_to_seed(m, passphrase="TREZOR")

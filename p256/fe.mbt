@@ -13,7 +13,7 @@
 // is internally little-endian: limb 0 holds the least-significant 26
 // bits. fe_from_bytes/fe_to_bytes do the BE ⇄ LE flip.
 //
-// Scope of this file (Milestone 1): the type, constants, I/O, copy/zero/one,
+// Scope of this file (Milestone 1): the type, constants, I/O, copy,
 // and a fe_carry_full that handles inputs whose limbs are already small
 // (post-fe_from_bytes, or pre-multiplication). The wider-input fe_carry
 // that takes ~2^62 limbs from fe_mul / fe_sqr lives in a follow-up
@@ -32,28 +32,16 @@ type Fe = FixedArray[UInt64]
 //   - bits 224..255: 1 → limb 8 bits 16..25, limb 9 bits 0..21
 let p256_p_limbs : FixedArray[UInt64] = [
   0x3FFFFFFUL, // limb 0: 2^26 - 1
-  0x3FFFFFFUL, // limb 1
-  0x3FFFFFFUL, // limb 2
-  0x003FFFFUL, // limb 3: low 18 bits set (2^18 - 1)
-  0x0UL, // limb 4
-  0x0UL, // limb 5
-  0x0UL, // limb 6
-  0x0000400UL, // limb 7: bit 10 (= bit 192 of value)
-  0x3FF0000UL, // limb 8: bits 16..25 (= bits 224..233 of value)
-  0x03FFFFFUL, // limb 9: bits 0..21 (= bits 234..255 of value)
+   0x3FFFFFFUL, // limb 1
+   0x3FFFFFFUL, // limb 2
+   0x003FFFFUL, // limb 3: low 18 bits set (2^18 - 1)
+   0x0UL, // limb 4
+   0x0UL, // limb 5
+   0x0UL, // limb 6
+   0x0000400UL, // limb 7: bit 10 (= bit 192 of value)
+   0x3FF0000UL, // limb 8: bits 16..25 (= bits 224..233 of value)
+   0x03FFFFFUL, // limb 9: bits 0..21 (= bits 234..255 of value)
 ]
-
-///|
-fn fe_zero() -> Fe {
-  FixedArray::make(10, 0UL)
-}
-
-///|
-fn fe_one() -> Fe {
-  let f = FixedArray::make(10, 0UL)
-  f[0] = 1UL
-  f
-}
 
 ///|
 fn fe_copy(a : Fe) -> Fe {
@@ -77,10 +65,10 @@ fn fe_from_bytes(b : FixedArray[Byte]) -> Fe {
     le[i] = b[31 - i]
   }
   fn ld4(off : Int) -> UInt64 {
-    le[off].to_uint64()
-    | (le[off + 1].to_uint64() << 8)
-    | (le[off + 2].to_uint64() << 16)
-    | (le[off + 3].to_uint64() << 24)
+    le[off].to_uint64() |
+    (le[off + 1].to_uint64() << 8) |
+    (le[off + 2].to_uint64() << 16) |
+    (le[off + 3].to_uint64() << 24)
   }
 
   let mask26 : UInt64 = (1UL << 26) - 1UL
@@ -150,10 +138,7 @@ fn fe_to_bytes(a : Fe) -> FixedArray[Byte] {
 // will replace this function in a later commit.
 fn fe_carry_full(h : Fe) -> Fe {
   let mask26 : UInt64 = (1UL << 26) - 1UL
-  let r = FixedArray::make(10, 0UL)
-  for i in 0..<10 {
-    r[i] = h[i]
-  }
+  let r = fe_copy(h)
   // Single carry pass — each input limb is small, so one sweep
   // settles them all into [0, 2^26).
   let mut c : UInt64 = 0UL

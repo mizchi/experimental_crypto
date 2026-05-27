@@ -121,6 +121,81 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
 
 ## Still open
 
+### Security implementation priority (current order)
+
+1. [ ] **Constant-time secret-key operations**: remove secret-dependent
+   timing from `crypto_bigint`, RSA private modexp, and ECDSA scalar
+   multiplication.
+   - [x] Replace `crypto_bigint` `ct_eq` / `ct_lt` early-return comparisons
+     with full-limb zero-extended comparisons.
+   - [ ] Replace BigInt-backed secret modexp / scalar multiplication with
+     fixed-limb constant-time implementations.
+   - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
+     RSA and ECDSA sign paths.
+2. [ ] **OCSP / CRL revocation semantics**: enforce nonce, delta CRL,
+   distribution-point matching, indirect CRL, delegated responder
+   `id-pkix-ocsp-nocheck`, and request/transport semantics.
+   - [x] Reject unsupported critical CRL / CRL-entry extensions instead of
+     silently ignoring them.
+   - [x] Reject unsupported critical OCSP single / response extensions.
+3. [ ] **PGP sign-side interop**: verify generated signatures with external
+   `gpg` / `sq` / `rsop`; implement production v6 caller-supplied salt.
+   - [x] Expose caller-supplied v6 signature salt in `sign_armor` and reject
+     salt on v4 signatures.
+   - [ ] Add external `gpg` / `sq` / `rsop` sign-output verification.
+4. [ ] **JWT remaining algorithm branches**: add reference or mutation
+   coverage for `RS384` / `RS512` / `ES512` / `PS384` / `PS512`
+   sign/verify and JWKS mapping.
+   - [x] Add `RS384` / `RS512` sign+verify roundtrips.
+   - [x] Add RSA JWKS mapping coverage for `RS384` / `RS512` / `PS384` /
+     `PS512`.
+   - [ ] Add `ES512` only after a P-521 implementation exists.
+5. [ ] **SSH allowed_signers feature gaps**: keep `cert-authority` and
+   `valid-after` / `valid-before` fail-closed until explicit certificate and
+   time-aware APIs exist; document the non-OpenSSH-compatible subset.
+   - [x] Document the SSH package as an SSHSIG-style subset, not an
+     OpenSSH-compatible verifier.
+   - [x] Reject duplicate `namespaces` options instead of last-one-wins
+     widening / changing the trust policy.
+   - [x] Keep `cert-authority`, `valid-after`, and `valid-before` entries
+     fail-closed.
+6. [ ] **PBES2 / encrypted private key interop**: add and harden
+   HMAC-SHA1/384/512 PRFs, scrypt PBES2, and AES-192-CBC.
+   - [x] Implement PBKDF2-HMAC-SHA1 / SHA384 / SHA512 and cover with
+     reference vectors.
+   - [x] Accept PBES2 PRFs `hmacWithSHA1` / `hmacWithSHA384` /
+     `hmacWithSHA512`.
+   - [x] Add AES-192-CBC key schedule / CBC vectors and PBES2 decrypt
+     coverage.
+   - [ ] Add PBES2 `id-scrypt` support and interop fixtures.
+7. [ ] **Argon2 / scrypt / PBKDF2 parameter parsers**: harden PHC / encoded
+   string parsing against duplicate fields, huge parameters, malformed
+   base64, and memory-DoS inputs.
+   - [x] Enforce no-padding PHC base64 alphabet and per-segment length caps
+     for Argon2 / scrypt before decoding.
+   - [x] Cover duplicate / non-canonical PHC parameters with attack tests.
+   - [x] Reject duplicate PBKDF2 `keyLength` / `prf` fields and malformed PRF
+     parameters in PBES2.
+8. [ ] **Cross-format fuzz breadth**: extend current fuzzing to
+   CMS→PKIX→PKIX_VERIFY, OCSP→PKIX_VERIFY, CRL→PKIX_VERIFY, and
+   JWK/JWT/JWE containers.
+   - [x] Add JWK→JWT→JWE cross-format fuzz covering JWKS key selection,
+     signed JWT verification, and JWE wrapping.
+   - [ ] Add CMS→PKIX→PKIX_VERIFY fuzz.
+   - [ ] Add OCSP / CRL→PKIX_VERIFY fuzz.
+9. [ ] **git object signed object coverage**: extend signed-object parsing
+   to tag objects, raw object headers (`commit <len>\0...`), and stricter
+   signature continuation boundaries.
+   - [x] Add `parse_signed_object` for commit/tag content and raw
+     `commit <len>\0...` / `tag <len>\0...` object headers.
+   - [x] Add signed tag-object coverage.
+   - [x] Keep duplicate `gpgsig` and body-only `gpgsig` rejection tests.
+10. [ ] **CI target parity**: run `moon test` on `wasm-gc`, `native`, and
+    `js` targets so byte / integer / string behavior does not silently
+    diverge.
+    - [x] Split CI test job into a target matrix for `wasm-gc`, `native`,
+      and `js`; keep `moon prove` as a separate job.
+
 ### Algorithm gaps — Tier 1
 
 - **TLS 1.3 client**: handshake + key schedule (HKDF-Expand-Label) +
@@ -133,12 +208,6 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
 - **PGP v6 real-gpg fixture**: blocked on GnuPG ≥ 2.4.9 emitting v4 by
   default. Cross-test once rpgpie / rsop / a v6-capable gpg becomes
   available.
-- **PGP v6 caller-supplied salt** in `sign_armor` (currently empty;
-  RFC requires ≥16 bytes for production).
-- **PBES2 HMAC-SHA1 / SHA-384 / SHA-512 PRF support** in `@pkcs8`
-  (currently rejects with `UnsupportedKdf`).
-- **AES-192-CBC** in `@aead.aes_cbc` (needs a third branch in
-  `aes_key_schedule`).
 - **scrypt-based PBES2**: less common openssl encrypted PEM mode.
 - **Post-quantum (ML-KEM, ML-DSA)**: FIPS 203 / 204.
 - **Ed448 / X448** (RFC 8032 / 7748).

@@ -1,4 +1,4 @@
-// NIST SP 800-38A §F.2 AES-CBC test vectors (AES-128 and AES-256).
+// NIST SP 800-38A §F.2 AES-CBC test vectors (AES-128/192/256).
 // Confirms the AES inverse cipher + CBC mode match the reference.
 
 ///|
@@ -47,6 +47,29 @@ test "aes-128-cbc: NIST SP 800-38A §F.2.1/F.2.2 round trip" {
     "5086cb9b507219ee95db113a917678b2" +
     "73bed6b8e3c1743b7116e69e22229516" +
     "3ff1caa1681fac09120eca307586e1a7",
+  )
+  let ct = @aead.aes_cbc_encrypt(key, iv, plaintext)
+  @debug.assert_eq(ct, expected_ct)
+  let pt = @aead.aes_cbc_decrypt(key, iv, ct)
+  @debug.assert_eq(pt, plaintext)
+}
+
+///|
+test "aes-192-cbc: NIST SP 800-38A §F.2.3/F.2.4 round trip" {
+  // F.2.3 CBC-AES192.Encrypt
+  let key = cbc_hex("8e73b0f7da0e6452c810f32b809079e5" + "62f8ead2522c6b7b")
+  let iv = cbc_hex("000102030405060708090a0b0c0d0e0f")
+  let plaintext = cbc_hex(
+    "6bc1bee22e409f96e93d7e117393172a" +
+    "ae2d8a571e03ac9c9eb76fac45af8e51" +
+    "30c81c46a35ce411e5fbc1191a0a52ef" +
+    "f69f2445df4f9b17ad2b417be66c3710",
+  )
+  let expected_ct = cbc_hex(
+    "4f021db243bc633d7178183a9fa071e8" +
+    "b4d9ada9ad7dedf4e5e738763f69145a" +
+    "571b242012fb7ae07fa9baac3df102e0" +
+    "08b0e27988598881d920a9e64f5615cd",
   )
   let ct = @aead.aes_cbc_encrypt(key, iv, plaintext)
   @debug.assert_eq(ct, expected_ct)

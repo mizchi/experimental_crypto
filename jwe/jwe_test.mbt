@@ -102,6 +102,41 @@ fn fixed_oaep_seed() -> Bytes {
   )
 }
 
+///|
+fn b64u(b : Bytes) -> String {
+  let s = @base64.encode(b[:], padding=false)
+  let buf = StringBuilder::new()
+  for c in s {
+    let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+    buf.write_char(c2)
+  }
+  buf.to_string()
+}
+
+///|
+fn replace_compact_segment(
+  token : String,
+  index : Int,
+  value : String,
+) -> String {
+  let parts = token.split(".").to_array()
+  if parts.length() != 5 {
+    abort("test helper expects compact JWE")
+  }
+  let buf = StringBuilder::new()
+  for i in 0..<5 {
+    if i > 0 {
+      buf.write_char('.')
+    }
+    if i == index {
+      buf.write_string(value)
+    } else {
+      buf.write_string(parts[i].to_owned())
+    }
+  }
+  buf.to_string()
+}
+
 // ─── Roundtrip: dir + A256GCM ─────────────────────────────────────────────
 
 ///|
@@ -322,6 +357,190 @@ test "jwe: wrong KEK fails (A256KW unwrap mismatch)" {
     _ => false
   }
   assert_true(raised)
+}
+
+///|
+test "ATTACK jwe: impossible base64url segment length rejects" {
+  let cek = fixed_cek32()
+  let malformed = "A...."
+  let rejected = try {
+    let _ = @jwe.decrypt(malformed, @jwe.DecryptionKey::DecDir(cek~))
+    false
+  } catch {
+    @jwe.InvalidToken(_) => true
+    _ => false
+  }
+  assert_true(rejected)
+}
+
+///|
+test "ATTACK jwe: RSA-OAEP encrypted-key mutations collapse to authentication failure" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rsa2048_priv_pkcs1_der)
+  let pk = sk.public_key()
+  let token = @jwe.encrypt(
+    b"payload",
+    @jwe.JweAlg::Rsa_oaep_256,
+    @jwe.JweEnc::A256gcm,
+    @jwe.EncryptionKey::EncRsa(pubkey=pk),
+    cek=fixed_cek32(),
+    iv=fixed_iv12(),
+    oaep_seed=fixed_oaep_seed(),
+  )
+  let cases = [
+    // Wrong RSA ciphertext length.
+    replace_compact_segment(
+      token,
+      1,
+      b64u(Bytes::makei(255, fn(_i) { b'\x00' })),
+    ),
+    // Ciphertext representative >= n.
+    replace_compact_segment(
+      token,
+      1,
+      b64u(Bytes::makei(256, fn(_i) { b'\xff' })),
+    ),
+  ]
+  for c in cases {
+    let rejected = try {
+      let _ = @jwe.decrypt(c, @jwe.DecryptionKey::DecRsa(privkey=sk))
+      false
+    } catch {
+      @jwe.AuthenticationFailed => true
+      _ => false
+    }
+    assert_true(rejected)
+  }
+}
+
+///|
+test "ATTACK jwe: encrypt rejects protected-header alg and enc overrides" {
+  let cek = fixed_cek32()
+  let iv = fixed_iv12()
+  let alg_override : Map[String, Json] = { "alg": Json::string("dir") }
+  let alg_rejected = try {
+    let _ = @jwe.encrypt(
+      b"payload",
+      @jwe.JweAlg::A256kw,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncAes256Kw(kek=fixed_kek32()),
+      cek~,
+      iv~,
+      extra_header=alg_override,
+    )
+    false
+  } catch {
+    @jwe.InvalidHeader(_) => true
+    _ => false
+  }
+  assert_true(alg_rejected)
+
+  let enc_override : Map[String, Json] = { "enc": Json::string("A128GCM") }
+  let enc_rejected = try {
+    let _ = @jwe.encrypt(
+      b"payload",
+      @jwe.JweAlg::Dir,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncDir(cek~),
+      iv~,
+      extra_header=enc_override,
+    )
+    false
+  } catch {
+    @jwe.InvalidHeader(_) => true
+    _ => false
+  }
+  assert_true(enc_rejected)
+}
+
+///|
+test "ATTACK jwe: encrypt rejects unsupported critical and zip headers" {
+  let cek = fixed_cek32()
+  let iv = fixed_iv12()
+  let crit_header : Map[String, Json] = {
+    "crit": Json::array([Json::string("exp")]),
+  }
+  let crit_rejected = try {
+    let _ = @jwe.encrypt(
+      b"payload",
+      @jwe.JweAlg::Dir,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncDir(cek~),
+      iv~,
+      extra_header=crit_header,
+    )
+    false
+  } catch {
+    @jwe.InvalidHeader(_) => true
+    _ => false
+  }
+  assert_true(crit_rejected)
+
+  let zip_header : Map[String, Json] = { "zip": Json::string("DEF") }
+  let zip_rejected = try {
+    let _ = @jwe.encrypt(
+      b"payload",
+      @jwe.JweAlg::Dir,
+      @jwe.JweEnc::A256gcm,
+      @jwe.EncryptionKey::EncDir(cek~),
+      iv~,
+      extra_header=zip_header,
+    )
+    false
+  } catch {
+    @jwe.UnsupportedAlgorithm(_) => true
+    _ => false
+  }
+  assert_true(zip_rejected)
+}
+
+///|
+test "ATTACK jwe: decrypt rejects unsupported critical and zip headers" {
+  let cek = fixed_cek32()
+  let iv = fixed_iv12()
+  let token = @jwe.encrypt(
+    b"payload",
+    @jwe.JweAlg::Dir,
+    @jwe.JweEnc::A256gcm,
+    @jwe.EncryptionKey::EncDir(cek~),
+    iv~,
+  )
+  let crit_header : Json = Json::object({
+    "alg": Json::string("dir"),
+    "enc": Json::string("A256GCM"),
+    "crit": Json::array([Json::string("exp")]),
+  })
+  let crit_rejected = try {
+    let tampered = replace_compact_segment(
+      token,
+      0,
+      b64u(@utf8.encode(crit_header.stringify()[:])),
+    )
+    let _ = @jwe.decrypt(tampered, @jwe.DecryptionKey::DecDir(cek~))
+    false
+  } catch {
+    @jwe.InvalidHeader(_) => true
+    _ => false
+  }
+  assert_true(crit_rejected)
+
+  let zip_header : Json = Json::object({
+    "alg": Json::string("dir"),
+    "enc": Json::string("A256GCM"),
+    "zip": Json::string("DEF"),
+  })
+  let zip_rejected = try {
+    let tampered = replace_compact_segment(
+      token,
+      0,
+      b64u(@utf8.encode(zip_header.stringify()[:])),
+    )
+    let _ = @jwe.decrypt(tampered, @jwe.DecryptionKey::DecDir(cek~))
+    false
+  } catch {
+    @jwe.UnsupportedAlgorithm(_) => true
+    _ => false
+  }
+  assert_true(zip_rejected)
 }
 
 // ─── Sanity: header structure ─────────────────────────────────────────────

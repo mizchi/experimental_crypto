@@ -1,10 +1,9 @@
 // RFC 8018 PBKDF2 with PRF = HMAC-<hash>.
 //
-// Only SHA-256 is implemented today. The inner SHA-256 is hand-rolled so that
-// HMAC's ipad / opad blocks can be pre-compressed once per pbkdf2 call and the
-// resulting 8-word digest state can be reused as the starting point for every
-// HMAC iteration. This halves the SHA-256 compression count (2 per HMAC instead
-// of 4) on the hot path.
+// SHA-256 keeps a hand-rolled fast path so HMAC's ipad / opad blocks can be
+// pre-compressed once per pbkdf2 call and reused for every iteration. SHA-1,
+// SHA-384, and SHA-512 use the workspace's generic HMAC functions, which is
+// slower but important for PBES2 interop with existing PKCS#8 files.
 
 ///|
 pub(all) enum HashAlg {
@@ -19,7 +18,6 @@ pub suberror Pbkdf2Error {
   InvalidIterations
   OutputTooLong
   InvalidLength
-  UnsupportedHash(HashAlg)
 } derive(Debug)
 
 ///|
@@ -332,8 +330,68 @@ pub fn pbkdf2(
   }
   match hash {
     Sha256 => pbkdf2_sha256(password, salt, iterations, dk_len)
-    _ => raise UnsupportedHash(hash)
+    Sha1 | Sha384 | Sha512 =>
+      pbkdf2_generic(hash, password, salt, iterations, dk_len)
   }
+}
+
+///|
+fn pbkdf2_h_len(hash : HashAlg) -> Int {
+  match hash {
+    Sha1 => 20
+    Sha256 => 32
+    Sha384 => 48
+    Sha512 => 64
+  }
+}
+
+///|
+fn pbkdf2_hmac(hash : HashAlg, password : Bytes, msg : Bytes) -> Bytes {
+  match hash {
+    Sha1 => @hash.hmac_sha1(password, msg)
+    Sha256 => @hash.hmac_sha256(password, msg)
+    Sha384 => @hash.hmac_sha384(password, msg)
+    Sha512 => @hash.hmac_sha512(password, msg)
+  }
+}
+
+///|
+fn pbkdf2_generic(
+  hash : HashAlg,
+  password : Bytes,
+  salt : Bytes,
+  iterations : Int,
+  dk_len : Int,
+) -> Bytes {
+  let h_len = pbkdf2_h_len(hash)
+  let num_blocks = (dk_len + h_len - 1) / h_len
+  let out = FixedArray::make(num_blocks * h_len, b'\x00')
+  for blk = 1; blk <= num_blocks; blk = blk + 1 {
+    let u1_msg = Bytes::makei(salt.length() + 4, fn(i) {
+      if i < salt.length() {
+        salt[i]
+      } else {
+        let shift = (3 - (i - salt.length())) * 8
+        ((blk >> shift) & 0xff).to_byte()
+      }
+    })
+    let mut u = pbkdf2_hmac(hash, password, u1_msg)
+    let t = FixedArray::make(h_len, b'\x00')
+    for i = 0; i < h_len; i = i + 1 {
+      t[i] = u[i]
+    }
+    for _ in 1..<iterations {
+      u = pbkdf2_hmac(hash, password, u)
+      for i = 0; i < h_len; i = i + 1 {
+        t[i] = (t[i].to_int() ^ u[i].to_int()).to_byte()
+      }
+    }
+    let base = (blk - 1) * h_len
+    for i = 0; i < h_len; i = i + 1 {
+      out[base + i] = t[i]
+    }
+  }
+  Bytes::makei(dk_len, fn(i) { out[i] })
 }
 
 ///|

@@ -38,7 +38,7 @@ pub fn parse_signature_packet(Bytes) -> PgpSignature raise PgpError
 
 pub fn read_mpi(Bytes, Int) -> (Bytes, Int) raise PgpError
 
-pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int, creation_time? : UInt, version? : Int) -> String raise PgpError
+pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int, creation_time? : UInt, version? : Int, salt? : Bytes) -> String raise PgpError
 
 pub fn verify_armor(String, Bytes, PgpPublicKey) -> Bool raise PgpError
 

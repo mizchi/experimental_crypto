@@ -28,7 +28,7 @@
 /// NOT add PKCS#7 padding; the caller is responsible for that. Returns
 /// `plaintext.length()` bytes of ciphertext.
 ///
-/// Key length must be 16 or 32 bytes (AES-128 or AES-256). `iv` must be
+/// Key length must be 16, 24, or 32 bytes (AES-128/192/256). `iv` must be
 /// 16 bytes.
 pub fn aes_cbc_encrypt(
   key : Bytes,
@@ -71,7 +71,7 @@ pub fn aes_cbc_encrypt(
 /// strip padding; the caller is responsible for that. Returns
 /// `ciphertext.length()` bytes of plaintext.
 ///
-/// Key length must be 16 or 32 bytes (AES-128 or AES-256). `iv` must be
+/// Key length must be 16, 24, or 32 bytes (AES-128/192/256). `iv` must be
 /// 16 bytes.
 pub fn aes_cbc_decrypt(
   key : Bytes,

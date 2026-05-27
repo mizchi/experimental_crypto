@@ -275,6 +275,40 @@ test "argon2: verify_encoded rejects malformed PHC strings" {
 }
 
 ///|
+test "ATTACK argon2: PHC parser rejects duplicate params and padded base64" {
+  try
+    @argon2.verify_encoded(
+      "$argon2id$v=19$m=32,t=1,p=1,p=1$c29tZXNhbHQ$AAAAAA", b"x",
+    )
+  catch {
+    @argon2.InvalidEncoded(_) => ()
+    other => abort("expected InvalidEncoded, got " + repr(other))
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected duplicate param reject")
+  }
+  try
+    @argon2.verify_encoded(
+      "$argon2id$v=19$m=032,t=1,p=1$c29tZXNhbHQ$AAAAAA", b"x",
+    )
+  catch {
+    @argon2.InvalidEncoded(_) => ()
+    other => abort("expected InvalidEncoded, got " + repr(other))
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected non-canonical reject")
+  }
+  try
+    @argon2.verify_encoded(
+      "$argon2id$v=19$m=32,t=1,p=1$c29tZXNhbHQ=$AAAAAA", b"x",
+    )
+  catch {
+    @argon2.InvalidEncoded(_) => ()
+    other => abort("expected InvalidEncoded, got " + repr(other))
+  } noraise {
+    _ => @debug.assert_eq(true, false, msg="expected padded base64 reject")
+  }
+}
+
+///|
 test "argon2: hash_encoded honors variant selection" {
   let salt = b"abcdefgh"
   let id_params : @argon2.Params = {

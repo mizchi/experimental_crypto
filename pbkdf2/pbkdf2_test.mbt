@@ -48,16 +48,22 @@ test "pbkdf2: rejects negative dk_len" {
 }
 
 ///|
-test "pbkdf2: SHA-1/384/512 are unsupported (placeholders)" {
-  try @pbkdf2.pbkdf2(Sha1, b"p", b"s", 1, 20) catch {
-    _ => ()
-  } noraise {
-    _ => @debug.assert_eq(true, false, msg="expected UnsupportedHash for Sha1")
-  }
-  try @pbkdf2.pbkdf2(Sha384, b"p", b"s", 1, 48) catch {
-    _ => ()
-  } noraise {
-    _ =>
-      @debug.assert_eq(true, false, msg="expected UnsupportedHash for Sha384")
-  }
+test "pbkdf2: HMAC-SHA1 RFC 6070 vector 1" {
+  let dk = @pbkdf2.pbkdf2(Sha1, b"password", b"salt", 1, 20)
+  let expected : Bytes = b"\x0c\x60\xc8\x0f\x96\x1f\x0e\x71\xf3\xa9\xb5\x24\xaf\x60\x12\x06\x2f\xe0\x37\xa6"
+  @debug.assert_eq(dk, expected)
+}
+
+///|
+test "pbkdf2: HMAC-SHA384 vector" {
+  let dk = @pbkdf2.pbkdf2(Sha384, b"password", b"salt", 1, 48)
+  let expected : Bytes = b"\xc0\xe1\x4f\x06\xe4\x9e\x32\xd7\x3f\x9f\x52\xdd\xf1\xd0\xc5\xc7\x19\x16\x09\x23\x36\x31\xda\xdd\x76\xa5\x67\xdb\x42\xb7\x86\x76\xb3\x8f\xc8\x00\xcc\x53\xdd\xb6\x42\xf5\xc7\x44\x42\xe6\x2b\xe4"
+  @debug.assert_eq(dk, expected)
+}
+
+///|
+test "pbkdf2: HMAC-SHA512 vector" {
+  let dk = @pbkdf2.pbkdf2(Sha512, b"password", b"salt", 1, 64)
+  let expected : Bytes = b"\x86\x7f\x70\xcf\x1a\xde\x02\xcf\xf3\x75\x25\x99\xa3\xa5\x3d\xc4\xaf\x34\xc7\xa6\x69\x81\x5a\xe5\xd5\x13\x55\x4e\x1c\x8c\xf2\x52\xc0\x2d\x47\x0a\x28\x5a\x05\x01\xba\xd9\x99\xbf\xe9\x43\xc0\x8f\x05\x02\x35\xd7\xd6\x8b\x1d\xa5\x5e\x63\xf7\x3b\x60\xa5\x7f\xce"
+  @debug.assert_eq(dk, expected)
 }

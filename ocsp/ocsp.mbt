@@ -133,6 +133,27 @@ fn id_ce_ext_key_usage() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 37])
 }
 
+///|
+fn is_der_null(bytes : Bytes) -> Bool {
+  bytes.length() == 2 && bytes[0] == b'\x05' && bytes[1] == b'\x00'
+}
+
+///|
+fn validate_cert_id_hash_algorithm(
+  alg : @pkix.AlgorithmIdentifier,
+) -> Unit raise OcspError {
+  if alg.algorithm != id_sha1() && alg.algorithm != id_sha256() {
+    raise UnsupportedHashAlgorithm(alg.algorithm)
+  }
+  match alg.parameters {
+    Some(p) =>
+      if !is_der_null(p) {
+        raise Malformed("CertID.hashAlgorithm parameters must be DER NULL")
+      }
+    None => ()
+  }
+}
+
 // ─── small element helpers ──────────────────────────────────────────────
 
 ///|
@@ -163,6 +184,14 @@ fn expect_octet_string(elem : @asn1.Element) -> Bytes raise OcspError {
   match elem.value {
     OctetString(b) => b
     _ => raise Malformed("expected OCTET STRING")
+  }
+}
+
+///|
+fn expect_bool(elem : @asn1.Element) -> Bool raise OcspError {
+  match elem.value {
+    Boolean(b) => b
+    _ => raise Malformed("expected BOOLEAN")
   }
 }
 
@@ -219,6 +248,47 @@ fn expect_enumerated_small(elem : @asn1.Element) -> Int raise OcspError {
 }
 
 ///|
+fn parse_extension_meta(
+  elem : @asn1.Element,
+) -> (@asn1.ObjectIdentifier, Bool) raise OcspError {
+  let items = expect_sequence(elem)
+  if items.length() < 2 || items.length() > 3 {
+    raise Malformed("Extension arity")
+  }
+  let oid = expect_oid(items[0])
+  let mut critical = false
+  let value_index = if items.length() == 3 {
+    critical = expect_bool(items[1])
+    2
+  } else {
+    1
+  }
+  let _ = expect_octet_string(items[value_index])
+  (oid, critical)
+}
+
+///|
+fn check_unsupported_critical_extensions(
+  elem : @asn1.Element,
+  context : String,
+) -> Unit raise OcspError {
+  let items = expect_sequence(elem)
+  let seen : Array[@asn1.ObjectIdentifier] = []
+  for item in items {
+    let (oid, critical) = parse_extension_meta(item)
+    for prev in seen {
+      if prev == oid {
+        raise Malformed(context + ": duplicate extension")
+      }
+    }
+    seen.push(oid)
+    if critical {
+      raise Malformed(context + ": unsupported critical extension")
+    }
+  }
+}
+
+///|
 // Context [n] EXPLICIT: outer = ContextSpecific n constructed, content = a
 // single nested TLV. Matches `match_context_explicit` in pkix.
 fn match_context_explicit(
@@ -262,6 +332,7 @@ fn parse_cert_id(elem : @asn1.Element) -> ParsedCertId raise OcspError {
   let alg = @pkix.parse_algorithm_identifier_elem(items[0]) catch {
     e => raise Pkix(e)
   }
+  validate_cert_id_hash_algorithm(alg)
   let issuer_name_hash = expect_octet_string(items[1])
   let issuer_key_hash = expect_octet_string(items[2])
   let serial = expect_integer(items[3])
@@ -313,11 +384,16 @@ fn parse_cert_status(elem : @asn1.Element) -> CertStatus raise OcspError {
     raise Malformed("certStatus: expected context-specific tag")
   }
   match elem.tag.number {
-    0U =>
+    0U => {
       // good — IMPLICIT NULL, content empty
+      expect_empty_implicit_null(elem, "good")
       Good
+    }
     1U => {
       // revoked — IMPLICIT RevokedInfo (SEQUENCE)
+      if !elem.tag.constructed {
+        raise Malformed("revoked: expected constructed tag")
+      }
       let raw = match elem.value {
         Unknown(b) => b
         _ => raise Malformed("revoked: missing raw content")
@@ -334,6 +410,9 @@ fn parse_cert_status(elem : @asn1.Element) -> CertStatus raise OcspError {
       if items.length() < 1 {
         raise Malformed("RevokedInfo: missing revocationTime")
       }
+      if items.length() > 2 {
+        raise Malformed("RevokedInfo: trailing fields")
+      }
       let rev_time = expect_generalized_time(items[0])
       let mut reason : Int? = None
       if items.length() >= 2 {
@@ -341,15 +420,34 @@ fn parse_cert_status(elem : @asn1.Element) -> CertStatus raise OcspError {
           Some(inner) =>
             // CRLReason ::= ENUMERATED (RFC 5280 §5.3.1)
             reason = Some(expect_enumerated_small(inner))
-          None => () // unknown extension — ignored
+          None => raise Malformed("RevokedInfo: unexpected field")
         }
       }
       Revoked(revocation_time=rev_time, reason~)
     }
-    2U =>
+    2U => {
       // unknown — IMPLICIT UnknownInfo ::= NULL
+      expect_empty_implicit_null(elem, "unknown")
       Unknown
+    }
     _ => raise Malformed("certStatus: unrecognised tag")
+  }
+}
+
+///|
+fn expect_empty_implicit_null(
+  elem : @asn1.Element,
+  name : String,
+) -> Unit raise OcspError {
+  if elem.tag.constructed {
+    raise Malformed(name + " CertStatus must be primitive")
+  }
+  let raw = match elem.value {
+    Unknown(b) => b
+    _ => raise Malformed(name + " CertStatus missing raw content")
+  }
+  if raw.length() != 0 {
+    raise Malformed(name + " CertStatus content must be empty")
   }
 }
 
@@ -378,7 +476,16 @@ fn parse_single_response(
   // singleExtensions [1] EXPLICIT — skip silently for now (no nonce / archive
   // cutoff handling in this minimal verifier).
   if idx < items.length() {
-    let _ = match_context_explicit(items[idx], 1U)
+    match match_context_explicit(items[idx], 1U) {
+      Some(exts) => {
+        check_unsupported_critical_extensions(exts, "singleExtensions")
+        idx = idx + 1
+      }
+      None => raise Malformed("SingleResponse: unexpected trailing field")
+    }
+  }
+  if idx != items.length() {
+    raise Malformed("SingleResponse: trailing fields")
   }
   {
     cert_id_issuer_name_hash: cid.issuer_name_hash,
@@ -466,11 +573,24 @@ fn parse_response_data(
   let responder_id = parse_responder_id(items[idx])
   let produced_at = expect_generalized_time(items[idx + 1])
   let responses_seq = expect_sequence(items[idx + 2])
+  idx = idx + 3
   let responses : Array[OcspSingleResponse] = []
   for sr in responses_seq {
     responses.push(parse_single_response(sr))
   }
   // [1] EXPLICIT responseExtensions OPTIONAL — ignored for now.
+  if idx < items.length() {
+    match match_context_explicit(items[idx], 1U) {
+      Some(exts) => {
+        check_unsupported_critical_extensions(exts, "responseExtensions")
+        idx = idx + 1
+      }
+      None => raise Malformed("ResponseData: unexpected trailing field")
+    }
+  }
+  if idx != items.length() {
+    raise Malformed("ResponseData: trailing fields")
+  }
   { responder_id, produced_at, responses }
 }
 
@@ -498,6 +618,9 @@ fn parse_basic_ocsp(der : Bytes) -> ParsedBasicOcsp raise OcspError {
   if items.length() < 3 {
     raise Malformed("BasicOCSPResponse: too few fields")
   }
+  if items.length() > 4 {
+    raise Malformed("BasicOCSPResponse: too many fields")
+  }
   let tbs_elem = items[0]
   // Re-encode the parsed tbsResponseData to obtain the exact signed bytes.
   // RFC 6960 mandates DER, so this is byte-stable for compliant responders.
@@ -508,7 +631,7 @@ fn parse_basic_ocsp(der : Bytes) -> ParsedBasicOcsp raise OcspError {
   }
   let sig = expect_bit_string(items[2])
   let certs : Array[@pkix.Certificate] = []
-  if items.length() >= 4 {
+  if items.length() == 4 {
     match match_context_explicit(items[3], 0U) {
       Some(inner) => {
         let cert_items = expect_sequence(inner)
@@ -520,7 +643,7 @@ fn parse_basic_ocsp(der : Bytes) -> ParsedBasicOcsp raise OcspError {
           certs.push(cert)
         }
       }
-      None => ()
+      None => raise Malformed("BasicOCSPResponse: unexpected trailing field")
     }
   }
   {
@@ -553,6 +676,9 @@ pub fn parse_response(der : Bytes) -> OcspResponse raise OcspError {
   let items = expect_sequence(outer)
   if items.length() < 1 {
     raise Malformed("OCSPResponse: empty")
+  }
+  if items.length() > 2 {
+    raise Malformed("OCSPResponse: trailing fields")
   }
   let status = expect_enumerated_small(items[0])
   if status != 0 {
@@ -696,16 +822,24 @@ fn responder_id_matches_issuer(
   rid : ResponderId,
   issuer_cert : @pkix.Certificate,
 ) -> Bool {
+  responder_id_matches_cert(rid, issuer_cert)
+}
+
+///|
+fn responder_id_matches_cert(
+  rid : ResponderId,
+  cert : @pkix.Certificate,
+) -> Bool {
   match rid {
     ByName(name) => {
-      let issuer_subject_der = @pkix.serialize_name(issuer_cert.tbs.subject)
+      let subject_der = @pkix.serialize_name(cert.tbs.subject)
       let rid_name_der = @pkix.serialize_name(name)
-      bytes_equal(issuer_subject_der, rid_name_der)
+      bytes_equal(subject_der, rid_name_der)
     }
     ByKey(kh) => {
-      // KeyHash is SHA-1 of the issuer's subjectPublicKey BIT STRING content.
+      // KeyHash is SHA-1 of the responder's subjectPublicKey BIT STRING content.
       let h = @hash.sha1(
-        issuer_cert.tbs.subject_public_key_info.subject_public_key.bytes,
+        cert.tbs.subject_public_key_info.subject_public_key.bytes,
       )
       bytes_equal(h, kh)
     }
@@ -743,6 +877,9 @@ fn verify_basic_signature(
     let resp_cert = basic.certs[0]
     if !cert_has_ocsp_signing_eku(resp_cert) {
       raise ResponderMissingOcspSigningEku
+    }
+    if !responder_id_matches_cert(basic.response_data.responder_id, resp_cert) {
+      raise ResponderIdMismatch
     }
     // The responder cert itself must be signed by the issuer cert.
     let issuer_pk = @pkix_verify.extract_public_key(
@@ -799,6 +936,9 @@ pub fn verify(
   let items = expect_sequence(outer)
   if items.length() < 1 {
     raise Malformed("OCSPResponse: empty")
+  }
+  if items.length() > 2 {
+    raise Malformed("OCSPResponse: trailing fields")
   }
   let status = expect_enumerated_small(items[0])
   if status != 0 {

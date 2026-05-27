@@ -81,6 +81,30 @@ test "git_object: end-to-end verify a real SSH-signed commit" {
 }
 
 ///|
+test "git_object: parse raw commit object header before signed content" {
+  let body = commit_object_bytes()
+  let raw = with_raw_object_header("commit", body)
+  let direct = @git_object.parse_signed_commit(body)
+  let parsed = @git_object.parse_signed_object(raw)
+  @debug.assert_eq(parsed.signed_content, direct.signed_content)
+  @debug.assert_eq(parsed.signature_armor, direct.signature_armor)
+}
+
+///|
+test "git_object: split signed tag object" {
+  let tag : Bytes = b"object 0000000000000000000000000000000000000000\ntype commit\ntag v1.0.0\ntagger x <x@x> 0 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n line1\n -----END PGP SIGNATURE-----\n\nrelease\n"
+  let parsed = @git_object.parse_signed_object(tag)
+  @debug.assert_eq(
+    parsed.signature_armor,
+    "-----BEGIN PGP SIGNATURE-----\nline1\n-----END PGP SIGNATURE-----",
+  )
+  let signed_text = bytes_to_string(parsed.signed_content)
+  assert_true(contains(signed_text, "tag v1.0.0"))
+  assert_true(contains(signed_text, "release"))
+  assert_false(contains(signed_text, "gpgsig"))
+}
+
+///|
 test "git_object: tampering the signed content breaks verification" {
   let signed = @git_object.parse_signed_commit(commit_object_bytes())
   let pk = signer_pubkey()
@@ -119,6 +143,25 @@ fn bytes_to_string(b : Bytes) -> String {
 }
 
 ///|
+fn with_raw_object_header(kind : String, body : Bytes) -> Bytes {
+  let header = string_to_bytes(kind + " " + body.length().to_string())
+  Bytes::makei(header.length() + 1 + body.length(), fn(i) {
+    if i < header.length() {
+      header[i]
+    } else if i == header.length() {
+      b'\x00'
+    } else {
+      body[i - header.length() - 1]
+    }
+  })
+}
+
+///|
+fn string_to_bytes(s : String) -> Bytes {
+  Bytes::makei(s.length(), fn(i) { s.get_char(i).unwrap().to_int().to_byte() })
+}
+
+///|
 fn contains(s : String, needle : String) -> Bool {
   if needle.length() == 0 {
     return true
@@ -150,5 +193,38 @@ test "ATTACK: commit object with two gpgsig headers must be rejected" {
     other => abort("multi-gpgsig NOT rejected: " + repr(other) + "")
   } noraise {
     other => abort("multi-gpgsig NOT rejected: " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK: signed commit without header-body separator is malformed" {
+  let bad : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\ngpgsig -----BEGIN SSH SIGNATURE-----\n -----END SSH SIGNATURE-----\n"
+  try @git_object.parse_signed_commit(bad) catch {
+    Malformed(_) => ()
+    other => abort("missing separator NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("missing separator NOT rejected: " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK: body gpgsig line is not treated as a commit signature" {
+  let body_only : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\n\nbody\ngpgsig -----BEGIN SSH SIGNATURE-----\n"
+  try @git_object.parse_signed_commit(body_only) catch {
+    NotSigned => ()
+    other => abort("body gpgsig should be ignored, got " + repr(other) + "")
+  } noraise {
+    other => abort("body gpgsig should be ignored, got " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK: empty gpgsig first line is malformed" {
+  let bad : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\ngpgsig\n -----BEGIN SSH SIGNATURE-----\n -----END SSH SIGNATURE-----\n\nhi\n"
+  try @git_object.parse_signed_commit(bad) catch {
+    Malformed(_) => ()
+    other => abort("empty gpgsig first line NOT rejected: " + repr(other) + "")
+  } noraise {
+    other => abort("empty gpgsig first line NOT rejected: " + repr(other) + "")
   }
 }

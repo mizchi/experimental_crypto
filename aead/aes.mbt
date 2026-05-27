@@ -1,5 +1,5 @@
-// AES-128 and AES-256 block cipher (FIPS 197). Encryption only — GCM does
-// not need the inverse direction. This implementation uses the T-table
+// AES-128, AES-192, and AES-256 block cipher (FIPS 197). Encryption only —
+// GCM does not need the inverse direction. This implementation uses the T-table
 // (Te0..Te3) optimization: each main round becomes 16 table lookups + 16
 // XORs over four 32-bit words, instead of per-byte SubBytes / ShiftRows /
 // MixColumns. The final round still uses the raw S-box (no MixColumns).
@@ -159,7 +159,7 @@ let te3 : FixedArray[Int] = build_te3(te0)
 ///|
 /// AES key schedule. Returns Nr+1 round keys, each 16 bytes packed as 4 ×
 /// UInt (column-major: column 0 is bytes 0..3 = (a0, a1, a2, a3)). Nr is 10
-/// for AES-128 and 14 for AES-256.
+/// for AES-128, 12 for AES-192, and 14 for AES-256.
 fn aes_key_schedule(key : Bytes) -> (FixedArray[Int], Int) raise AeadError {
   // Callers in this module pre-validate key length, so the only way to
   // hit the InvalidKeySize branch is a bad refactor or a future direct
@@ -168,6 +168,7 @@ fn aes_key_schedule(key : Bytes) -> (FixedArray[Int], Int) raise AeadError {
   let key_len = key.length()
   let (nk, nr) = match key_len {
     16 => (4, 10) // AES-128: 4 words of key, 10 rounds, 44 round-key words
+    24 => (6, 12) // AES-192: 6 words of key, 12 rounds, 52 round-key words
     32 => (8, 14) // AES-256: 8 words of key, 14 rounds, 60 round-key words
     _ => raise InvalidKeySize(expected=16, got=key_len)
   }

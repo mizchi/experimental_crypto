@@ -13,7 +13,6 @@ pub suberror Pbkdf2Error {
   InvalidIterations
   OutputTooLong
   InvalidLength
-  UnsupportedHash(HashAlg)
 } derive(@debug.Debug)
 
 // Types and methods

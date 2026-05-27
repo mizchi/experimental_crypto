@@ -351,7 +351,14 @@ fn integer_to_bigint(bytes : Bytes) -> BigInt raise Secp256k1Error {
   if (bytes[0].to_int() & 0x80) != 0 {
     raise InvalidDerSignature("negative INTEGER not permitted")
   }
-  let start = if bytes.length() > 1 && bytes[0] == b'\x00' { 1 } else { 0 }
+  let start = if bytes.length() > 1 && bytes[0] == b'\x00' {
+    if (bytes[1].to_int() & 0x80) == 0 {
+      raise InvalidDerSignature("non-minimal INTEGER")
+    }
+    1
+  } else {
+    0
+  }
   BigInt::from_octets(bytes[start:])
 }
 
@@ -372,7 +379,9 @@ fn parse_signature(
       (r, s)
     }
     Der => {
-      let elem = decode_one_asn1(sig)
+      let elem = @asn1.decode_der(sig) catch {
+        _ => raise InvalidDerSignature("malformed DER signature")
+      }
       let items = match elem.value {
         Sequence(xs) => xs
         _ => raise InvalidDerSignature("expected SEQUENCE")

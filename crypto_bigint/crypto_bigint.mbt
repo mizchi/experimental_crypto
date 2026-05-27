@@ -235,33 +235,34 @@ pub fn Uint::bit_len(self : Uint) -> Int {
 // ---------------------------------------------------------------------------
 // Comparisons.
 //
-// `ct_eq` / `ct_lt` are NOT constant time today. The names match the
-// future API surface; tighten the implementation when constant-time work
-// lands.
+// `ct_eq` / `ct_lt` walk every zero-extended limb and avoid early return on
+// limb values. They still only cover comparisons; modular arithmetic below
+// remains BigInt-backed and is not constant-time.
 // ---------------------------------------------------------------------------
+
+///|
+fn u64_nonzero_01(x : UInt64) -> UInt64 {
+  ((x | (0UL - x)) >> 63) & 1UL
+}
+
+///|
+fn u64_lt_01(a : UInt64, b : UInt64) -> UInt64 {
+  let diff = a - b
+  (((a.lnot() & b) | ((a ^ b).lnot() & diff)) >> 63) & 1UL
+}
 
 ///|
 pub fn Uint::ct_eq(self : Uint, other : Uint) -> Bool {
   let a = self.limbs
   let b = other.limbs
-  if a.length() != b.length() {
-    // Compare as if shorter side is zero-extended.
-    let n = if a.length() > b.length() { a.length() } else { b.length() }
-    for i in 0..<n {
-      let av = if i < a.length() { a[i] } else { 0UL }
-      let bv = if i < b.length() { b[i] } else { 0UL }
-      if av != bv {
-        return false
-      }
-    }
-    return true
+  let n = if a.length() > b.length() { a.length() } else { b.length() }
+  let mut diff = 0UL
+  for i in 0..<n {
+    let av = if i < a.length() { a[i] } else { 0UL }
+    let bv = if i < b.length() { b[i] } else { 0UL }
+    diff = diff | (av ^ bv)
   }
-  for i in 0..<a.length() {
-    if a[i] != b[i] {
-      return false
-    }
-  }
-  true
+  u64_nonzero_01(diff) == 0UL
 }
 
 ///|
@@ -269,14 +270,16 @@ pub fn Uint::ct_lt(self : Uint, other : Uint) -> Bool {
   let a = self.limbs
   let b = other.limbs
   let n = if a.length() > b.length() { a.length() } else { b.length() }
-  for i = n - 1; i >= 0; i = i - 1 {
+  let mut borrow = 0UL
+  for i in 0..<n {
     let av = if i < a.length() { a[i] } else { 0UL }
     let bv = if i < b.length() { b[i] } else { 0UL }
-    if av != bv {
-      return av < bv
-    }
+    let d1 = av - bv
+    let b1 = u64_lt_01(av, bv)
+    let b2 = u64_lt_01(d1, borrow)
+    borrow = b1 | b2
   }
-  false
+  borrow == 1UL
 }
 
 // ---------------------------------------------------------------------------

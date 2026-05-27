@@ -114,6 +114,71 @@ fn basic_constraints_oid() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 19])
 }
 
+///|
+fn is_der_null(bytes : Bytes) -> Bool {
+  try @asn1.decode_der(bytes) catch {
+    _ => false
+  } noraise {
+    elem =>
+      if elem.tag != @asn1.tag_null {
+        false
+      } else {
+        match elem.value {
+          Null => true
+          _ => false
+        }
+      }
+  }
+}
+
+///|
+fn require_public_key_params_absent(
+  alg_id : @pkix.AlgorithmIdentifier,
+) -> Unit raise PkixVerifyError {
+  match alg_id.parameters {
+    None => ()
+    Some(_) => raise UnsupportedPublicKeyAlgorithm(alg_id.algorithm)
+  }
+}
+
+///|
+fn require_public_key_params_null_if_present(
+  alg_id : @pkix.AlgorithmIdentifier,
+) -> Unit raise PkixVerifyError {
+  match alg_id.parameters {
+    None => ()
+    Some(bytes) =>
+      if !is_der_null(bytes) {
+        raise UnsupportedPublicKeyAlgorithm(alg_id.algorithm)
+      }
+  }
+}
+
+///|
+fn require_signature_params_absent(
+  alg_id : @pkix.AlgorithmIdentifier,
+  name : String,
+) -> Unit raise PkixVerifyError {
+  match alg_id.parameters {
+    None => ()
+    Some(_) => raise MalformedExtension(name + " parameters must be absent")
+  }
+}
+
+///|
+fn require_signature_params_null_if_present(
+  alg_id : @pkix.AlgorithmIdentifier,
+  name : String,
+) -> Unit raise PkixVerifyError {
+  match alg_id.parameters {
+    None => ()
+    Some(bytes) =>
+      if !is_der_null(bytes) {
+        raise MalformedExtension(name + " parameters must be NULL")
+      }
+  }
+}
+
 // ─── recognised critical extensions ──────────────────────────────────────
 //
 // RFC 5280 §4.2 mandates that a verifier MUST reject any certificate
@@ -192,6 +257,30 @@ fn check_critical_extensions(
       raise UnknownCriticalExtension(ext.oid)
     }
   }
+}
+
+///|
+fn check_duplicate_extensions(
+  cert : @pkix.Certificate,
+) -> Unit raise PkixVerifyError {
+  let exts = cert.tbs.extensions
+  for i in 0..<exts.length() {
+    let mut j = i + 1
+    while j < exts.length() {
+      if exts[i].oid == exts[j].oid {
+        raise MalformedExtension("duplicate extension OID")
+      }
+      j = j + 1
+    }
+  }
+}
+
+///|
+fn check_extension_policy(
+  cert : @pkix.Certificate,
+) -> Unit raise PkixVerifyError {
+  check_duplicate_extensions(cert)
+  check_critical_extensions(cert)
 }
 
 // ─── keyUsage (RFC 5280 §4.2.1.3 + §6.1.4(n)) ────────────────────────────
@@ -334,6 +423,11 @@ fn parse_dns_name_constraints(
       }
       if gst_items.length() < 1 {
         raise MalformedExtension("nameConstraints: empty GeneralSubtree")
+      }
+      if gst_items.length() > 1 {
+        raise MalformedExtension(
+          "nameConstraints: unsupported GeneralSubtree bounds",
+        )
       }
       let base = gst_items[0]
       if base.tag.class_ == @asn1.TagClass::ContextSpecific &&
@@ -569,6 +663,7 @@ pub fn extract_public_key(
 ) -> PublicKey raise PkixVerifyError {
   let alg = spki.algorithm.algorithm
   if alg == ed25519_oid() {
+    require_public_key_params_absent(spki.algorithm)
     if spki.subject_public_key.unused_bits != 0 {
       raise UnsupportedPublicKeyAlgorithm(alg)
     }
@@ -577,6 +672,7 @@ pub fn extract_public_key(
     }
     Ed25519(pk)
   } else if alg == rsa_encryption_oid() {
+    require_public_key_params_null_if_present(spki.algorithm)
     if spki.subject_public_key.unused_bits != 0 {
       raise UnsupportedPublicKeyAlgorithm(alg)
     }
@@ -635,6 +731,7 @@ pub fn verify_signature(
   }
   let sig_bytes = signature.bytes
   if alg == ed25519_oid() {
+    require_signature_params_absent(signature_alg, "Ed25519 signature")
     match issuer_pubkey {
       Ed25519(pk) => {
         if sig_bytes.length() != 64 {
@@ -648,6 +745,9 @@ pub fn verify_signature(
       _ => raise UnsupportedSignatureAlgorithm(alg)
     }
   } else if alg == sha256_with_rsa_oid() {
+    require_signature_params_null_if_present(
+      signature_alg, "sha256WithRSAEncryption",
+    )
     match issuer_pubkey {
       Rsa(pk) => {
         let ok = pk.verify(message, sig_bytes, @rsa.HashAlg::Sha256) catch {
@@ -660,6 +760,7 @@ pub fn verify_signature(
       _ => raise UnsupportedSignatureAlgorithm(alg)
     }
   } else if alg == ecdsa_with_sha256_oid() {
+    require_signature_params_absent(signature_alg, "ecdsa-with-SHA256")
     match issuer_pubkey {
       P256(pk) => {
         // X.509 / RFC 5480: the ECDSA signature value is the DER encoding of
@@ -679,6 +780,7 @@ pub fn verify_signature(
       _ => raise UnsupportedSignatureAlgorithm(alg)
     }
   } else if alg == ecdsa_with_sha384_oid() {
+    require_signature_params_absent(signature_alg, "ecdsa-with-SHA384")
     match issuer_pubkey {
       P384(pk) => {
         let ok = @p384.verify(
@@ -778,14 +880,14 @@ pub fn verify_certificate(
   // match the inner tbsCertificate.signature. A mismatch lets a
   // signer claim "this is signed with ECDSA-SHA256" outside while the
   // TBS says "this is RSA-SHA1" — we should refuse.
-  if cert.signature_algorithm.algorithm != cert.tbs.signature.algorithm {
+  if cert.signature_algorithm != cert.tbs.signature {
     raise UnsupportedSignatureAlgorithm(cert.signature_algorithm.algorithm)
   }
   // RFC 5280 §4.2: reject any certificate that carries a critical
   // extension we do not recognise. Runs before signature verification so
   // we don't spend a (potentially expensive) RSA modexp on a cert we'd
   // refuse on policy grounds anyway.
-  check_critical_extensions(cert)
+  check_extension_policy(cert)
   // Re-encode TBS so we can hand the exact signed bytes to the primitive.
   // The pkix DER roundtrip is byte-stable for the certs we care about
   // (verified by `pkix fixture: ... DER roundtrip is byte-stable`).
@@ -826,6 +928,9 @@ fn parse_basic_constraints(
     Sequence(xs) => xs
     _ => raise MalformedExtension("basicConstraints: expected SEQUENCE")
   }
+  if items.length() > 2 {
+    raise MalformedExtension("basicConstraints: too many fields")
+  }
   let mut is_ca = false
   let mut path_len : Int? = None
   let mut idx = 0
@@ -835,7 +940,8 @@ fn parse_basic_constraints(
         is_ca = b
         idx = idx + 1
       }
-      _ => ()
+      Integer(_) => ()
+      _ => raise MalformedExtension("basicConstraints: unexpected field")
     }
   }
   if idx < items.length() {
@@ -843,6 +949,8 @@ fn parse_basic_constraints(
       Integer(bs) =>
         if bs.length() == 0 || bs.length() > 4 {
           raise MalformedExtension("pathLenConstraint out of range")
+        } else if (bs[0].to_int() & 0x80) != 0 {
+          raise MalformedExtension("pathLenConstraint must be non-negative")
         } else {
           let mut v = 0
           for i in 0..<bs.length() {
@@ -850,7 +958,14 @@ fn parse_basic_constraints(
           }
           path_len = Some(v)
         }
-      _ => ()
+      _ =>
+        raise MalformedExtension("basicConstraints: expected pathLen INTEGER")
+    }
+  }
+  if !is_ca {
+    match path_len {
+      Some(_) => raise MalformedExtension("pathLenConstraint requires cA=true")
+      None => ()
     }
   }
   (is_ca, path_len)
@@ -924,6 +1039,10 @@ pub fn verify_chain_with_options(
   now : String,
   opts : VerifyChainOptions,
 ) -> Unit raise PkixVerifyError {
+  check_extension_policy(leaf)
+  for inter in intermediates {
+    check_extension_policy(inter)
+  }
   check_validity(leaf.tbs.validity, now)
   for inter in intermediates {
     check_validity(inter.tbs.validity, now)

@@ -96,7 +96,11 @@ fn try_parse_allowed_signer_line(
       return None
     }
     match parsed_namespaces {
-      Some(ns) => namespaces = Some(ns)
+      Some(ns) =>
+        match namespaces {
+          Some(_) => return None
+          None => namespaces = Some(ns)
+        }
       None => ()
     }
     idx = idx + 1
@@ -134,6 +138,10 @@ fn parse_options_token(token : String) -> (Bool, Array[String]?) {
     let k = substr(opt, 0, eq)
     let v = strip_quotes(substr(opt, eq + 1, opt.length()))
     if k == "namespaces" {
+      match namespaces {
+        Some(_) => return (false, None)
+        None => ()
+      }
       let ns = split_on(v, ',')
       for n in ns {
         if n == "" {

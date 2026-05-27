@@ -1,12 +1,11 @@
 // JWT (RFC 7519) over JWS (RFC 7515) compact serialization.
 //
 // Supported algorithms:
-//   - sign + verify: HS256, EdDSA (RFC 8037 §3.1), RS256, ES256, ES384,
+//   - sign + verify: HS256, HS384, HS512, EdDSA (RFC 8037 §3.1),
+//                    RS256, RS384, RS512, ES256, ES384, ES256K,
 //                    PS256, PS384, PS512 (RFC 7518 §3.5)
-// Everything else (HS384/512, RS384/512, ES512) is recognized in
-// `Algorithm` for completeness but raises `UnsupportedAlgorithm` at sign
-// / verify time. Adding a new alg is a matter of extending `Key` /
-// `VerifyKey` and a `match` arm in `sign` / `verify`.
+// ES512 is recognized in `Algorithm` for completeness but has no Key /
+// VerifyKey branch because this workspace does not currently implement P-521.
 //
 // PSx caveat: RFC 7518 §3.5 requires sLen = hLen for PS256 / PS384 / PS512,
 // but the workspace does not yet expose a vetted RNG for the JWT layer.
@@ -265,6 +264,9 @@ fn base64url_decode(s : String) -> Bytes raise JwtError {
     let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
     buf.write_char(c2)
     n = n + 1
+  }
+  if n % 4 == 1 {
+    raise InvalidToken("invalid base64url length")
   }
   let pad_count = (4 - n % 4) % 4
   for _ in 0..<pad_count {
@@ -770,16 +772,15 @@ pub fn verify(
   let payload_str = @utf8.decode(payload_bytes[:]) catch {
     _ => raise ClaimsParseError("payload is not valid UTF-8")
   }
-  // JWS payload is not required to be JSON, but for JWT it is. We accept
-  // both shapes: if parsing as JSON fails, leave claims empty (RFC 8037
-  // sample uses a raw string payload, for example).
-  let claims : Map[String, Json] = try {
-    match @json.parse(payload_str[:]) {
-      Object(m) => m
-      _ => Map([])
-    }
-  } catch {
-    _ => Map([])
+  // JWS payload is not required to be JSON, but JWT claims must be a JSON
+  // object. Reject raw JWS payloads and JSON scalars so callers cannot
+  // accidentally treat a non-JWT as an empty-claims JWT.
+  let payload_json = @json.parse(payload_str[:]) catch {
+    _ => raise ClaimsParseError("payload is not valid JSON")
+  }
+  let claims : Map[String, Json] = match payload_json {
+    Object(m) => m
+    _ => raise ClaimsParseError("payload is not a JSON object")
   }
 
   // ---- iat / exp / nbf / iss / aud ----
@@ -1554,6 +1555,12 @@ pub(all) struct ClientAssertionVerifyOptions {
   // The assertion's `aud` claim must contain this value.
   token_endpoint : String
   allowed_algorithms : Array[Algorithm]?
+  // Strict AS profiles should reject replay-friendly assertions. The default
+  // constructor requires a replay cache key (`jti`), recent `iat`, and a short
+  // exp lifetime.
+  require_jti : Bool
+  max_iat_age_sec : Int64?
+  max_exp_lifetime_sec : Int64?
 } derive(Eq, Debug)
 
 ///|
@@ -1568,6 +1575,9 @@ pub fn ClientAssertionVerifyOptions::default(
     expected_client_id,
     token_endpoint,
     allowed_algorithms: None,
+    require_jti: true,
+    max_iat_age_sec: Some(300L),
+    max_exp_lifetime_sec: Some(300L),
   }
 }
 
@@ -1617,14 +1627,36 @@ pub fn verify_client_assertion(
   }
   let aud = extract_aud(v.claims)
   let exp = require_numeric_claim(v.claims, "exp")
-  {
-    client_id: opts.expected_client_id,
-    aud,
-    exp,
-    iat: get_numeric_date(v.claims, "iat"),
-    jti: get_string(v.claims, "jti"),
-    jwt: v,
+  let iat = get_numeric_date(v.claims, "iat")
+  match opts.max_iat_age_sec {
+    Some(max) => {
+      let issued = match iat {
+        Some(n) => n
+        None => raise MissingRequiredClaim("iat")
+      }
+      if issued + max + opts.clock_skew_sec < opts.now {
+        raise IssuedInFuture
+      }
+    }
+    None => ()
   }
+  match opts.max_exp_lifetime_sec {
+    Some(max) => {
+      let issued = match iat {
+        Some(n) => n
+        None => raise MissingRequiredClaim("iat")
+      }
+      if exp > issued + max {
+        raise ClaimsParseError("client assertion exp lifetime too long")
+      }
+    }
+    None => ()
+  }
+  let jti = get_string(v.claims, "jti")
+  if opts.require_jti && jti is None {
+    raise MissingRequiredClaim("jti")
+  }
+  { client_id: opts.expected_client_id, aud, exp, iat, jti, jwt: v }
 }
 
 ///|
@@ -1703,9 +1735,8 @@ pub(all) struct DpopVerifyOptions {
   // HTTP URI without query string or fragment. MUST match `htu`. §4.3
   // step 10.
   http_uri : String
-  // If `Some(at)`, the proof MUST carry `ath` = base64url(SHA-256(at))
-  // and the access token's cnf.jkt MUST equal SHA-256 thumbprint of
-  // the proof's `jwk` header.
+  // If `Some(at)`, the proof MUST carry `ath` = base64url(SHA-256(at)).
+  // Pass `expected_jkt` too when the access token is sender-constrained.
   bound_access_token : String?
   // If `Some(jkt)`, the proof's embedded jwk thumbprint MUST equal jkt.
   // Use this when the access token's cnf is unwrapped already.
@@ -1859,6 +1890,11 @@ pub fn verify_dpop_proof(
             raise InvalidDpopProof("ath does not match access_token hash")
           }
         None => raise InvalidDpopProof("ath required but absent")
+      }
+      if opts.expected_jkt is None {
+        raise InvalidDpopProof(
+          "expected_jkt required when bound_access_token is set",
+        )
       }
     }
     None => ()
@@ -2172,6 +2208,9 @@ pub(all) struct RequestObjectVerifyOptions {
   require_exp : Bool
   max_iat_age_sec : Int64?
   allowed_algorithms : Array[Algorithm]?
+  // RFC 8725 explicit typing for JAR request objects. The default constructor
+  // requires a request-object typ; set None only for legacy interop tests.
+  typ_allowed : Array[String]?
 } derive(Eq, Debug)
 
 ///|
@@ -2188,6 +2227,7 @@ pub fn RequestObjectVerifyOptions::default(
     require_exp: true,
     max_iat_age_sec: Some(300L),
     allowed_algorithms: None,
+    typ_allowed: Some(["oauth-authz-req+jwt", "application/oauth-authz-req+jwt"]),
   }
 }
 
@@ -2215,7 +2255,7 @@ pub fn verify_request_object(
     require_exp: opts.require_exp,
     issuer: Some(opts.expected_client_id),
     audience: Some(opts.expected_aud),
-    typ_allowed: None,
+    typ_allowed: opts.typ_allowed,
   }
   let v = verify(token, key, base)
   match opts.allowed_algorithms {
@@ -2277,6 +2317,8 @@ pub(all) struct JarmVerifyOptions {
   // remember the `state` it sent and confirm it round-trips.
   expected_state : String?
   allowed_algorithms : Array[Algorithm]?
+  // RFC 8725 explicit typing for JARM authorization responses.
+  typ_allowed : Array[String]?
 } derive(Eq, Debug)
 
 ///|
@@ -2293,6 +2335,9 @@ pub fn JarmVerifyOptions::strict(
     client_id,
     expected_state: Some(expected_state),
     allowed_algorithms: None,
+    typ_allowed: Some([
+      "oauth-authz-resp+jwt", "application/oauth-authz-resp+jwt",
+    ]),
   }
 }
 
@@ -2319,7 +2364,7 @@ pub fn verify_jarm(
     require_exp: true,
     issuer: Some(opts.expected_issuer),
     audience: Some(opts.client_id),
-    typ_allowed: None,
+    typ_allowed: opts.typ_allowed,
   }
   let v = verify(token, key, base)
   match opts.allowed_algorithms {

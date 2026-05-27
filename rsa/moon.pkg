@@ -6,3 +6,7 @@ import {
   "mizchi/pkix",
   "moonbitlang/core/debug",
 }
+
+import {
+  "moonbitlang/core/quickcheck",
+} for "test"

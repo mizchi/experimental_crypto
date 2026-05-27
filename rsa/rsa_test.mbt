@@ -205,6 +205,39 @@ test "from_pkcs1_der: not a sequence rejected" {
   }
 }
 
+///|
+test "ATTACK: RSA public key rejects e=1, even e, and even modulus" {
+  let cases = [
+    // SEQUENCE { n = 257, e = 1 }
+    "300702020101020101",
+    // SEQUENCE { n = 257, e = 2 }
+     "300702020101020102",
+    // SEQUENCE { n = 4, e = 3 }
+     "3006020104020103",
+    // SEQUENCE { n = 3, e = 3 }
+     "3006020103020103",
+  ]
+  for c in cases {
+    let result = try? @rsa.RsaPublicKey::from_pkcs1_der(hex(c))
+    match result {
+      Err(InvalidEncoding(_)) => ()
+      _ => abort("expected invalid RSA public parameters for " + c)
+    }
+  }
+}
+
+///|
+test "ATTACK: SPKI rsaEncryption parameters must be NULL when present" {
+  // AlgorithmIdentifier uses rsaEncryption OID with OCTET STRING parameters
+  // instead of NULL, wrapping a tiny otherwise well-formed RSAPublicKey.
+  let bad = hex("301b300d06092a864886f70d0101010400030a00300702020101020103")
+  let result = try? @rsa.RsaPublicKey::from_spki_der(bad)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("expected invalid rsaEncryption parameters")
+  }
+}
+
 // ─── sanity: HashAlg ergonomics ────────────────────────────────────────
 
 ///|
@@ -267,6 +300,73 @@ test "ATTACK: empty signature must raise InvalidSignatureLength" {
     _ => false
   }
   assert_true(raised)
+}
+
+///|
+test "ATTACK: PKCS#1 private key must have complete two-prime structure" {
+  // Only version, n, e, d. A two-prime RSAPrivateKey must carry the five CRT
+  // fields too, even though this implementation does not use CRT for signing.
+  let truncated_private = hex("300d02010002020101020103020101")
+  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(truncated_private)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("expected truncated private key structure to reject")
+  }
+}
+
+///|
+test "ATTACK: PKCS#1 private key rejects invalid public parameters" {
+  // version=0, n=257, e=1, d=1, p/q/dP/dQ/qInv all present.
+  let e_one_private = hex(
+    "301c02010002020101020101020101020101020101020101020101020101",
+  )
+  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(e_one_private)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("expected invalid private-key public parameters to reject")
+  }
+}
+
+///|
+test "ATTACK: PKCS#1 private key CRT fields must be INTEGERs" {
+  // version=0, n=257, e=3, d=1 followed by NULL where prime1 should be.
+  let non_integer_crt = hex(
+    "301b020100020201010201030201010500020101020101020101020101",
+  )
+  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(non_integer_crt)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("expected non-INTEGER CRT field to reject")
+  }
+}
+
+///|
+test "ATTACK: PKCS#1 private key rejects CRT parameters that do not match n" {
+  // p=17 and q=23 are internally consistent with d/dP/dQ/qInv, but n is
+  // encoded as 323 (=17*19), not 391 (=17*23).
+  let mismatched_crt = hex(
+    "301c0201000202014302010502011d02011102011702010d020107020103",
+  )
+  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(mismatched_crt)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("expected mismatched CRT parameters to reject")
+  }
+}
+
+///|
+test "ATTACK: PKCS#8 rsaEncryption parameters must be NULL when present" {
+  // PrivateKeyInfo with rsaEncryption OID but OCTET STRING parameters. The
+  // inner RSAPrivateKey is intentionally tiny but structurally consistent.
+  let bad_pkcs8 = hex(
+    "3032020100300d06092a864886f70d0101010400041e" +
+    "301c0201000202014302010502011d02011102011302010d02010b020109",
+  )
+  let result = try? @rsa.RsaPrivateKey::from_pkcs8_der(bad_pkcs8)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("expected invalid PKCS#8 rsaEncryption parameters to reject")
+  }
 }
 
 // -----------------------------------------------------------------------------

@@ -313,3 +313,15 @@ test "unsupported curve is rejected" {
   }
   assert_true(raised)
 }
+
+///|
+test "ATTACK jwk: impossible base64url length is rejected" {
+  let json =
+    #|{"kty":"oct","k":"A"}
+  try @jwk.parse_private(json) catch {
+    @jwk.InvalidBase64Url(_) => ()
+    e => abort("expected InvalidBase64Url, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidBase64Url, got Ok")
+  }
+}
