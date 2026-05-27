@@ -269,9 +269,20 @@ test "fe projective point double/add match affine oracle" {
   let g2_j = fe_point_double(g_j)
   assert_point_eq(fe_point_to_affine(g2_j), g2_affine, "2G")
   assert_point_eq(
+    fe_point_to_affine(fe_point_add(g_j, g_j)),
+    g2_affine,
+    "G + G",
+  )
+  assert_point_eq(
     fe_point_to_affine(fe_point_add(g2_j, g_j)),
     g3_affine,
     "2G + G",
+  )
+  let neg_g : Point = { x: g.x, y: p256_p() - g.y, inf: false }
+  assert_point_eq(
+    fe_point_to_affine(fe_point_add(g_j, fe_point_from_affine(neg_g))),
+    point_infinity(),
+    "G + (-G)",
   )
   let inf = fe_point_from_affine(point_infinity())
   assert_point_eq(fe_point_to_affine(fe_point_add(inf, g_j)), g, "O + G")
