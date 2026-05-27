@@ -95,6 +95,10 @@
             # exact versions so this is fine.
             pkgs.z3
             pkgs.cvc5
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            # Used by leakage_harness/callgrind_check.sh. Valgrind does not
+            # support macOS in nixpkgs, so keep it Linux-only.
+            pkgs.valgrind
           ];
 
           shellHook = ''

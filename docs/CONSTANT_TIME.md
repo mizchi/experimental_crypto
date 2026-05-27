@@ -58,18 +58,28 @@ moon run --target native ./leakage_harness -- list
 moon run --target native ./leakage_harness -- compare 8 1
 moon run --target native ./leakage_harness -- run p256-sign sparse 100
 moon run --target native ./leakage_harness -- run p256-sign dense 100
+bash leakage_harness/callgrind_check.sh
 ```
 
 Use `compare` as a local dudect-style timing smoke test. Use `run` under an
 external profiler such as `valgrind --tool=callgrind` on Linux, or a platform
 equivalent, to compare fixed class workloads without including test harness
-branching in the measured operation. The current thresholds are intentionally
-not CI-gated; they need backend-specific calibration first.
+branching in the measured operation. `callgrind_check.sh` automates that Linux
+workflow by building the native harness, running each sparse/dense class under
+callgrind, parsing `summary:` instruction totals, and failing if the percentage
+delta exceeds `LEAKAGE_CALLGRIND_MAX_DELTA_PCT`.
 
-CI runs a tiny native leakage-harness smoke job (`compare 2 1 1000000`) so the
-measurement entry point cannot silently rot. That job is not leakage evidence;
-it deliberately uses a loose threshold until backend-specific calibration
-exists.
+CI runs two intentionally loose checks:
+
+- a tiny timing smoke test (`compare 2 1 1000000`), which only prevents the
+  timing harness from rotting;
+- a callgrind instruction-count smoke test with
+  `LEAKAGE_CALLGRIND_MAX_DELTA_PCT=25.0`, which catches gross
+  secret-dependent control-flow or allocation regressions.
+
+Neither CI smoke threshold is calibrated leakage evidence yet. Tight,
+backend-specific thresholds need repeated Linux measurements before the checks
+can be treated as hard constant-time gates.
 
 ## Acceptance Criteria
 

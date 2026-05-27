@@ -96,7 +96,9 @@ worth noting:
 
 Closing the remaining timing gap requires an external leakage harness (for
 example dudect or callgrind-style class comparisons) for the RSA/JWE/ECDSA sign
-paths.
+paths. CI now runs a loose `leakage_harness/callgrind_check.sh` smoke gate to
+catch gross instruction-count regressions, but those thresholds are not yet
+calibrated constant-time evidence.
 
 ### Caller responsibilities
 
