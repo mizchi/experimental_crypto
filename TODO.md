@@ -22,8 +22,9 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Route P-256 sign-side base-point scalar multiplication through the
      fixed-iteration complete-addition field path. This is not external
      constant-time evidence yet.
-   - [ ] Replace P-384 ECDSA scalar multiplication with a fixed-limb
-     fixed-iteration implementation and verify ECDSA sign paths externally.
+   - [x] Route P-384 and secp256k1 sign-side base-point scalar multiplication
+     through fixed-limb fixed-iteration complete-addition field paths. This is
+     not external constant-time evidence yet.
    - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
      RSA/JWE private operations and ECDSA sign paths. Measurement scope and
      terminology are in `docs/CONSTANT_TIME.md`.
@@ -119,13 +120,11 @@ fails closed before returning authenticated / verified / trusted.
 
 ## Security Gaps
 
-- [ ] **ECDSA / private-operation side-channel**: ECDSA `scalar_mult` remains
-  variable-time on secrets for P-384. RSA sign and JWE RSA-OAEP private
-  modexp now use `crypto_bigint`'s fixed-limb path, ECDSA final nonce
-  inverses no longer use `@bigint.pow`, and P-256 / secp256k1 sign-side
-  base-point scalar multiplication uses fixed-iteration complete addition.
-  The remaining ECDSA risk is unmeasured leakage plus the affine,
-  branch-dependent scalar multiplication still used by P-384.
+- [ ] **ECDSA / private-operation side-channel measurement**: P-256, P-384,
+  and secp256k1 sign-side base-point scalar multiplication now use
+  fixed-iteration complete-addition field paths, and final nonce inverses no
+  longer use `@bigint.pow`. The remaining ECDSA risk is unmeasured
+  backend/allocation leakage, not the old affine secret-scalar ladder.
 - [ ] **PSS RNG-backed sign in JWT**: PS256/384/512 currently uses
   deterministic PSS (`sLen = 0`) because the workspace has no vetted RNG at the
   JWT layer. RFC 7518 mandates `sLen = hLen`; callers needing full interop call
@@ -149,18 +148,16 @@ fails closed before returning authenticated / verified / trusted.
   fuzzing exists; extend to CMS / OCSP / CRL and JOSE containers.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
-  operations, and ECDSA signing. P-384 scalar multiplication still needs a
-  fixed-limb rewrite before its sign path is worth measuring. Scope and
-  acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
+  operations, and ECDSA signing. Scope and acceptance criteria are documented
+  in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
-- [ ] **`crypto_bigint` remaining work**: wire remaining ECDSA secret
-  operations to the limb implementation and add external leakage measurement.
-- [ ] **ECDSA field rewrite**: move p256/p384/secp256k1 scalar multiplication
-  off affine BigInt point formulas; previous attempt to route every field
-  inverse through fixed-iteration `crypto_bigint.inv_mod` made full JS tests
-  impractically slow.
+- [ ] **`crypto_bigint` remaining work**: add external leakage measurement for
+  fixed-limb private operations.
+- [x] **ECDSA field rewrite**: keep p256/p384/secp256k1 sign-side scalar
+  multiplication off affine BigInt point formulas; verify-side multiplication
+  remains affine because inputs are public.
   - [x] Add P-256 10-limb field I/O, canonical reduction, add/sub/neg, and
     interim fixed-width mul/square/inversion helpers with BigInt oracle tests.
   - [x] Add P-256 projective point conversion, double/add, and branchy scalar
@@ -171,10 +168,12 @@ fails closed before returning authenticated / verified / trusted.
     branches.
   - [x] Add complete / exceptional-case-free P-256 formulas, then wire private
     scalar multiplication away from affine `@bigint`.
+  - [x] Add a P-256 Montgomery-domain fast path to keep sign/public-key
+    derivation in the millisecond-scale band while retaining the 10-limb field
+    rewrite as an oracle path.
   - [x] Add P-384 crypto_bigint-backed complete-addition formulas and oracle
-    tests. Keep scalar/sign wiring disconnected for now because the fixed
-    scalar loop made JS tests too slow without a dedicated reducer.
-  - [ ] Add a performant P-384 fixed scalar path, then wire private scalar
+    tests.
+  - [x] Add a performant P-384 fixed scalar path, then wire private scalar
     multiplication away from affine `@bigint`.
   - [x] Add secp256k1 crypto_bigint-backed complete-addition formulas and
     oracle tests, plus a minimal fixed-scalar oracle.

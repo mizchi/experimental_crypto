@@ -1,9 +1,9 @@
 // P-384 homogeneous-projective point helpers backed by `crypto_bigint.Uint`.
 //
 // This mirrors the P-256 complete-addition scalar path, but uses 6 fixed
-// 64-bit limbs directly instead of a dedicated radix field implementation.
-// It is fixed-iteration / branchless-intended, not externally measured
-// constant-clock.
+// 64-bit limbs in Montgomery form instead of a dedicated radix field
+// implementation. It is fixed-iteration / branchless-intended, not externally
+// measured constant-clock.
 
 ///|
 type Fe384 = @crypto_bigint.Uint
@@ -26,12 +26,16 @@ fn fe384_p_uint() -> Fe384 {
 }
 
 ///|
-fn fe384_b_uint() -> Fe384 {
-  {
-    limbs: [
-      0x2a85c8edd3ec2aefUL, 0xc656398d8a2ed19dUL, 0x0314088f5013875aUL, 0x181d9c6efe814112UL,
-      0x988e056be3f82d19UL, 0xb3312fa7e23ee7e4UL,
-    ],
+fn fe384_mont() -> @crypto_bigint.Montgomery {
+  @crypto_bigint.Montgomery::{
+    modulus: fe384_p_uint(),
+    r2: {
+      limbs: [
+        0xfffffffe00000001UL, 0x0000000200000000UL, 0xfffffffe00000000UL, 0x0000000200000000UL,
+        0x0000000000000001UL, 0x0000000000000000UL,
+      ],
+    },
+    inv: 0x0000000100000001UL,
   }
 }
 
@@ -42,19 +46,100 @@ fn fe384_zero() -> Fe384 {
 
 ///|
 fn fe384_one() -> Fe384 {
-  @crypto_bigint.Uint::one(6)
-}
-
-///|
-fn fe384_from_bigint(v : BigInt) -> Fe384 {
-  @crypto_bigint.Uint::from_be_bytes(v.to_octets(length=48), 6) catch {
-    _ => abort("P-384 field element must fit 48 bytes")
+  {
+    limbs: [
+      0xffffffff00000001UL, 0x00000000ffffffffUL, 0x0000000000000001UL, 0UL, 0UL,
+      0UL,
+    ],
   }
 }
 
 ///|
+fn fe384_b3() -> Fe384 {
+  {
+    limbs: [
+      0x18349952d7c38966UL, 0xe57d098b6ee498c4UL, 0x67d661d14b60068eUL, 0xa9a5e3cbbdbaa0a7UL,
+      0x228165dc5d0661beUL, 0x671833e220ef3fedUL,
+    ],
+  }
+}
+
+///|
+fn fe384_u64_lt_01(a : UInt64, b : UInt64) -> UInt64 {
+  let diff = a - b
+  (((a.lnot() & b) | ((a ^ b).lnot() & diff)) >> 63) & 1UL
+}
+
+///|
+fn fe384_select_u64(a : UInt64, b : UInt64, bit : UInt64) -> UInt64 {
+  let mask = 0UL - (bit & 1UL)
+  (a & mask.lnot()) | (b & mask)
+}
+
+///|
+fn fe384_add_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+) -> (FixedArray[UInt64], UInt64) {
+  let out = FixedArray::make(6, 0UL)
+  let mut carry = 0UL
+  for i = 0; i < 6; i = i + 1 {
+    let av = a[i]
+    let bv = b[i]
+    let s1 = av + bv
+    let c1 = fe384_u64_lt_01(s1, av)
+    let s2 = s1 + carry
+    let c2 = fe384_u64_lt_01(s2, s1)
+    out[i] = s2
+    carry = c1 | c2
+  }
+  (out, carry)
+}
+
+///|
+fn fe384_sub_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+) -> (FixedArray[UInt64], UInt64) {
+  let out = FixedArray::make(6, 0UL)
+  let mut borrow = 0UL
+  for i = 0; i < 6; i = i + 1 {
+    let av = a[i]
+    let bv = b[i]
+    let d1 = av - bv
+    let b1 = fe384_u64_lt_01(av, bv)
+    let d2 = d1 - borrow
+    let b2 = fe384_u64_lt_01(d1, borrow)
+    out[i] = d2
+    borrow = b1 | b2
+  }
+  (out, borrow)
+}
+
+///|
+fn fe384_select_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  bit : UInt64,
+) -> FixedArray[UInt64] {
+  let out = FixedArray::make(6, 0UL)
+  for i = 0; i < 6; i = i + 1 {
+    out[i] = fe384_select_u64(a[i], b[i], bit)
+  }
+  out
+}
+
+///|
+fn fe384_from_bigint(v : BigInt) -> Fe384 {
+  let x = @crypto_bigint.Uint::from_be_bytes(v.to_octets(length=48), 6) catch {
+    _ => abort("P-384 field element must fit 48 bytes")
+  }
+  fe384_mont().to_mont(x)
+}
+
+///|
 fn fe384_to_bigint(v : Fe384) -> BigInt {
-  fixed_bigint_from_octets(v.to_be_bytes()[:])
+  fixed_bigint_from_octets(fe384_mont().from_mont(v).to_be_bytes()[:])
 }
 
 ///|
@@ -64,34 +149,40 @@ fn fe384_is_zero(v : Fe384) -> Bool {
 
 ///|
 fn fe384_select(a : Fe384, b : Fe384, bit : UInt64) -> Fe384 {
-  @crypto_bigint.Uint::ct_select(a, b, bit)
+  { limbs: fe384_select_limbs(a.limbs, b.limbs, bit) }
 }
 
 ///|
 fn fe384_add(a : Fe384, b : Fe384) -> Fe384 {
-  a.add_mod(b, fe384_p_uint())
+  let (sum, carry) = fe384_add_limbs(a.limbs, b.limbs)
+  let (reduced, borrow) = fe384_sub_limbs(sum, fe384_p_uint().limbs)
+  { limbs: fe384_select_limbs(sum, reduced, carry | (borrow ^ 1UL)) }
 }
 
 ///|
 fn fe384_sub(a : Fe384, b : Fe384) -> Fe384 {
-  a.sub_mod(b, fe384_p_uint())
+  let (diff, borrow) = fe384_sub_limbs(a.limbs, b.limbs)
+  let (wrapped, _) = fe384_add_limbs(diff, fe384_p_uint().limbs)
+  { limbs: fe384_select_limbs(diff, wrapped, borrow) }
 }
 
 ///|
 fn fe384_neg(a : Fe384) -> Fe384 {
-  fe384_zero().sub_mod(a, fe384_p_uint())
+  fe384_sub(fe384_zero(), a)
 }
 
 ///|
 fn fe384_mul(a : Fe384, b : Fe384) -> Fe384 {
-  a.mul_mod(b, fe384_p_uint())
+  fe384_mont().mul_reduced(a, b)
 }
 
 ///|
 fn fe384_inv(a : Fe384) -> Fe384 {
-  a.inv_mod(fe384_p_uint()) catch {
+  let normal = fe384_mont().from_mont(a)
+  let inv = normal.inv_mod(fe384_p_uint()) catch {
     _ => abort("P-384 field inverse does not exist")
   }
+  fe384_mont().to_mont(inv)
 }
 
 ///|
@@ -106,11 +197,6 @@ fn fe384_mul_small(a : Fe384, n : Int) -> Fe384 {
 ///|
 fn fe384_mul_minus3(a : Fe384) -> Fe384 {
   fe384_neg(fe384_mul_small(a, 3))
-}
-
-///|
-fn fe384_b3() -> Fe384 {
-  fe384_mul_small(fe384_b_uint(), 3)
 }
 
 ///|

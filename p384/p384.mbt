@@ -83,6 +83,9 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 }
 
 ///|
+// Modular inverse via Fermat's little theorem. This remains for public verify
+// and the affine point formulas. Sign-side base-point multiplication is routed
+// through the fixed-iteration complete-addition field path in `point_fe.mbt`.
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)
@@ -162,8 +165,9 @@ fn point_add(p1 : Point, p2 : Point) -> Point {
 }
 
 ///|
-// Variable-time double-and-add. Verify uses only public inputs. P-384
-// scalars (< n < 2^384) fit in 48 bytes.
+// Variable-time double-and-add. Verify uses only public inputs. Sign-side
+// base-point multiplication uses `fe384_scalar_mult_base_fixed` instead.
+// P-384 scalars (< n < 2^384) fit in 48 bytes.
 fn scalar_mult(k : BigInt, pt : Point) -> Point {
   if pt.inf {
     return pt
@@ -473,15 +477,16 @@ pub fn PrivateKey::from_bytes(b : Bytes) -> PrivateKey raise P384Error {
 
 ///|
 pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
-  let point = scalar_mult(self.d, generator())
+  let point = fe384_scalar_mult_base_fixed(self.d)
   { point, }
 }
 
 ///|
 /// ECDSA-SHA-384 sign with RFC 6979 deterministic nonce.
 ///
-/// Side-channel caveat: see `@p256.PrivateKey::sign`. The scalar mult is
-/// variable-time on `k`; RFC 6979 only addresses nonce-bias, not timing.
+/// The sign-side base-point multiplication uses the fixed-iteration
+/// complete-addition field path. This is not external constant-time evidence;
+/// see `docs/CONSTANT_TIME.md` for the remaining measurement work.
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
@@ -499,7 +504,7 @@ pub fn PrivateKey::sign(
   while !found && k_ctr < max_iter {
     let (k, next_state) = rfc6979_next_384(nonce_state, 48, n)
     nonce_state = next_state
-    let r_point = scalar_mult(k, generator())
+    let r_point = fe384_scalar_mult_base_fixed(k)
     if !r_point.inf {
       r = r_point.x % n
       if r.compare(BigInt::from_int(0)) > 0 {

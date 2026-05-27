@@ -1,9 +1,8 @@
 // P-256 projective point helpers backed by `Fe`.
 //
-// This is a correctness milestone for the field rewrite. The formulas are
-// still branchy and are not wired into signing yet; constant-time scalar
-// multiplication needs complete addition formulas before private scalars use
-// this path.
+// This is the 10-limb field rewrite correctness baseline and oracle suite.
+// Sign-side scalar multiplication now uses the faster Montgomery-domain
+// complete-addition path in `point_mont_fe.mbt`.
 
 ///|
 priv struct FePoint {

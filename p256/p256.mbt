@@ -15,7 +15,7 @@
 //     For verify the input is public, so variable-time scalar mult is fine
 //     and the simpler representation pays for itself.
 //   - Sign-side base-point scalar multiplication routes through the fixed
-//     256-iteration complete-addition field path in `point_fe.mbt`. It is
+//     256-iteration complete-addition field path in `point_mont_fe.mbt`. It is
 //     fixed-iteration / branchless-intended, not externally measured
 //     constant-clock. The affine scalar path remains for public verification.
 
@@ -101,7 +101,8 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 ///|
 // Modular inverse via Fermat's little theorem. This remains for public verify
 // and the affine point formulas. Sign-side base-point multiplication is routed
-// through the fixed-iteration complete-addition field path in `point_fe.mbt`.
+// through the fixed-iteration complete-addition field path in
+// `point_mont_fe.mbt`.
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)
@@ -551,7 +552,7 @@ pub fn PrivateKey::from_bytes(b : Bytes) -> PrivateKey raise P256Error {
 
 ///|
 pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
-  let point = fe_scalar_mult_base_fixed(self.d)
+  let point = fe_mont_scalar_mult_base_fixed(self.d)
   { point, }
 }
 
@@ -586,7 +587,7 @@ pub fn PrivateKey::sign(
     nonce_state = next_state
     // R = k * G, r = R.x mod n. This is the secret nonce path, so keep it on
     // the fixed-iteration complete-addition base-point implementation.
-    let r_point = fe_scalar_mult_base_fixed(k)
+    let r_point = fe_mont_scalar_mult_base_fixed(k)
     if !r_point.inf {
       r = r_point.x % n
       if r.compare_int(0) > 0 {

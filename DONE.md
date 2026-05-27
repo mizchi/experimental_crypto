@@ -94,12 +94,21 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add P-384 crypto_bigint-backed homogeneous-projective complete addition and
   affine-oracle tests; leave scalar/sign wiring disconnected until the
   384-bit scalar loop has a faster reducer for JS.
+- Move P-384 field operations into Montgomery form, add fixed-scalar oracle
+  tests, and route P-384 sign-side base-point scalar multiplication plus
+  public-key derivation away from affine `@bigint`.
 - Add secp256k1 crypto_bigint-backed Montgomery-field complete addition,
   affine-oracle tests, and a minimal fixed-scalar oracle; leave sign wiring
   disconnected until the 256-bit scalar path is fast enough for JS.
 - Add a reduced-input Montgomery multiplication path plus secp256k1
   fixed-limb add/sub helpers, then route secp256k1 sign-side base-point scalar
   multiplication and public-key derivation away from affine `@bigint`.
+- Add sparse-vs-dense private-scalar `moon bench` smoke targets for P-256,
+  P-384, and secp256k1 sign paths as pre-work for external leakage harnesses.
+- Add a P-256 Montgomery-domain complete-addition fast path, route P-256
+  sign-side scalar multiplication and public-key derivation through it, and
+  bring P-256 sign benchmarks down to the same millisecond-scale band as
+  secp256k1.
 
 ## Parser And Protocol Hardening
 
