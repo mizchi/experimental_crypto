@@ -90,6 +90,7 @@ pub fn parse_cose_key(cbor : Bytes) -> CoseKey raise CoseError {
 ///|
 pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
   require_unique_int_labels(v, "COSE_Key")
+  require_key_ops_verify_if_present(v)
   let kty = require_int(v, 1L, "kty")
   match kty {
     // kty = 1 (OKP)
@@ -151,6 +152,33 @@ pub fn parse_cose_key_value(v : @cbor.CborValue) -> CoseKey raise CoseError {
       Rsa(pubkey=pk)
     }
     other => raise InvalidKey("kty " + repr(other) + " not supported")
+  }
+}
+
+///|
+fn require_key_ops_verify_if_present(
+  m : @cbor.CborValue,
+) -> Unit raise CoseError {
+  match @cbor.map_get_int(m, 4L) {
+    None => ()
+    Some(Array(items)) => {
+      if items.length() == 0 {
+        raise InvalidKey("COSE_Key key_ops must not be empty")
+      }
+      let mut ok = false
+      for item in items {
+        match item {
+          Uint(n) => if n == 2UL { ok = true }
+          Text(s) => if s == "verify" { ok = true }
+          Nint(_) => ()
+          _ => raise InvalidKey("COSE_Key key_ops entries must be int or text")
+        }
+      }
+      if !ok {
+        raise InvalidKey("COSE_Key key_ops does not permit verify")
+      }
+    }
+    Some(_) => raise InvalidKey("COSE_Key key_ops must be an array")
   }
 }
 

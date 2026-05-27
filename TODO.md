@@ -261,6 +261,8 @@ Current fail-closed fixes applied in this sweep:
 - [x] CMS detached verification now requires signedAttrs
   `contentType=id-data` as well as a unique `messageDigest`.
 - [x] COSE_Key `alg` metadata, when present, must match the parsed key type.
+- [x] COSE_Key `key_ops` metadata, when present, must permit `verify` before
+  the key is accepted by the verification-oriented parser.
 - [x] COSE_Sign1 rejects unsupported `crit` headers in both protected and
   unprotected maps instead of verifying a signature while ignoring extension
   semantics.
@@ -278,11 +280,33 @@ Current fail-closed fixes applied in this sweep:
   the same `SignerInfo.sid` instead of picking the first match.
 - [x] JWT/JWE/JWK reject duplicate JSON object members at trust boundaries
   before Map-collapsing can change interpretation.
+- [x] JWT duplicate-member rejection now recurses into nested objects such as
+  DPoP `jwk` headers and self-issued `sub_jwk` claims before Map collapse.
 - [x] JWT/JWE/JWK have attack regression tests for non-canonical base64url
   pad-bit spellings at trust boundaries.
+- [x] JWT audience verification rejects malformed `aud` arrays instead of
+  matching one good string while ignoring non-string entries.
+- [x] JWKS verification-key selection enforces `key_ops` usage metadata;
+  keys without `verify` are rejected like `use="enc"` keys.
+- [x] PKCS#8 PEM parsers reject legacy PEM headers instead of ignoring
+  `Proc-Type` / `DEK-Info` style metadata at the key-loading boundary.
+- [x] Algorithm-specific `from_pkcs8_pem` loaders (RSA / Ed25519 / P-256 /
+  P-384) route through the hardened PKCS#8 PEM parser, so legacy PEM headers
+  cannot be ignored by convenience APIs.
+- [x] Algorithm-specific PKCS#8 v2 loaders (RSA / Ed25519 / P-256 / P-384)
+  reject mismatched optional `publicKey` fields instead of deriving trust from
+  only the private scalar / seed.
 - [x] PGP detached signature armor must contain exactly one Signature packet.
 - [x] PGP detached signature verification rejects non-`SIGNATURE` armor labels
   and unsupported critical signature subpackets.
+- [x] PGP critical issuer Key ID / issuer fingerprint subpackets fail closed
+  until the verifier can bind them to parsed public-key packet metadata.
+- [x] PGP binary detached verification rejects canonical-text signature types
+  until a text-normalising verification API exists.
+- [x] PGP v6 signatures enforce RFC 9580 hash-specific salt lengths on both
+  parse/verify and sign paths.
+- [x] PGP legacy EdDSA public-key parsing validates the Ed25519 curve OID
+  instead of accepting any OID with Ed25519-shaped key material.
 - [x] PGP public-key parsing rejects non-`PUBLIC KEY BLOCK` armor labels.
 - [x] PKIX nameConstraints now handles leading-dot DNS subtrees and rejects
   unsupported top-level nameConstraints fields.

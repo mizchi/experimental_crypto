@@ -93,6 +93,19 @@ fn sign_hs256_token_with_raw_json(
   signing_input + "." + b64u_encode(sig)
 }
 
+///|
+fn sign_ed25519_token_with_raw_json(
+  header_json : String,
+  payload_json : String,
+  sk : @ed25519.PrivateKey,
+) -> String {
+  let header_b64 = b64u_encode(@utf8.encode(header_json[:]))
+  let payload_b64 = b64u_encode(@utf8.encode(payload_json[:]))
+  let signing_input = header_b64 + "." + payload_b64
+  let sig = sk.sign(@utf8.encode(signing_input[:]))
+  signing_input + "." + b64u_encode(sig)
+}
+
 // -----------------------------------------------------------------------------
 // HS256: RFC 7515 §A.1 verify
 // -----------------------------------------------------------------------------
@@ -407,6 +420,30 @@ test "aud: string and array forms both match" {
     other => abort("expected InvalidAudience, got " + repr(other) + "")
   } noraise {
     other => abort("expected InvalidAudience, got " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK aud: malformed array does not match by ignoring bad entries" {
+  let secret : Bytes = b"aud-shape"
+  let arr : Array[Json] = [Json::string("svc"), Json::number(42.0)]
+  let m : Map[String, Json] = Map([])
+  m["aud"] = Json::array(arr)
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.VerifyOptions = {
+    now: 0L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: Some("svc"),
+    typ_allowed: None,
+  }
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClaimsParseError(_) => ()
+    InvalidAudience => ()
+    other => abort("expected aud-shape rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted malformed aud array after finding matching string")
   }
 }
 
@@ -2785,6 +2822,37 @@ test "dpop: happy path verifies proof + htm/htu/iat" {
 }
 
 ///|
+test "ATTACK dpop: duplicate embedded jwk members reject before map collapse" {
+  let seed = Bytes::makei(32, fn(i) { (i + 12).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let x = b64u_encode(sk.public_key().to_bytes())
+  let now = 1_700_000_000L
+  let header_json = "{\"alg\":\"EdDSA\",\"typ\":\"dpop+jwt\",\"jwk\":{\"kty\":\"OKP\",\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"" +
+    x +
+    "\"}}"
+  let payload_json = "{\"htm\":\"POST\",\"htu\":\"https://rs.example.com/resource\",\"iat\":1700000000,\"jti\":\"dup-jwk\"}"
+  let proof = sign_ed25519_token_with_raw_json(header_json, payload_json, sk)
+  let opts : @jwt.DpopVerifyOptions = {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "POST",
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+  try @jwt.verify_dpop_proof(proof, opts) catch {
+    InvalidHeader(_) => ()
+    InvalidDpopProof(_) => ()
+    other => abort("expected duplicate jwk rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted DPoP proof with duplicate embedded jwk member")
+  }
+}
+
+///|
 test "dpop: nonce, ath, jkt, and alg policy bindings reject attacker proof" {
   let seed = Bytes::makei(32, fn(i) { (i + 16).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
@@ -5002,6 +5070,25 @@ test "ATTACK use=enc: JWKS encryption key rejected for verify" {
     e => abort("expected NoMatchingKey for use=enc, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected NoMatchingKey for use=enc, got Ok")
+  }
+}
+
+///|
+test "ATTACK key_ops: JWKS key without verify op rejected for verify" {
+  let jwks =
+    #|{ "keys": [
+    #|  { "kty": "oct", "kid": "k1", "alg": "HS256",
+    #|    "key_ops": ["encrypt"], "k": "c2VjcmV0" }
+    #|] }
+  let set = @jwk.parse_set(jwks)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["kid"] = Json::string("k1")
+  try @jwt.select_verify_key(set, header) catch {
+    NoMatchingKey => ()
+    e => abort("expected NoMatchingKey for key_ops, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected NoMatchingKey for key_ops without verify, got Ok")
   }
 }
 

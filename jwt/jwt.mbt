@@ -524,7 +524,7 @@ fn read_top_level_json_key(
     }
     if c == '\\' {
       raise_json_shape_error(
-        header_context, "escaped top-level JSON member names are not supported",
+        header_context, "escaped JSON member names are not supported",
       )
     }
     buf.write_char(c)
@@ -557,6 +557,88 @@ fn skip_json_string_value(
 }
 
 ///|
+fn scan_json_array_no_duplicates(
+  s : String,
+  start : Int,
+  header_context : Bool,
+) -> Int raise JwtError {
+  let mut i = start + 1
+  while true {
+    i = skip_json_ws(s, i)
+    if i >= s.length() {
+      raise_json_shape_error(header_context, "unterminated JSON array")
+    }
+    if s.get_char(i).unwrap() == ']' {
+      return i + 1
+    }
+    i = skip_json_value(s, i, header_context)
+    i = skip_json_ws(s, i)
+    if i >= s.length() {
+      raise_json_shape_error(header_context, "unterminated JSON array")
+    }
+    let sep = s.get_char(i).unwrap()
+    if sep == ',' {
+      i = i + 1
+    } else if sep == ']' {
+      return i + 1
+    } else {
+      raise_json_shape_error(header_context, "expected ',' or ']'")
+    }
+  }
+  i
+}
+
+///|
+fn scan_json_object_no_duplicates(
+  s : String,
+  start : Int,
+  header_context : Bool,
+) -> Int raise JwtError {
+  let keys : Array[String] = []
+  let mut i = start + 1
+  while true {
+    i = skip_json_ws(s, i)
+    if i >= s.length() {
+      raise_json_shape_error(header_context, "unterminated JSON object")
+    }
+    if s.get_char(i).unwrap() == '}' {
+      return i + 1
+    }
+    if s.get_char(i).unwrap() != '"' {
+      raise_json_shape_error(header_context, "expected JSON member name")
+    }
+    let (key, next) = read_top_level_json_key(s, i, header_context)
+    for prev in keys {
+      if prev == key {
+        raise_json_shape_error(
+          header_context,
+          "duplicate JSON member '" + key + "'",
+        )
+      }
+    }
+    keys.push(key)
+    i = skip_json_ws(s, next)
+    if i >= s.length() || s.get_char(i).unwrap() != ':' {
+      raise_json_shape_error(header_context, "expected ':' after JSON member")
+    }
+    i = skip_json_value(s, i + 1, header_context)
+    i = skip_json_ws(s, i)
+    if i >= s.length() {
+      raise_json_shape_error(header_context, "unterminated JSON object")
+    }
+    let sep = s.get_char(i).unwrap()
+    if sep == ',' {
+      i = i + 1
+    } else if sep == '}' {
+      return i + 1
+    } else {
+      raise_json_shape_error(header_context, "expected ',' or '}'")
+    }
+  }
+  i
+}
+
+///|
 fn skip_json_value(
   s : String,
   start : Int,
@@ -570,25 +652,11 @@ fn skip_json_value(
   if c == '"' {
     return skip_json_string_value(s, i, header_context)
   }
-  if c == '{' || c == '[' {
-    let mut depth = 0
-    while i < s.length() {
-      let x = s.get_char(i).unwrap()
-      if x == '"' {
-        i = skip_json_string_value(s, i, header_context)
-        continue
-      }
-      if x == '{' || x == '[' {
-        depth = depth + 1
-      } else if x == '}' || x == ']' {
-        depth = depth - 1
-        if depth == 0 {
-          return i + 1
-        }
-      }
-      i = i + 1
-    }
-    raise_json_shape_error(header_context, "unterminated JSON container")
+  if c == '{' {
+    return scan_json_object_no_duplicates(s, i, header_context)
+  }
+  if c == '[' {
+    return scan_json_array_no_duplicates(s, i, header_context)
   }
   while i < s.length() {
     let x = s.get_char(i).unwrap()
@@ -732,19 +800,20 @@ fn get_numeric_date(
 
 ///|
 // `aud` may be a single string or an array of strings (RFC 7519 §4.1.3).
-fn audience_matches(claim : Json, expected : String) -> Bool {
+fn audience_matches(claim : Json, expected : String) -> Bool raise JwtError {
   match claim {
     String(s) => s == expected
     Array(arr) => {
+      let mut matched = false
       for v in arr {
         match v {
-          String(s) => if s == expected { return true }
-          _ => ()
+          String(s) => if s == expected { matched = true }
+          _ => raise ClaimsParseError("aud array entry not a string")
         }
       }
-      false
+      matched
     }
-    _ => false
+    _ => raise ClaimsParseError("aud is neither string nor array")
   }
 }
 
@@ -1035,6 +1104,9 @@ pub fn verify(
 ///   one is used. Otherwise `NoMatchingKey` is raised (ambiguous).
 /// - `kid` must be non-empty printable ASCII without whitespace; this keeps
 ///   the returned / logged identifier from carrying control data.
+/// - If the JWKS entry has `use` or `key_ops`, the metadata must permit
+///   signature verification (`use="sig"` and/or `key_ops` containing
+///   `"verify"`).
 /// - If the JWKS entry has its own `alg` and it does not equal the JWT
 ///   header's `alg`, `AlgorithmMismatchInJwks` is raised. This prevents
 ///   an attacker from picking an HS256 key off a JWKS that the IdP
@@ -1077,6 +1149,21 @@ pub fn select_verify_key(
   // entry's `alg` field is absent).
   match entry.use_ {
     Some(u) => if u != "sig" { raise NoMatchingKey }
+    None => ()
+  }
+  match entry.key_ops {
+    Some(ops) => {
+      let mut ok = false
+      for op in ops {
+        if op == "verify" {
+          ok = true
+          break
+        }
+      }
+      if !ok {
+        raise NoMatchingKey
+      }
+    }
     None => ()
   }
   match entry.alg {

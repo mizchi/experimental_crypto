@@ -30,10 +30,9 @@ pub fn verify_armor(
   }
   let packets = parse_packets(a.data)
   let sig = find_signature_packet(packets)
-  if sig.sig_type != 0x00 && sig.sig_type != 0x01 {
-    // 0x00 = signature of a binary document
-    // 0x01 = signature of a canonical text document (caller's
-    //        responsibility to feed CRLF-normalised bytes if so)
+  if sig.sig_type != 0x00 {
+    // This verifier is the detached binary-document verifier. Canonical text
+    // signatures need a separate API that owns CRLF normalisation.
     raise UnsupportedSignatureType(sig.sig_type)
   }
   let digest = compute_signature_digest(sig, message)
@@ -289,6 +288,17 @@ pub fn sign_armor(
     }
   } else {
     hash_algo
+  }
+  if version == 6 {
+    let expected_salt_len = expected_v6_signature_salt_len(chosen_hash)
+    if salt.length() != expected_salt_len {
+      raise Crypto(
+        "OpenPGP v6 signature salt length must be " +
+        expected_salt_len.to_string() +
+        " bytes for hash algorithm " +
+        chosen_hash.to_string(),
+      )
+    }
   }
   let pubkey_algo = match privkey {
     // v4 EdDSA legacy is algo 22; v6 Ed25519 is algo 27.

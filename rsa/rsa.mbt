@@ -528,11 +528,32 @@ pub fn RsaPrivateKey::from_pkcs8_der(
   let info = @pkcs8.parse_der(der) catch {
     e => raise InvalidEncoding("pkcs8: " + @debug.to_string(e))
   }
+  rsa_private_key_from_pkcs8_info(info)
+}
+
+///|
+fn rsa_private_key_from_pkcs8_info(
+  info : @pkcs8.PrivateKeyInfo,
+) -> RsaPrivateKey raise RsaError {
   if info.algorithm.algorithm != rsa_encryption_oid_for_pkcs8() {
     raise UnsupportedAlgorithm(info.algorithm.algorithm.to_string())
   }
   require_rsa_encryption_parameters_null(info.algorithm.parameters)
-  RsaPrivateKey::from_pkcs1_der(info.private_key)
+  let sk = RsaPrivateKey::from_pkcs1_der(info.private_key)
+  match info.public_key {
+    Some(bs) => {
+      if bs.unused_bits != 0 {
+        raise InvalidEncoding("PKCS#8 RSA publicKey unused_bits must be zero")
+      }
+      let got = RsaPublicKey::from_pkcs1_der(bs.bytes)
+      let expected = sk.public_key()
+      if got.n.compare(expected.n) != 0 || got.e.compare(expected.e) != 0 {
+        raise InvalidEncoding("PKCS#8 publicKey does not match privateKey")
+      }
+    }
+    None => ()
+  }
+  sk
 }
 
 ///|
@@ -541,15 +562,10 @@ pub fn RsaPrivateKey::from_pkcs8_der(
 pub fn RsaPrivateKey::from_pkcs8_pem(
   pem_str : String,
 ) -> RsaPrivateKey raise RsaError {
-  let block = @pem.decode(pem_str) catch {
-    e => raise InvalidEncoding("pem: " + @debug.to_string(e))
+  let info = @pkcs8.parse_pem(pem_str) catch {
+    e => raise InvalidEncoding("pkcs8: " + @debug.to_string(e))
   }
-  if block.label != "PRIVATE KEY" {
-    raise InvalidEncoding(
-      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
-    )
-  }
-  RsaPrivateKey::from_pkcs8_der(block.data)
+  rsa_private_key_from_pkcs8_info(info)
 }
 
 // ─── RSASSA-PSS (RFC 8017 §8.1 / §9.1) ───────────────────────────────────

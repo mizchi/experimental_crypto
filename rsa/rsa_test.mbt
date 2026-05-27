@@ -403,6 +403,62 @@ let rfc_priv_pkcs1_der : Bytes = hex(
 )
 
 ///|
+test "ATTACK: rsa.from_pkcs8_pem rejects legacy PEM headers" {
+  let null_params = @asn1.encode_der(@asn1.Element::new(@asn1.tag_null, Null))
+  let info : @pkcs8.PrivateKeyInfo = {
+    version: 0,
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_string("1.2.840.113549.1.1.1"),
+      parameters: Some(null_params),
+    },
+    private_key: rfc_priv_pkcs1_der,
+    attributes: [],
+    public_key: None,
+  }
+  let pem = @pem.encode({
+    label: "PRIVATE KEY",
+    data: @pkcs8.serialize_der(info),
+    headers: [("Proc-Type", "4,ENCRYPTED")],
+  })
+  let result = try? @rsa.RsaPrivateKey::from_pkcs8_pem(pem)
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("accepted RSA PKCS#8 PEM with legacy headers")
+  }
+}
+
+///|
+test "ATTACK: rsa.from_pkcs8_der rejects mismatched v2 publicKey" {
+  let null_params = @asn1.encode_der(@asn1.Element::new(@asn1.tag_null, Null))
+  let wrong_pub = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([
+        @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01\x01")),
+        @asn1.Element::new(@asn1.tag_integer, Integer(b"\x03")),
+      ]),
+    ),
+  )
+  let info : @pkcs8.PrivateKeyInfo = {
+    version: 1,
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_string("1.2.840.113549.1.1.1"),
+      parameters: Some(null_params),
+    },
+    private_key: rfc_priv_pkcs1_der,
+    attributes: [],
+    public_key: Some({ bytes: wrong_pub, unused_bits: 0 }),
+  }
+  let result = try? @rsa.RsaPrivateKey::from_pkcs8_der(
+    @pkcs8.serialize_der(info),
+  )
+  match result {
+    Err(InvalidEncoding(_)) => ()
+    _ => abort("accepted RSA PKCS#8 with mismatched publicKey")
+  }
+}
+
+///|
 test "rsa: sign + verify roundtrip with SHA-256" {
   let sk = @rsa.RsaPrivateKey::from_pkcs1_der(rfc_priv_pkcs1_der)
   let pk = sk.public_key()

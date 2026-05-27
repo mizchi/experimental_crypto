@@ -538,6 +538,29 @@ test "ATTACK parse_cose_key: mismatched OKP alg label is rejected" {
 }
 
 ///|
+test "ATTACK parse_cose_key: key_ops without verify is rejected" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let pk_bytes = @ed25519.PrivateKey::from_seed(seed).public_key().to_bytes()
+  let cose_key = @cbor.encode(
+    Map([
+      (Uint(1UL), Uint(1UL)), // kty = OKP
+      (Uint(3UL), Nint(7UL)), // alg = EdDSA
+      (Uint(4UL), Array([Uint(1UL)])), // key_ops = [sign], not verify
+      (Nint(0UL), Uint(6UL)), // crv = Ed25519
+      (Nint(1UL), Bytes(pk_bytes)),
+    ]),
+  )
+  let r = try? @cose.parse_cose_key(cose_key)
+  match r {
+    Err(InvalidKey(_)) => ()
+    Ok(_) => abort("accepted COSE_Key with key_ops that excludes verify")
+    Err(e) => abort("expected InvalidKey, got " + repr(e))
+  }
+}
+
+///|
 test "ATTACK parse_cose_key: mismatched EC2 alg label is rejected" {
   let gx = hex_to_bytes(
     "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",

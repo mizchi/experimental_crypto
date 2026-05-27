@@ -2,11 +2,11 @@ import {
   "mizchi/asn1",
   "mizchi/hash",
   "mizchi/pkcs8",
-  "mizchi/pem",
   "mizchi/pkix",
   "moonbitlang/core/debug",
 }
 
 import {
+  "mizchi/pem",
   "moonbitlang/core/quickcheck",
 } for "test"

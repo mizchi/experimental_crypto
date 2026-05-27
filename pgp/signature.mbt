@@ -115,6 +115,13 @@ pub fn parse_signature_packet(body : Bytes) -> PgpSignature raise PgpError {
       raise PacketTooShort("v6 salt length")
     }
     let salt_len = body[salt_len_pos].to_int()
+    let expected_salt_len = expected_v6_signature_salt_len(hash_algo)
+    if salt_len != expected_salt_len {
+      raise ArmorMalformed(
+        "v6 signature salt length mismatch for hash algorithm " +
+        hash_algo.to_string(),
+      )
+    }
     if salt_len_pos + 1 + salt_len > body.length() {
       raise PacketTooShort("v6 salt")
     }
@@ -134,6 +141,19 @@ pub fn parse_signature_packet(body : Bytes) -> PgpSignature raise PgpError {
     left16,
     salt,
     signature_material,
+  }
+}
+
+///|
+fn expected_v6_signature_salt_len(hash_algo : Int) -> Int raise PgpError {
+  if hash_algo == hash_sha256 {
+    16
+  } else if hash_algo == hash_sha384 {
+    24
+  } else if hash_algo == hash_sha512 {
+    32
+  } else {
+    raise UnsupportedHashAlgo(hash_algo)
   }
 }
 
@@ -164,13 +184,8 @@ fn reject_unknown_critical_subpackets(
     let type_octet = subpackets[sub_start].to_int()
     let subtype = type_octet & 0x7f
     let critical = (type_octet & 0x80) != 0
-    if critical && !is_supported_critical_signature_subpacket(subtype) {
-      raise ArmorMalformed(
-        "unsupported critical " +
-        context +
-        " signature subpacket type " +
-        subtype.to_string(),
-      )
+    if critical {
+      validate_critical_signature_subpacket(subtype, sub_len, context)
     }
     pos = sub_start + sub_len
   }
@@ -209,8 +224,32 @@ fn read_signature_subpacket_len(
 }
 
 ///|
-fn is_supported_critical_signature_subpacket(subtype : Int) -> Bool {
-  subtype == 2 || subtype == 16 || subtype == 33
+fn validate_critical_signature_subpacket(
+  subtype : Int,
+  sub_len : Int,
+  context : String,
+) -> Unit raise PgpError {
+  if subtype == 2 {
+    if sub_len != 5 {
+      raise ArmorMalformed(
+        context + " critical signature-creation-time subpacket malformed",
+      )
+    }
+  } else if subtype == 16 || subtype == 33 {
+    // Issuer Key ID / Issuer Fingerprint are key-selection semantics. This
+    // verifier accepts a caller-supplied PgpPublicKey and cannot bind these
+    // subpackets to that key without the original Public-Key packet metadata.
+    raise ArmorMalformed(
+      "critical issuer signature subpacket requires key binding",
+    )
+  } else {
+    raise ArmorMalformed(
+      "unsupported critical " +
+      context +
+      " signature subpacket type " +
+      subtype.to_string(),
+    )
+  }
 }
 
 ///|

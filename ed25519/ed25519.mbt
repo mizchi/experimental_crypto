@@ -1420,6 +1420,13 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error 
   let info = @pkcs8.parse_der(der) catch {
     e => raise InvalidEncoding("pkcs8: " + @debug.to_string(e))
   }
+  private_key_from_pkcs8_info(info)
+}
+
+///|
+fn private_key_from_pkcs8_info(
+  info : @pkcs8.PrivateKeyInfo,
+) -> PrivateKey raise Ed25519Error {
   if info.algorithm.algorithm != ed25519_oid_for_pkcs8() {
     raise InvalidEncoding(
       "expected id-Ed25519, got " + info.algorithm.algorithm.to_string(),
@@ -1438,7 +1445,15 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error 
       "ed25519 seed must be 32 bytes, got " + seed.length().to_string(),
     )
   }
-  PrivateKey::from_seed(seed)
+  let sk = PrivateKey::from_seed(seed)
+  match info.public_key {
+    Some(bs) =>
+      if bs.unused_bits != 0 || bs.bytes != sk.public_key().to_bytes() {
+        raise InvalidEncoding("PKCS#8 publicKey does not match privateKey")
+      }
+    None => ()
+  }
+  sk
 }
 
 ///|
@@ -1447,13 +1462,8 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise Ed25519Error 
 pub fn PrivateKey::from_pkcs8_pem(
   pem_str : String,
 ) -> PrivateKey raise Ed25519Error {
-  let block = @pem.decode(pem_str) catch {
-    e => raise InvalidEncoding("pem: " + @debug.to_string(e))
+  let info = @pkcs8.parse_pem(pem_str) catch {
+    e => raise InvalidEncoding("pkcs8: " + @debug.to_string(e))
   }
-  if block.label != "PRIVATE KEY" {
-    raise InvalidEncoding(
-      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
-    )
-  }
-  PrivateKey::from_pkcs8_der(block.data)
+  private_key_from_pkcs8_info(info)
 }

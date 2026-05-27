@@ -127,6 +127,14 @@ pub fn parse_public_key_packet(
     if key_data_off + 1 + oid_len > body.length() {
       raise PacketTooShort("eddsa OID")
     }
+    let oid_bytes = bytes_slice(
+      body,
+      key_data_off + 1,
+      key_data_off + 1 + oid_len,
+    )
+    if !is_legacy_ed25519_oid(oid_bytes) {
+      raise InvalidMpi("unsupported EdDSA legacy curve OID")
+    }
     let (mpi_bytes, mpi_consumed) = read_mpi(body, key_data_off + 1 + oid_len)
     // MPI is 0x40 || raw 32-byte ed25519 pubkey (33 bytes total).
     if mpi_bytes.length() != 33 || mpi_bytes[0] != b'\x40' {
@@ -174,6 +182,20 @@ pub fn parse_public_key_packet(
     raise InvalidMpi("trailing bytes after public-key material")
   }
   { version, creation_time, algo, key }
+}
+
+///|
+fn is_legacy_ed25519_oid(b : Bytes) -> Bool {
+  if b.length() != 9 {
+    return false
+  }
+  let expected : Bytes = b"\x2b\x06\x01\x04\x01\xda\x47\x0f\x01"
+  for i = 0; i < 9; i = i + 1 {
+    if b[i] != expected[i] {
+      return false
+    }
+  }
+  true
 }
 
 ///|

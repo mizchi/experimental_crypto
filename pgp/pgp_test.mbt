@@ -59,6 +59,16 @@ fn message_bytes() -> Bytes {
 }
 
 ///|
+fn pgp_salt16_for_test() -> Bytes {
+  Bytes::makei(16, fn(i) { (i + 1).to_byte() })
+}
+
+///|
+fn pgp_salt32_for_test() -> Bytes {
+  Bytes::makei(32, fn(i) { (i + 1).to_byte() })
+}
+
+///|
 fn concat_bytes(a : Bytes, b : Bytes) -> Bytes {
   Bytes::makei(a.length() + b.length(), fn(i) {
     if i < a.length() {
@@ -156,6 +166,136 @@ fn pgp_v4_pre_hash_input_for_test(message : Bytes, prelude : Bytes) -> Bytes {
 }
 
 ///|
+fn pgp_v6_pre_hash_input_for_test(
+  message : Bytes,
+  prelude : Bytes,
+  salt : Bytes,
+) -> Bytes {
+  let prelude_len = prelude.length()
+  let total = salt.length() + message.length() + prelude_len + 6
+  let buf = FixedArray::make(total, b'\x00')
+  let mut off = 0
+  for i = 0; i < salt.length(); i = i + 1 {
+    buf[off + i] = salt[i]
+  }
+  off = off + salt.length()
+  for i = 0; i < message.length(); i = i + 1 {
+    buf[off + i] = message[i]
+  }
+  off = off + message.length()
+  for i = 0; i < prelude_len; i = i + 1 {
+    buf[off + i] = prelude[i]
+  }
+  off = off + prelude_len
+  buf[off] = b'\x06'
+  buf[off + 1] = b'\xff'
+  let n = prelude_len.reinterpret_as_uint()
+  buf[off + 2] = ((n >> 24) & 0xffU).to_byte()
+  buf[off + 3] = ((n >> 16) & 0xffU).to_byte()
+  buf[off + 4] = ((n >> 8) & 0xffU).to_byte()
+  buf[off + 5] = (n & 0xffU).to_byte()
+  Bytes::makei(total, fn(i) { buf[i] })
+}
+
+///|
+fn detached_ed25519_v4_with_sig_type_for_test(
+  sk : @ed25519.PrivateKey,
+  message : Bytes,
+  sig_type : Byte,
+) -> String {
+  let creation : Bytes = b"\x05\x02\x65\x53\xf1\x00"
+  let hashed_len = creation.length()
+  let prelude_len = 6 + hashed_len
+  let prelude = Bytes::makei(prelude_len, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 1 {
+      sig_type
+    } else if i == 2 {
+      @pgp.algo_eddsa_legacy.to_byte()
+    } else if i == 3 {
+      @pgp.hash_sha512.to_byte()
+    } else if i == 4 {
+      ((hashed_len >> 8) & 0xff).to_byte()
+    } else if i == 5 {
+      (hashed_len & 0xff).to_byte()
+    } else {
+      creation[i - 6]
+    }
+  })
+  let digest = @hash.sha512(pgp_v4_pre_hash_input_for_test(message, prelude))
+  let raw = sk.sign(digest)
+  let r = Bytes::makei(32, fn(i) { raw[i] })
+  let s = Bytes::makei(32, fn(i) { raw[i + 32] })
+  let sig_material = concat_bytes(
+    encode_mpi_for_test(r),
+    encode_mpi_for_test(s),
+  )
+  let body_len = prelude_len + 2 + 2 + sig_material.length()
+  let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
+  let body = Bytes::makei(body_len, fn(i) {
+    if i < prelude_len {
+      prelude[i]
+    } else if i < prelude_len + 2 {
+      b'\x00'
+    } else if i == prelude_len + 2 {
+      ((left16 >> 8) & 0xffU).to_byte()
+    } else if i == prelude_len + 3 {
+      (left16 & 0xffU).to_byte()
+    } else {
+      sig_material[i - prelude_len - 4]
+    }
+  })
+  armor_block_no_crc("SIGNATURE", wrap_new_format_packet_for_test(2, body))
+}
+
+///|
+fn detached_ed25519_v6_with_salt_for_test(
+  sk : @ed25519.PrivateKey,
+  message : Bytes,
+  salt : Bytes,
+) -> String {
+  let prelude_len = 8
+  let prelude = Bytes::makei(prelude_len, fn(i) {
+    if i == 0 {
+      b'\x06'
+    } else if i == 1 {
+      b'\x00'
+    } else if i == 2 {
+      @pgp.algo_ed25519.to_byte()
+    } else if i == 3 {
+      @pgp.hash_sha512.to_byte()
+    } else {
+      b'\x00'
+    }
+  })
+  let digest = @hash.sha512(
+    pgp_v6_pre_hash_input_for_test(message, prelude, salt),
+  )
+  let raw = sk.sign(digest)
+  let body_len = prelude_len + 4 + 2 + 1 + salt.length() + raw.length()
+  let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
+  let body = Bytes::makei(body_len, fn(i) {
+    if i < prelude_len {
+      prelude[i]
+    } else if i < prelude_len + 4 {
+      b'\x00'
+    } else if i == prelude_len + 4 {
+      ((left16 >> 8) & 0xffU).to_byte()
+    } else if i == prelude_len + 5 {
+      (left16 & 0xffU).to_byte()
+    } else if i == prelude_len + 6 {
+      salt.length().to_byte()
+    } else if i < prelude_len + 7 + salt.length() {
+      salt[i - prelude_len - 7]
+    } else {
+      raw[i - prelude_len - 7 - salt.length()]
+    }
+  })
+  armor_block_no_crc("SIGNATURE", wrap_new_format_packet_for_test(2, body))
+}
+
+///|
 fn detached_ed25519_with_unknown_critical_hashed_subpacket_for_test(
   sk : @ed25519.PrivateKey,
   message : Bytes,
@@ -164,6 +304,59 @@ fn detached_ed25519_with_unknown_critical_hashed_subpacket_for_test(
   // Subpacket length 1, critical unknown type 100 (0x80 | 0x64).
   let critical_unknown : Bytes = b"\x01\xe4"
   let hashed_sub = concat_bytes(creation, critical_unknown)
+  let hashed_len = hashed_sub.length()
+  let prelude_len = 6 + hashed_len
+  let prelude = Bytes::makei(prelude_len, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 1 {
+      b'\x00'
+    } else if i == 2 {
+      @pgp.algo_eddsa_legacy.to_byte()
+    } else if i == 3 {
+      @pgp.hash_sha512.to_byte()
+    } else if i == 4 {
+      ((hashed_len >> 8) & 0xff).to_byte()
+    } else if i == 5 {
+      (hashed_len & 0xff).to_byte()
+    } else {
+      hashed_sub[i - 6]
+    }
+  })
+  let digest = @hash.sha512(pgp_v4_pre_hash_input_for_test(message, prelude))
+  let raw = sk.sign(digest)
+  let r = Bytes::makei(32, fn(i) { raw[i] })
+  let s = Bytes::makei(32, fn(i) { raw[i + 32] })
+  let sig_material = concat_bytes(
+    encode_mpi_for_test(r),
+    encode_mpi_for_test(s),
+  )
+  let body_len = prelude_len + 2 + 2 + sig_material.length()
+  let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
+  let body = Bytes::makei(body_len, fn(i) {
+    if i < prelude_len {
+      prelude[i]
+    } else if i < prelude_len + 2 {
+      b'\x00'
+    } else if i == prelude_len + 2 {
+      ((left16 >> 8) & 0xffU).to_byte()
+    } else if i == prelude_len + 3 {
+      (left16 & 0xffU).to_byte()
+    } else {
+      sig_material[i - prelude_len - 4]
+    }
+  })
+  armor_block_no_crc("SIGNATURE", wrap_new_format_packet_for_test(2, body))
+}
+
+///|
+fn detached_ed25519_with_extra_hashed_subpacket_for_test(
+  sk : @ed25519.PrivateKey,
+  message : Bytes,
+  extra : Bytes,
+) -> String {
+  let creation : Bytes = b"\x05\x02\x65\x53\xf1\x00"
+  let hashed_sub = concat_bytes(creation, extra)
   let hashed_len = hashed_sub.length()
   let prelude_len = 6 + hashed_len
   let prelude = Bytes::makei(prelude_len, fn(i) {
@@ -224,6 +417,38 @@ test "pgp: parse Public-Key Packet from armor (Ed25519)" {
   match pk.key {
     Ed25519(_) => ()
     _ => abort("expected Ed25519 key")
+  }
+}
+
+///|
+test "ATTACK pgp: legacy EdDSA public key rejects unsupported curve OID" {
+  let seed = Bytes::makei(32, fn(i) { (i + 50).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let point = concat_bytes(b"\x40", sk.public_key().to_bytes())
+  let mpi = encode_mpi_for_test(point)
+  let bad_oid : Bytes = b"\x2b\x65\x71"
+  let body_len = 6 + 1 + bad_oid.length() + mpi.length()
+  let body = Bytes::makei(body_len, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i >= 1 && i <= 4 {
+      b'\x00'
+    } else if i == 5 {
+      @pgp.algo_eddsa_legacy.to_byte()
+    } else if i == 6 {
+      bad_oid.length().to_byte()
+    } else if i < 7 + bad_oid.length() {
+      bad_oid[i - 7]
+    } else {
+      mpi[i - 7 - bad_oid.length()]
+    }
+  })
+  try @pgp.parse_public_key_packet(body) catch {
+    InvalidMpi(_) => ()
+    UnsupportedPubkeyAlgo(_) => ()
+    other => abort("expected EdDSA OID rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted legacy EdDSA key with unsupported curve OID")
   }
 }
 
@@ -372,6 +597,99 @@ test "ATTACK pgp: unknown critical hashed signature subpacket is rejected" {
 }
 
 ///|
+test "ATTACK pgp: critical issuer fingerprint subpacket fails closed" {
+  let seed = Bytes::makei(32, fn(i) { (i + 48).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let msg : Bytes = b"pgp critical issuer fingerprint"
+  // length 22: type byte + version byte + 20-byte v4 fingerprint. The
+  // critical bit is set on subtype 33. The verifier cannot bind this value to
+  // the caller-supplied PgpPublicKey, so it must reject before trusting sig.
+  let issuer_fp = Bytes::makei(23, fn(i) {
+    if i == 0 {
+      b'\x16'
+    } else if i == 1 {
+      b'\xa1'
+    } else if i == 2 {
+      b'\x04'
+    } else {
+      (i + 7).to_byte()
+    }
+  })
+  let armor = detached_ed25519_with_extra_hashed_subpacket_for_test(
+    sk, msg, issuer_fp,
+  )
+  try @pgp.verify_armor(armor, msg, pk_pgp) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted critical issuer fingerprint without key binding")
+    false => abort("signature construction failed before critical check")
+  }
+}
+
+///|
+test "ATTACK pgp: critical issuer key id subpacket fails closed" {
+  let seed = Bytes::makei(32, fn(i) { (i + 49).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let msg : Bytes = b"pgp critical issuer key id"
+  // length 9: type byte + 8-byte key ID, with the critical bit on subtype 16.
+  let issuer_key_id = Bytes::makei(10, fn(i) {
+    if i == 0 {
+      b'\x09'
+    } else if i == 1 {
+      b'\x90'
+    } else {
+      (i + 11).to_byte()
+    }
+  })
+  let armor = detached_ed25519_with_extra_hashed_subpacket_for_test(
+    sk, msg, issuer_key_id,
+  )
+  try @pgp.verify_armor(armor, msg, pk_pgp) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted critical issuer key id without key binding")
+    false => abort("signature construction failed before critical check")
+  }
+}
+
+///|
+test "ATTACK pgp: detached verifier rejects canonical-text signature type" {
+  let seed = Bytes::makei(32, fn(i) { (i + 51).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let msg : Bytes = b"pgp text signature confusion"
+  let armor = detached_ed25519_v4_with_sig_type_for_test(sk, msg, b'\x01')
+  try @pgp.verify_armor(armor, msg, pk_pgp) catch {
+    UnsupportedSignatureType(1) => ()
+    other => abort("expected UnsupportedSignatureType, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted canonical-text signature in binary verifier")
+    false => abort("signature construction failed before type check")
+  }
+}
+
+///|
+test "ATTACK pgp: v6 salt length must match hash algorithm" {
+  let seed = Bytes::makei(32, fn(i) { (i + 52).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let msg : Bytes = b"pgp v6 short salt"
+  let short_salt : Bytes = b"1234567890123456"
+  let armor = detached_ed25519_v6_with_salt_for_test(sk, msg, short_salt)
+  try @pgp.verify_armor(armor, msg, pk_pgp) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted v6 SHA512 signature with non-32-byte salt")
+    false => abort("signature construction failed before salt check")
+  }
+}
+
+///|
 test "pgp: sign ECDSA P-256 + verify roundtrip" {
   let scalar = Bytes::makei(32, fn(i) { (i + 7).to_byte() })
   let sk = @p256.PrivateKey::from_bytes(scalar)
@@ -415,6 +733,7 @@ test "pgp v6: sign Ed25519 + verify roundtrip" {
     @pgp.PgpPrivateKey::Ed25519(sk),
     b"hello pgp v6 ed25519",
     version=6,
+    salt=pgp_salt32_for_test(),
   )
   assert_true(@pgp.verify_armor(armor, b"hello pgp v6 ed25519", pk_pgp))
 }
@@ -428,6 +747,7 @@ test "pgp v6: sign ECDSA P-256 + verify roundtrip" {
     @pgp.PgpPrivateKey::EcdsaP256(sk),
     b"hello pgp v6 p256",
     version=6,
+    salt=pgp_salt16_for_test(),
   )
   assert_true(@pgp.verify_armor(armor, b"hello pgp v6 p256", pk_pgp))
 }
@@ -441,6 +761,7 @@ test "pgp v6: tampered message fails" {
     @pgp.PgpPrivateKey::Ed25519(sk),
     b"hello pgp v6 ed25519",
     version=6,
+    salt=pgp_salt32_for_test(),
   )
   assert_false(@pgp.verify_armor(armor, b"hello pgp v6 ed25519!", pk_pgp))
 }
@@ -456,6 +777,7 @@ test "pgp v6: tampered version byte rejected" {
     @pgp.PgpPrivateKey::Ed25519(sk),
     b"hello v6 vbyte",
     version=6,
+    salt=pgp_salt32_for_test(),
   )
   let decoded = @pgp.decode_armor(armor)
   let pkts = @pgp.parse_packets(decoded.data)
@@ -496,12 +818,13 @@ test "pgp v6: v4 and v6 produce different armors" {
     @pgp.PgpPrivateKey::Ed25519(sk),
     b"compare v4 v6",
     version=6,
+    salt=pgp_salt32_for_test(),
   )
   assert_not_eq(armor_v4, armor_v6)
 }
 
 ///|
-test "pgp v6: wire format checks (algo 27, salt=0, raw 64-byte sig)" {
+test "pgp v6: wire format checks (algo 27, salt=32, raw 64-byte sig)" {
   let seed = Bytes::makei(32, fn(i) { (i + 31).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let armor_v4 = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), b"algo-check")
@@ -509,6 +832,7 @@ test "pgp v6: wire format checks (algo 27, salt=0, raw 64-byte sig)" {
     @pgp.PgpPrivateKey::Ed25519(sk),
     b"algo-check",
     version=6,
+    salt=pgp_salt32_for_test(),
   )
   let pkts_v4 = @pgp.parse_packets(@pgp.decode_armor(armor_v4).data)
   let pkts_v6 = @pgp.parse_packets(@pgp.decode_armor(armor_v6).data)
@@ -529,7 +853,7 @@ test "pgp v6: wire format checks (algo 27, salt=0, raw 64-byte sig)" {
   @debug.assert_eq(sig4.salt.length(), 0)
   @debug.assert_eq(sig6.version, 6)
   @debug.assert_eq(sig6.pubkey_algo, @pgp.algo_ed25519)
-  @debug.assert_eq(sig6.salt.length(), 0)
+  @debug.assert_eq(sig6.salt.length(), 32)
   @debug.assert_eq(sig6.signature_material.length(), 64) // raw Ed25519 sig
 }
 
@@ -538,7 +862,7 @@ test "pgp v6: caller-supplied salt is encoded and verified" {
   let seed = Bytes::makei(32, fn(i) { (i + 37).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
-  let salt : Bytes = b"1234567890123456"
+  let salt = pgp_salt32_for_test()
   let armor = @pgp.sign_armor(
     @pgp.PgpPrivateKey::Ed25519(sk),
     b"salted v6 signature",
@@ -573,6 +897,25 @@ test "ATTACK pgp: v4 signatures reject caller-supplied v6 salt" {
     other => abort("expected Crypto, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted salt on v4 signature")
+  }
+}
+
+///|
+test "ATTACK pgp: v6 signer rejects hash-mismatched salt length" {
+  let seed = Bytes::makei(32, fn(i) { (i + 40).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  try
+    @pgp.sign_armor(
+      @pgp.PgpPrivateKey::Ed25519(sk),
+      b"short salt on v6",
+      version=6,
+      salt=pgp_salt16_for_test(),
+    )
+  catch {
+    Crypto(_) => ()
+    other => abort("expected Crypto, got " + repr(other) + "")
+  } noraise {
+    _ => abort("generated v6 SHA512 signature with non-32-byte salt")
   }
 }
 

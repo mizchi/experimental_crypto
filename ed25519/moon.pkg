@@ -3,7 +3,6 @@ import {
   "moonbitlang/core/debug",
   "mizchi/asn1",
   "mizchi/pkcs8",
-  "mizchi/pem",
   "mizchi/pkix",
 }
 
@@ -12,6 +11,7 @@ import {
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
   "moonbitlang/core/json",
+  "mizchi/pem",
 } for "test"
 
 options(

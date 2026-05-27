@@ -708,6 +708,13 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P384Error {
   let info = @pkcs8.parse_der(der) catch {
     e => raise InvalidPrivateKey("pkcs8: " + @debug.to_string(e))
   }
+  private_key_from_pkcs8_info(info)
+}
+
+///|
+fn private_key_from_pkcs8_info(
+  info : @pkcs8.PrivateKeyInfo,
+) -> PrivateKey raise P384Error {
   if info.algorithm.algorithm != ec_public_key_oid_for_pkcs8() {
     raise InvalidPrivateKey(
       "expected id-ecPublicKey, got " + info.algorithm.algorithm.to_string(),
@@ -790,18 +797,23 @@ pub fn PrivateKey::from_pkcs8_der(der : Bytes) -> PrivateKey raise P384Error {
       "EC scalar wider than 48 bytes: " + scalar_bytes.length().to_string(),
     )
   }
-  PrivateKey::from_bytes(padded)
+  let sk = PrivateKey::from_bytes(padded)
+  match info.public_key {
+    Some(bs) =>
+      if bs.unused_bits != 0 || bs.bytes != sk.public_key().to_uncompressed() {
+        raise InvalidPrivateKey("PKCS#8 publicKey does not match privateKey")
+      }
+    None => ()
+  }
+  sk
 }
 
 ///|
 pub fn PrivateKey::from_pkcs8_pem(
   pem_str : String,
 ) -> PrivateKey raise P384Error {
-  let block = @pem.decode(pem_str) catch { _ => raise InvalidPrivateKey("pem") }
-  if block.label != "PRIVATE KEY" {
-    raise InvalidPrivateKey(
-      "expected -----BEGIN PRIVATE KEY----- label, got " + block.label,
-    )
+  let info = @pkcs8.parse_pem(pem_str) catch {
+    e => raise InvalidPrivateKey("pkcs8: " + @debug.to_string(e))
   }
-  PrivateKey::from_pkcs8_der(block.data)
+  private_key_from_pkcs8_info(info)
 }

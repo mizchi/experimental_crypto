@@ -421,6 +421,58 @@ test "p256: from_pkcs8_pem loads an openssl-generated PEM" {
 }
 
 ///|
+test "ATTACK: p256.from_pkcs8_pem rejects legacy PEM headers" {
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIKluN20zxOVotJ6D
+    #|u3JIHFhXAiovZC/vYulSsZbP1i+hRANCAASZi/TRHBhjVyUAbwUFd8C7kWyWtNFG
+    #|kjXilOlARkbCYLJgZoJIQoD3SK88mEVVSuVHYi43m3JjkKRbStcft0HJ
+    #|-----END PRIVATE KEY-----
+  let block = @pem.decode(pem_text)
+  let with_headers = @pem.encode({
+    label: block.label,
+    data: block.data,
+    headers: [("Proc-Type", "4,ENCRYPTED")],
+  })
+  try @p256.PrivateKey::from_pkcs8_pem(with_headers) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted P-256 PKCS#8 PEM with legacy headers")
+  }
+}
+
+///|
+test "ATTACK: p256.from_pkcs8_der rejects mismatched v2 publicKey" {
+  let pem_text =
+    #|-----BEGIN PRIVATE KEY-----
+    #|MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIKluN20zxOVotJ6D
+    #|u3JIHFhXAiovZC/vYulSsZbP1i+hRANCAASZi/TRHBhjVyUAbwUFd8C7kWyWtNFG
+    #|kjXilOlARkbCYLJgZoJIQoD3SK88mEVVSuVHYi43m3JjkKRbStcft0HJ
+    #|-----END PRIVATE KEY-----
+  let block = @pem.decode(pem_text)
+  let info = @pkcs8.parse_der(block.data)
+  let wrong_public = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else {
+      b'\x00'
+    }
+  })
+  let bad : @pkcs8.PrivateKeyInfo = {
+    ..info,
+    version: 1,
+    public_key: Some({ bytes: wrong_public, unused_bits: 0 }),
+  }
+  try @p256.PrivateKey::from_pkcs8_der(@pkcs8.serialize_der(bad)) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted P-256 PKCS#8 with mismatched publicKey")
+  }
+}
+
+///|
 test "ATTACK: p256.from_pkcs8_pem rejects a P-384 key blob (curve-OID downgrade)" {
   // PKCS#8 with id-ecPublicKey + secp384r1 namedCurve OID + SEC1 ECPrivateKey
   // body. The fixture below is a real openssl-generated P-384 key in PEM.

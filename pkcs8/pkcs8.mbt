@@ -108,6 +108,13 @@ fn decode_der(bytes : Bytes) -> @asn1.Element raise Pkcs8Error {
 }
 
 ///|
+fn reject_pem_headers(block : @pem.PemBlock) -> Unit raise Pkcs8Error {
+  if block.headers.length() > 0 {
+    raise UnexpectedStructure("PKCS#8 PEM must not contain legacy headers")
+  }
+}
+
+///|
 fn match_context_implicit_set(
   elem : @asn1.Element,
   number : UInt,
@@ -563,6 +570,7 @@ pub fn parse_pem(pem_str : String) -> PrivateKeyInfo raise Pkcs8Error {
       "'",
     )
   }
+  reject_pem_headers(block)
   parse_der(block.data)
 }
 
@@ -585,6 +593,7 @@ pub fn parse_encrypted_pem(
       "'",
     )
   }
+  reject_pem_headers(block)
   parse_encrypted_der(block.data)
 }
 

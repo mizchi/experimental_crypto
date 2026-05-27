@@ -142,6 +142,25 @@ test "pkcs8: parse_pem rejects wrong label" {
 }
 
 ///|
+test "ATTACK pkcs8: PRIVATE KEY PEM with legacy headers is rejected" {
+  let key = sample_ed25519_key()
+  let pem = @pem.encode({
+    label: "PRIVATE KEY",
+    data: @pkcs8.serialize_der(key),
+    headers: [
+      ("Proc-Type", "4,ENCRYPTED"),
+      ("DEK-Info", "AES-256-CBC,0011223344556677"),
+    ],
+  })
+  try @pkcs8.parse_pem(pem) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected header rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted PRIVATE KEY PEM with legacy headers")
+  }
+}
+
+///|
 test "pkcs8: parse_der rejects invalid version" {
   // SEQUENCE { INTEGER 5, SEQUENCE { OID 1.3.101.112 }, OCTET STRING "" }
   let bad_version_seq : Array[@asn1.Element] = [
@@ -204,6 +223,25 @@ test "pkcs8: EncryptedPrivateKeyInfo PEM roundtrip" {
   let pem = @pkcs8.serialize_encrypted_pem(enc)
   let parsed = @pkcs8.parse_encrypted_pem(pem)
   @debug.assert_eq(parsed.encrypted_data, enc.encrypted_data)
+}
+
+///|
+test "ATTACK pkcs8: ENCRYPTED PRIVATE KEY PEM with legacy headers is rejected" {
+  let enc : @pkcs8.EncryptedPrivateKeyInfo = {
+    algorithm: { algorithm: pbes2_oid(), parameters: None },
+    encrypted_data: b"\x01\x02\x03\x04\x05",
+  }
+  let pem = @pem.encode({
+    label: "ENCRYPTED PRIVATE KEY",
+    data: @pkcs8.serialize_encrypted_der(enc),
+    headers: [("Proc-Type", "4,ENCRYPTED")],
+  })
+  try @pkcs8.parse_encrypted_pem(pem) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected header rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted ENCRYPTED PRIVATE KEY PEM with legacy headers")
+  }
 }
 
 ///|

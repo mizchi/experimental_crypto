@@ -123,6 +123,70 @@ test "verify rejects tampered message" {
 }
 
 ///|
+test "ATTACK ed25519.from_pkcs8_pem rejects legacy PEM headers" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let inner = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(seed)),
+  )
+  let info : @pkcs8.PrivateKeyInfo = {
+    version: 0,
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_string("1.3.101.112"),
+      parameters: None,
+    },
+    private_key: inner,
+    attributes: [],
+    public_key: None,
+  }
+  let pem = @pem.encode({
+    label: "PRIVATE KEY",
+    data: @pkcs8.serialize_der(info),
+    headers: [("Proc-Type", "4,ENCRYPTED")],
+  })
+  try @ed25519.PrivateKey::from_pkcs8_pem(pem) catch {
+    InvalidEncoding(_) => ()
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted Ed25519 PKCS#8 PEM with legacy headers")
+  }
+}
+
+///|
+test "ATTACK ed25519.from_pkcs8_der rejects mismatched v2 publicKey" {
+  let seed = hex_to_bytes(
+    "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  )
+  let inner = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(seed)),
+  )
+  let wrong_public = Bytes::makei(32, fn(i) {
+    if i == 0 {
+      b'\x01'
+    } else {
+      b'\x00'
+    }
+  })
+  let info : @pkcs8.PrivateKeyInfo = {
+    version: 1,
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_string("1.3.101.112"),
+      parameters: None,
+    },
+    private_key: inner,
+    attributes: [],
+    public_key: Some({ bytes: wrong_public, unused_bits: 0 }),
+  }
+  try @ed25519.PrivateKey::from_pkcs8_der(@pkcs8.serialize_der(info)) catch {
+    InvalidEncoding(_) => ()
+    other => abort("expected InvalidEncoding, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted Ed25519 PKCS#8 with mismatched publicKey")
+  }
+}
+
+///|
 test "verify rejects wrong-length signature" {
   let seed = hex_to_bytes(
     "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",

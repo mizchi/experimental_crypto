@@ -328,3 +328,93 @@ test "p384: sign emits DER" {
   @debug.assert_eq(der[0], b'\x30')
   assert_true(@p384.verify(pk, b"hello p384 sign", der, Der))
 }
+
+///|
+test "ATTACK: p384.from_pkcs8_pem rejects legacy PEM headers" {
+  let scalar = hex(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sec1 = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([
+        @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+        @asn1.Element::new(@asn1.tag_octet_string, OctetString(scalar)),
+      ]),
+    ),
+  )
+  let info : @pkcs8.PrivateKeyInfo = {
+    version: 0,
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_string("1.2.840.10045.2.1"),
+      parameters: Some(
+        @asn1.encode_der(
+          @asn1.Element::new(
+            @asn1.tag_oid,
+            Oid(@asn1.ObjectIdentifier::from_string("1.3.132.0.34")),
+          ),
+        ),
+      ),
+    },
+    private_key: sec1,
+    attributes: [],
+    public_key: None,
+  }
+  let pem = @pem.encode({
+    label: "PRIVATE KEY",
+    data: @pkcs8.serialize_der(info),
+    headers: [("Proc-Type", "4,ENCRYPTED")],
+  })
+  try @p384.PrivateKey::from_pkcs8_pem(pem) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted P-384 PKCS#8 PEM with legacy headers")
+  }
+}
+
+///|
+test "ATTACK: p384.from_pkcs8_der rejects mismatched v2 publicKey" {
+  let scalar = hex(
+    "6b9d3dad2e1b8c1c05b19875b6659f4de23c3b667bf297ba9aa47740787137d896d5724e4c70a825f872c9ea60d2edf5",
+  )
+  let sec1 = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([
+        @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+        @asn1.Element::new(@asn1.tag_octet_string, OctetString(scalar)),
+      ]),
+    ),
+  )
+  let wrong_public = Bytes::makei(97, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else {
+      b'\x00'
+    }
+  })
+  let info : @pkcs8.PrivateKeyInfo = {
+    version: 1,
+    algorithm: {
+      algorithm: @asn1.ObjectIdentifier::from_string("1.2.840.10045.2.1"),
+      parameters: Some(
+        @asn1.encode_der(
+          @asn1.Element::new(
+            @asn1.tag_oid,
+            Oid(@asn1.ObjectIdentifier::from_string("1.3.132.0.34")),
+          ),
+        ),
+      ),
+    },
+    private_key: sec1,
+    attributes: [],
+    public_key: Some({ bytes: wrong_public, unused_bits: 0 }),
+  }
+  try @p384.PrivateKey::from_pkcs8_der(@pkcs8.serialize_der(info)) catch {
+    InvalidPrivateKey(_) => ()
+    other => abort("expected InvalidPrivateKey, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted P-384 PKCS#8 with mismatched publicKey")
+  }
+}

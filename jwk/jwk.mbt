@@ -285,6 +285,27 @@ fn get_string(m : Map[String, Json], key : String) -> String? {
 }
 
 ///|
+fn get_string_array(
+  m : Map[String, Json],
+  key : String,
+) -> Array[String]? raise JwkError {
+  match m.get(key) {
+    Some(Array(items)) => {
+      let out : Array[String] = []
+      for item in items {
+        match item {
+          String(s) => out.push(s)
+          _ => raise InvalidJson(key + " entries must be strings")
+        }
+      }
+      Some(out)
+    }
+    Some(_) => raise InvalidJson(key + " must be an array of strings")
+    None => None
+  }
+}
+
+///|
 fn need_string(m : Map[String, Json], key : String) -> String raise JwkError {
   match get_string(m, key) {
     Some(s) => s
@@ -635,21 +656,22 @@ pub fn parse_private(json : String) -> Jwk raise JwkError {
 
 ///|
 /// A single entry inside an RFC 7517 §5 JWK Set, carrying both the parsed
-/// key material and the JOSE metadata callers need to dispatch on (kid,
-/// alg, use). Returned by `parse_set`.
+/// key material and the JOSE metadata callers need to dispatch on (`kid`,
+/// `alg`, `use`, `key_ops`). Returned by `parse_set`.
 pub(all) struct JwkSetEntry {
   jwk : Jwk
   kid : String?
   alg : String?
   use_ : String?
+  key_ops : Array[String]?
 }
 
 ///|
 /// Parse an RFC 7517 §5 JWK Set document of the form
 /// `{ "keys": [ <jwk>, <jwk>, ... ] }`. Each entry is parsed as a public
 /// JWK; private fields are tolerated but not required. The metadata
-/// fields (`kid`, `alg`, `use`) are extracted alongside so callers (e.g.
-/// `@jwt.select_verify_key`) can select a key by header `kid` + `alg`
+/// fields (`kid`, `alg`, `use`, `key_ops`) are extracted alongside so callers
+/// (e.g. `@jwt.select_verify_key`) can select a key by header `kid` + `alg`
 /// without re-parsing the JSON.
 pub fn parse_set(json : String) -> Array[JwkSetEntry] raise JwkError {
   let m = parse_object(json)
@@ -672,6 +694,7 @@ pub fn parse_set(json : String) -> Array[JwkSetEntry] raise JwkError {
       kid: get_string(inner, "kid"),
       alg: get_string(inner, "alg"),
       use_: get_string(inner, "use"),
+      key_ops: get_string_array(inner, "key_ops"),
     })
   }
   out
