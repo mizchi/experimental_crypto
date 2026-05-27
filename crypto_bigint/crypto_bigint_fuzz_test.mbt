@@ -102,6 +102,34 @@ test "fuzz crypto_bigint: mul_mod is commutative" {
 }
 
 ///|
+test "fuzz crypto_bigint: add/sub/mul match BigInt oracle" {
+  for triple in (@quickcheck.samples(30) : Array[(Bytes, Bytes, Bytes)]) {
+    let (ba, bb, bm) = triple
+    let m = make_odd_modulus(bm, LIMB_COUNT)
+    let a = bytes_to_uint(ba, LIMB_COUNT)
+    let b = bytes_to_uint(bb, LIMB_COUNT)
+    let a_big = uint_to_bigint_ref(a)
+    let b_big = uint_to_bigint_ref(b)
+    let m_big = uint_to_bigint_ref(m)
+    assert_uint_bigint_eq(
+      a.add_mod(b, m),
+      (a_big + b_big) % m_big,
+      context="fuzz add",
+    )
+    let mut sub_expected = (a_big - b_big) % m_big
+    if sub_expected < @bigint.BigInt::from_int(0) {
+      sub_expected = sub_expected + m_big
+    }
+    assert_uint_bigint_eq(a.sub_mod(b, m), sub_expected, context="fuzz sub")
+    assert_uint_bigint_eq(
+      a.mul_mod(b, m),
+      a_big * b_big % m_big,
+      context="fuzz mul",
+    )
+  }
+}
+
+///|
 test "fuzz crypto_bigint: (a + b) - b == a (mod m)" {
   for triple in (@quickcheck.samples(30) : Array[(Bytes, Bytes, Bytes)]) {
     let (ba, bb, bm) = triple
@@ -166,6 +194,21 @@ test "fuzz crypto_bigint: pow_mod(a, 1, m) == a mod m" {
 }
 
 ///|
+test "fuzz crypto_bigint: pow_mod matches BigInt oracle" {
+  for triple in (@quickcheck.samples(10) : Array[(Bytes, Bytes, Bytes)]) {
+    let (ba, be, bm) = triple
+    let m = make_odd_modulus(bm, LIMB_COUNT)
+    let a = bytes_to_uint(ba, LIMB_COUNT)
+    let e = bytes_to_uint(be, LIMB_COUNT)
+    let expected = uint_to_bigint_ref(a).pow(
+      uint_to_bigint_ref(e),
+      modulus=uint_to_bigint_ref(m),
+    )
+    assert_uint_bigint_eq(a.pow_mod(e, m), expected, context="fuzz pow")
+  }
+}
+
+///|
 test "fuzz crypto_bigint: inv_mod(a, m) * a == 1 mod m when invertible" {
   for pair in (@quickcheck.samples(30) : Array[(Bytes, Bytes)]) {
     let (ba, bm) = pair
@@ -175,17 +218,29 @@ test "fuzz crypto_bigint: inv_mod(a, m) * a == 1 mod m when invertible" {
     if @crypto_bigint.Uint::ct_eq(a, @crypto_bigint.Uint::zero(LIMB_COUNT)) {
       continue
     }
-    try a.inv_mod(m) catch {
-      _ =>
-        // gcd(a, m) != 1: legitimate failure, nothing to check.
-        ()
-    } noraise {
-      inv => {
-        let prod = a.mul_mod(inv, m)
-        assert_true(
-          @crypto_bigint.Uint::ct_eq(prod, @crypto_bigint.Uint::one(LIMB_COUNT)),
-        )
-      }
+    let expected = bigint_inv_ref(uint_to_bigint_ref(a), uint_to_bigint_ref(m))
+    match expected {
+      None =>
+        try a.inv_mod(m) catch {
+          _ => ()
+        } noraise {
+          _ => abort("inv_mod accepted a non-invertible value")
+        }
+      Some(expected_inv) =>
+        try a.inv_mod(m) catch {
+          e => abort("inv_mod rejected an invertible value: " + repr(e))
+        } noraise {
+          inv => {
+            assert_uint_bigint_eq(inv, expected_inv, context="fuzz inv oracle")
+            let prod = a.mul_mod(inv, m)
+            assert_true(
+              @crypto_bigint.Uint::ct_eq(
+                prod,
+                @crypto_bigint.Uint::one(LIMB_COUNT),
+              ),
+            )
+          }
+        }
     }
   }
 }

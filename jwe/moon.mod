@@ -7,6 +7,7 @@ version = "0.1.0"
 
 import {
   "mizchi/aead@0.1.0",
+  "mizchi/crypto_bigint@0.1.0",
   "mizchi/rsa@0.1.0",
   "mizchi/hash@0.1.0",
 }

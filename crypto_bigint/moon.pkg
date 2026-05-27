@@ -1,8 +1,6 @@
 import {
+  "moonbitlang/core/bench",
   "moonbitlang/core/bigint",
-}
-
-import {
   "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
 } for "test"

@@ -46,7 +46,7 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 |---|---|---|
 | `asn1` | X.690 (DER) / X.680 | Strict canonical DER encoder + decoder. MAX_DEPTH=32 on both ends. Rejects tag aliases, canonical INTEGER / BIT STRING / OID / SET / PrintableString / time violations. |
 | `cose_cbor` | RFC 8949 | CBOR major types 0..7 + tagged values. Floats always 8-byte. Used by COSE. Renamed from `cbor` to free the `mizchi/cbor` namespace for the upstream package. |
-| `crypto_bigint` | (Rust crypto-bigint shape) | Currently a wrapper around `@bigint`. TODO: real limb-based impl unblocks constant-time mod-exp. |
+| `crypto_bigint` | (Rust crypto-bigint shape) | Fixed-limb unsigned integers, modular add/sub/mul/pow, odd-modulus Montgomery pow, and fixed-iteration odd-modulus inverse. BigInt is kept only in tests as an oracle. Branchless/fixed-iteration discipline is intended but still needs external leakage measurement before production constant-time claims. See `CONSTANT_TIME.md`. |
 | `getrandom` | (target-specific) | CSPRNG bridge: `crypto.getRandomValues` on JS, `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native. |
 
 ### Layer 2 — primitives
@@ -69,10 +69,10 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 |---|---|---|
 | `ed25519` | RFC 8032 | Ed25519 sign + verify (with `verify_strict`). SHA-512 self-impl in module. Edwards curve via @bigint (TODO: 10-limb). |
 | `x25519` | RFC 7748 | X25519 ECDH. 10-limb radix-2^25.5 Montgomery ladder; ~90µs/operation. Small-subgroup defence. |
-| `p256` | NIST FIPS 186-5, SEC 1 | ECDSA-SHA-256 verify + sign (RFC 6979 deterministic). Affine Weierstrass via @bigint. PKCS#8 loader (curve-OID checked). |
+| `p256` | NIST FIPS 186-5, SEC 1 | ECDSA-SHA-256 verify + sign (RFC 6979 deterministic). Affine Weierstrass via @bigint; final nonce inverse routes through `crypto_bigint`. PKCS#8 loader (curve-OID checked). |
 | `p384` | NIST FIPS 186-5 | ECDSA-SHA-384, same shape as p256. |
-| `secp256k1` | SEC 2 §2.4.1 | Bitcoin / Ethereum curve. ECDSA + RFC 6979 + BIP-62 low-s by default. `sign_no_low_s` for pre-BIP-62 callers. `PublicKey::to_compressed` for BIP-32. |
-| `rsa` | RFC 8017 | RSA PKCS#1 v1.5 + RSA-PSS (MGF1-SHA-2{56,384,512}). Sign + verify. PKCS#1 / SPKI / PKCS#8 loaders. |
+| `secp256k1` | SEC 2 §2.4.1 | Bitcoin / Ethereum curve. ECDSA + RFC 6979 + BIP-62 low-s by default; final nonce inverse routes through `crypto_bigint`. `sign_no_low_s` for pre-BIP-62 callers. `PublicKey::to_compressed` for BIP-32. |
+| `rsa` | RFC 8017 | RSA PKCS#1 v1.5 + RSA-PSS (MGF1-SHA-2{56,384,512}). Sign + verify. Sign-side private modexp routes through `crypto_bigint`; public verify remains `@bigint.pow`. PKCS#1 / SPKI / PKCS#8 loaders. |
 
 ### Layer 4 — composers / verifiers
 
@@ -122,6 +122,7 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
   nonces. RSA-PSS for JWT uses sLen=0 (deterministic) because no vetted RNG
   is exposed at the JWT layer; callers needing RFC 7518 interop call
   `@rsa.sign_pss` directly.
-- **Const-time gaps documented**: every `PrivateKey::sign` has a doc comment
-  marking it as variable-time on the secret. `crypto_bigint` rewrite is the
-  prerequisite for closing the gap.
+- **Const-time gaps documented**: every remaining variable-time sign path has a
+  doc comment marking the side-channel. `crypto_bigint` now uses fixed-limb /
+  fixed-iteration code for modular arithmetic, but external leakage
+  measurement is still required before treating it as production constant-time.

@@ -1,5 +1,6 @@
 import {
   "mizchi/aead",
+  "mizchi/crypto_bigint",
   "mizchi/rsa",
   "mizchi/hash",
   "moonbitlang/core/bigint",

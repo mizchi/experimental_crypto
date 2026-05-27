@@ -473,23 +473,16 @@ pub fn RsaPrivateKey::public_key(self : RsaPrivateKey) -> RsaPublicKey {
 ///
 /// where k = n_bytes_len. Returns the k-byte signature.
 ///
-/// Side-channel caveat: the modexp uses `@bigint.pow`, which is
-/// variable-time on the secret `d`. We do NOT do CRT (so no
-/// CRT-fault-injection vector either), but a timing attacker who can
-/// trigger many sign operations may recover `d`. Treat this as a
-/// sign-only-on-trusted-hosts primitive.
+/// Side-channel caveat: private modexp is routed through `crypto_bigint`'
+/// fixed-limb exponentiation, but this path still lacks external leakage
+/// measurement and CRT hardening.
 pub fn RsaPrivateKey::sign(
   self : RsaPrivateKey,
   message : Bytes,
   hash : HashAlg,
 ) -> Bytes raise RsaError {
   let em = emsa_pkcs1_v1_5_encode(hash, message, self.n_bytes_len)
-  // OS2IP — interpret EM as a non-negative integer.
-  let m = BigInt::from_octets(em[:])
-  // s = m^d mod n.
-  let s = m.pow(self.d, modulus=self.n)
-  // I2OSP — encode as fixed-length big-endian.
-  s.to_octets(length=self.n_bytes_len)
+  rsa_private_modexp_bytes(em, self.d, self.n, self.n_bytes_len)
 }
 
 // ─── PKCS#8 / PEM loaders ────────────────────────────────────────────────
@@ -783,6 +776,36 @@ fn mod_bits(n : BigInt) -> Int {
 }
 
 ///|
+fn rsa_private_modexp_bytes(
+  base : Bytes,
+  d : BigInt,
+  n : BigInt,
+  n_bytes_len : Int,
+) -> Bytes raise RsaError {
+  let limb_count = (n_bytes_len + 7) / 8
+  let base_u = @crypto_bigint.Uint::from_be_bytes(base, limb_count) catch {
+    _ => raise InvalidEncoding("RSA base does not fit modulus width")
+  }
+  let d_u = @crypto_bigint.Uint::from_be_bytes(
+    d.to_octets(length=n_bytes_len),
+    limb_count,
+  ) catch {
+    _ =>
+      raise InvalidEncoding("RSA private exponent does not fit modulus width")
+  }
+  let n_u = @crypto_bigint.Uint::from_be_bytes(
+    n.to_octets(length=n_bytes_len),
+    limb_count,
+  ) catch {
+    _ => raise InvalidEncoding("RSA modulus does not fit modulus width")
+  }
+  let s_u = base_u.pow_mod(d_u, n_u)
+  let full = s_u.to_be_bytes()
+  let off = full.length() - n_bytes_len
+  Bytes::makei(n_bytes_len, fn(i) { full[off + i] })
+}
+
+///|
 /// RSASSA-PSS sign (RFC 8017 §8.1.1).
 ///
 /// `salt` is supplied by the caller — pass `b""` for deterministic /
@@ -794,8 +817,9 @@ fn mod_bits(n : BigInt) -> Int {
 /// The hash is used both for the message hash and for MGF1, matching every
 /// real-world deployment (TLS 1.3, JWA, PKCS#1 v2.2 default).
 ///
-/// Side-channel caveat: the modexp uses `@bigint.pow`, which is
-/// variable-time on the secret `d` (same as the PKCS#1 v1.5 sign path).
+/// Side-channel caveat: private modexp is routed through `crypto_bigint`'
+/// fixed-limb exponentiation, but this path still lacks external leakage
+/// measurement and CRT hardening.
 pub fn RsaPrivateKey::sign_pss(
   self : RsaPrivateKey,
   message : Bytes,
@@ -807,10 +831,9 @@ pub fn RsaPrivateKey::sign_pss(
   let m_hash = hash_message(hash, message)
   let em = emsa_pss_encode(hash, m_hash, salt, em_bits)
   // §8.1.1 step 2: OS2IP(EM) → m; s = m^d mod n.
-  let m = BigInt::from_octets(em[:])
-  let s = m.pow(self.d, modulus=self.n)
+  let s = rsa_private_modexp_bytes(em, self.d, self.n, self.n_bytes_len)
   // §8.1.1 step 3: I2OSP(s, k) → k-byte signature.
-  s.to_octets(length=self.n_bytes_len)
+  s
 }
 
 ///|

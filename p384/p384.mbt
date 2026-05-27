@@ -1,13 +1,14 @@
-// NIST P-384 (secp384r1) ECDSA signature verification (verify-only).
+// NIST P-384 (secp384r1) ECDSA signature verification and signing.
 //
 // Curve: y² = x³ - 3x + b over GF(p) with p, b, n, G from FIPS 186-5 §D.1.2.4.
 //
 // Scope and structure mirror `mizchi/p256`:
 //   - verify  (FIPS 186-5 §6.4.2 / ANSI X9.62)
+//   - sign    (RFC 6979 deterministic nonce)
 //   - public key parsing: uncompressed (04 || X || Y), 97 bytes total; SPKI
 //   - signature parsing: JWT/JOSE raw (r||s, 96B) and X.509 DER SEQUENCE
 //
-// Out of scope: sign, key generation, point compression, ECDH.
+// Out of scope: key generation, point compression, ECDH.
 
 // ─── curve constants (NIST FIPS 186-5 §D.1.2.4) ──────────────────────────
 
@@ -85,6 +86,23 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)
+}
+
+///|
+fn scalar_inverse(a : BigInt, m : BigInt) -> BigInt {
+  let a_u = @crypto_bigint.Uint::from_be_bytes(
+    mod_pos(a, m).to_octets(length=48),
+    6,
+  ) catch {
+    _ => abort("P-384 inverse input does not fit 48 bytes")
+  }
+  let m_u = @crypto_bigint.Uint::from_be_bytes(m.to_octets(length=48), 6) catch {
+    _ => abort("P-384 modulus does not fit 48 bytes")
+  }
+  let inv = a_u.inv_mod(m_u) catch {
+    _ => abort("P-384 inverse does not exist")
+  }
+  BigInt::from_octets(inv.to_be_bytes()[:])
 }
 
 ///|
@@ -305,6 +323,25 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise P384Error {
 // ─── signature parsing ───────────────────────────────────────────────────
 
 ///|
+fn bytes_all_zero(b : BytesView) -> Bool {
+  for i in 0..<b.length() {
+    if b[i] != b'\x00' {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn fixed_bigint_from_octets(b : BytesView) -> BigInt {
+  if bytes_all_zero(b) {
+    BigInt::from_int(0)
+  } else {
+    BigInt::from_octets(b[:])
+  }
+}
+
+///|
 pub(all) enum SignatureFormat {
   // JWT / JOSE per RFC 7518 §3.4: r || s, each 48 bytes BE, total 96 bytes.
   Raw
@@ -321,7 +358,7 @@ fn integer_to_bigint(bytes : Bytes) -> BigInt raise P384Error {
     raise InvalidDerSignature("negative INTEGER not permitted")
   }
   let start = if bytes.length() > 1 && bytes[0] == b'\x00' { 1 } else { 0 }
-  BigInt::from_octets(bytes[start:])
+  fixed_bigint_from_octets(bytes[start:])
 }
 
 ///|
@@ -336,8 +373,8 @@ fn parse_signature(
       }
       let r_bytes = Bytes::makei(48, fn(i) { sig[i] })
       let s_bytes = Bytes::makei(48, fn(i) { sig[i + 48] })
-      let r = BigInt::from_octets(r_bytes[:])
-      let s = BigInt::from_octets(s_bytes[:])
+      let r = fixed_bigint_from_octets(r_bytes[:])
+      let s = fixed_bigint_from_octets(s_bytes[:])
       (r, s)
     }
     Der => {
@@ -466,7 +503,7 @@ pub fn PrivateKey::sign(
     if !r_point.inf {
       r = r_point.x % n
       if r.compare(BigInt::from_int(0)) > 0 {
-        let k_inv = mod_inverse(k, n)
+        let k_inv = scalar_inverse(k, n)
         let s_calc = k_inv * ((e + r * self.d) % n) % n
         if s_calc.compare(BigInt::from_int(0)) > 0 {
           s = s_calc

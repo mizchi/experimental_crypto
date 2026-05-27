@@ -7,6 +7,7 @@ version = "0.1.0"
 
 import {
   "mizchi/asn1@0.1.0",
+  "mizchi/crypto_bigint@0.1.0",
   "mizchi/hash@0.1.0",
   "mizchi/pkcs8@0.1.0",
   "mizchi/pem@0.1.0",
@@ -21,4 +22,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "EXPERIMENTAL — RSA PKCS#1 v1.5 signature verification (verify-only)."
+description = "EXPERIMENTAL — RSA PKCS#1 v1.5 / PSS signing and verification."

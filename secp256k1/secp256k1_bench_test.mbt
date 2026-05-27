@@ -1,6 +1,7 @@
-// Benchmarks for secp256k1 ECDSA. Field arithmetic goes through @bigint
-// affine point ops — baseline before a planned 10-limb radix-2^26 field
-// rewrite. secp256k1 has an endomorphism (GLV decomposition) that could
+// Benchmarks for secp256k1 ECDSA. Field arithmetic still goes through @bigint
+// affine point ops; only the final nonce inverse is routed through
+// crypto_bigint — baseline before a planned 10-limb radix-2^26 field rewrite.
+// secp256k1 has an endomorphism (GLV decomposition) that could
 // further halve scalar mult cost; out of scope for this baseline.
 
 ///|

@@ -101,10 +101,30 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 }
 
 ///|
-// Modular inverse via Fermat's little theorem. Both p and n are prime.
+// Modular inverse via Fermat's little theorem. This remains for public verify
+// and the affine point formulas. It is still variable-time when reached from
+// secret scalar multiplication; replacing affine scalar_mult is the remaining
+// ECDSA side-channel task.
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)
+}
+
+///|
+fn scalar_inverse(a : BigInt, m : BigInt) -> BigInt {
+  let a_u = @crypto_bigint.Uint::from_be_bytes(
+    mod_pos(a, m).to_octets(length=32),
+    4,
+  ) catch {
+    _ => abort("secp256k1 inverse input does not fit 32 bytes")
+  }
+  let m_u = @crypto_bigint.Uint::from_be_bytes(m.to_octets(length=32), 4) catch {
+    _ => abort("secp256k1 modulus does not fit 32 bytes")
+  }
+  let inv = a_u.inv_mod(m_u) catch {
+    _ => abort("secp256k1 inverse does not exist")
+  }
+  BigInt::from_octets(inv.to_be_bytes()[:])
 }
 
 ///|
@@ -165,7 +185,7 @@ fn point_add(p1 : Point, p2 : Point) -> Point {
 ///|
 // Variable-time double-and-add. Same caveats as the p256 version — the
 // public verify path is fine with variable time; sign uses it too, so the
-// nonce `k` is exposed via timing. Treat sign as trusted-host-only.
+// nonce `k` is exposed via ladder timing. Treat sign as trusted-host-only.
 fn scalar_mult(k : BigInt, pt : Point) -> Point {
   if pt.inf {
     return pt
@@ -338,6 +358,25 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise Secp256k1Error {
 // ─── signature parsing ───────────────────────────────────────────────────
 
 ///|
+fn bytes_all_zero(b : BytesView) -> Bool {
+  for i in 0..<b.length() {
+    if b[i] != b'\x00' {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn fixed_bigint_from_octets(b : BytesView) -> BigInt {
+  if bytes_all_zero(b) {
+    BigInt::from_int(0)
+  } else {
+    BigInt::from_octets(b[:])
+  }
+}
+
+///|
 pub(all) enum SignatureFormat {
   Raw
   Der
@@ -359,7 +398,7 @@ fn integer_to_bigint(bytes : Bytes) -> BigInt raise Secp256k1Error {
   } else {
     0
   }
-  BigInt::from_octets(bytes[start:])
+  fixed_bigint_from_octets(bytes[start:])
 }
 
 ///|
@@ -374,8 +413,8 @@ fn parse_signature(
       }
       let r_bytes = Bytes::makei(32, fn(i) { sig[i] })
       let s_bytes = Bytes::makei(32, fn(i) { sig[i + 32] })
-      let r = BigInt::from_octets(r_bytes[:])
-      let s = BigInt::from_octets(s_bytes[:])
+      let r = fixed_bigint_from_octets(r_bytes[:])
+      let s = fixed_bigint_from_octets(s_bytes[:])
       (r, s)
     }
     Der => {
@@ -507,7 +546,7 @@ fn sign_core(d : BigInt, message : Bytes, low_s : Bool) -> (BigInt, BigInt) {
     if !r_point.inf {
       r = r_point.x % n
       if r.compare_int(0) > 0 {
-        let k_inv = mod_inverse(k, n)
+        let k_inv = scalar_inverse(k, n)
         let s_calc = k_inv * ((e + r * d) % n) % n
         if s_calc.compare_int(0) > 0 {
           s = s_calc

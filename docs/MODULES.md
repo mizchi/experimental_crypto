@@ -34,8 +34,11 @@ narrower type-specific API without Array/Map/Tag). Long-term plan: PR
 the ADT helpers upstream and retire this module.
 
 ### `mizchi/crypto_bigint`
-Wrapper around `@bigint`. Limb-based rewrite is the prerequisite for
-constant-time sign-side operations.
+Fixed-limb unsigned integers, modular add/sub/mul/pow, odd-modulus
+Montgomery pow, and fixed-iteration odd-modulus inverse. Runtime modular
+arithmetic no longer delegates to `@bigint`; `@bigint` remains as a test
+oracle. Source loops are branchless / fixed-iteration intended, but not yet
+constant-time proven. See `CONSTANT_TIME.md`.
 
 ### `mizchi/getrandom`
 CSPRNG bridge. Platform backends: `crypto.getRandomValues` on JS,

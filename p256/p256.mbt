@@ -1,23 +1,23 @@
-// NIST P-256 (secp256r1) ECDSA signature verification (verify-only).
+// NIST P-256 (secp256r1) ECDSA signature verification and signing.
 //
 // Curve: y² = x³ - 3x + b over GF(p) with p, b, n, G from FIPS 186-5 §D.1.2.3.
 //
 // Scope:
-//   - verify  (RFC 6979 / FIPS 186-5 §6.4.2)
+//   - verify  (FIPS 186-5 §6.4.2)
+//   - sign    (RFC 6979 deterministic nonce)
 //   - public key parsing: uncompressed (04 || x || y) and SPKI
 //   - signature parsing: JWT/JOSE raw (r||s, 64B) and X.509 DER SEQUENCE
 //
-// Out of scope: sign, key generation, point compression, ECDH.
+// Out of scope: key generation, point compression, ECDH.
 //
 // Implementation notes:
 //   - Affine Weierstrass points with a separate "point at infinity" flag.
 //     For verify the input is public, so variable-time scalar mult is fine
 //     and the simpler representation pays for itself.
-//   - All field arithmetic goes through @bigint with explicit `% p`. The hot
-//     path (verify) does O(256) field muls per scalar_mult × 2 ladders;
-//     measured cost is dominated by mod-exp inside `mod_inverse`.
-//   - Modular inverse uses Fermat's little theorem (`a^(m-2) mod m`) since
-//     both `p` and `n` are prime. Avoids an extended-Euclidean implementation.
+//   - Affine field arithmetic still goes through @bigint with explicit `% p`.
+//     The final ECDSA nonce inverse `k^-1 mod n` is routed through
+//     `crypto_bigint.inv_mod`, but scalar multiplication still contains
+//     variable-time field inversions.
 
 // ─── curve constants (NIST FIPS 186-5 §D.1.2.3) ──────────────────────────
 
@@ -99,12 +99,30 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 }
 
 ///|
-// Modular inverse via Fermat's little theorem: a^(m-2) mod m. Requires `m`
-// prime, which is true for both `p` (field characteristic) and `n` (group
-// order). Returns garbage for non-prime `m`; we never pass one.
+// Modular inverse via Fermat's little theorem. This remains for public verify
+// and the affine point formulas. It is still variable-time when reached from
+// secret scalar multiplication; replacing affine scalar_mult is the remaining
+// ECDSA side-channel task.
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)
+}
+
+///|
+fn scalar_inverse(a : BigInt, m : BigInt) -> BigInt {
+  let a_u = @crypto_bigint.Uint::from_be_bytes(
+    mod_pos(a, m).to_octets(length=32),
+    4,
+  ) catch {
+    _ => abort("P-256 inverse input does not fit 32 bytes")
+  }
+  let m_u = @crypto_bigint.Uint::from_be_bytes(m.to_octets(length=32), 4) catch {
+    _ => abort("P-256 modulus does not fit 32 bytes")
+  }
+  let inv = a_u.inv_mod(m_u) catch {
+    _ => abort("P-256 inverse does not exist")
+  }
+  BigInt::from_octets(inv.to_be_bytes()[:])
 }
 
 ///|
@@ -366,6 +384,25 @@ pub fn PublicKey::from_spki_der(der : Bytes) -> PublicKey raise P256Error {
 // ─── signature parsing ───────────────────────────────────────────────────
 
 ///|
+fn bytes_all_zero(b : BytesView) -> Bool {
+  for i in 0..<b.length() {
+    if b[i] != b'\x00' {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn fixed_bigint_from_octets(b : BytesView) -> BigInt {
+  if bytes_all_zero(b) {
+    BigInt::from_int(0)
+  } else {
+    BigInt::from_octets(b[:])
+  }
+}
+
+///|
 pub(all) enum SignatureFormat {
   // JWT / JOSE per RFC 7515 §3.4 / RFC 7518 §3.4: r || s, each 32 bytes BE,
   // total 64 bytes.
@@ -386,7 +423,7 @@ fn integer_to_bigint(bytes : Bytes) -> BigInt raise P256Error {
     raise InvalidDerSignature("negative INTEGER not permitted")
   }
   let start = if bytes.length() > 1 && bytes[0] == b'\x00' { 1 } else { 0 }
-  BigInt::from_octets(bytes[start:])
+  fixed_bigint_from_octets(bytes[start:])
 }
 
 ///|
@@ -401,8 +438,8 @@ fn parse_signature(
       }
       let r_bytes = Bytes::makei(32, fn(i) { sig[i] })
       let s_bytes = Bytes::makei(32, fn(i) { sig[i + 32] })
-      let r = BigInt::from_octets(r_bytes[:])
-      let s = BigInt::from_octets(s_bytes[:])
+      let r = fixed_bigint_from_octets(r_bytes[:])
+      let s = fixed_bigint_from_octets(s_bytes[:])
       (r, s)
     }
     Der => {
@@ -528,10 +565,10 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 ///
 /// Side-channel caveat: RFC 6979 prevents nonce-bias attacks but does
 /// NOT make the implementation constant-time. The underlying `scalar_mult`
-/// is variable-time on the secret nonce `k` (because of `@bigint.pow`
-/// inside `mod_inverse` and the early-exit on leading-zero bits in the
-/// double-and-add ladder). Treat this as a sign-only-on-trusted-hosts
-/// primitive until we add a Montgomery-ladder fixed-time scalar mult.
+/// is variable-time on the secret nonce `k` due to the affine,
+/// branch-dependent double-and-add ladder. Treat this as a
+/// sign-only-on-trusted-hosts primitive until we add a fixed-limb,
+/// fixed-time scalar mult.
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
@@ -556,7 +593,7 @@ pub fn PrivateKey::sign(
       r = r_point.x % n
       if r.compare_int(0) > 0 {
         // s = k^-1 * (e + r * d) mod n
-        let k_inv = mod_inverse(k, n)
+        let k_inv = scalar_inverse(k, n)
         let s_calc = k_inv * ((e + r * self.d) % n) % n
         if s_calc.compare_int(0) > 0 {
           s = s_calc

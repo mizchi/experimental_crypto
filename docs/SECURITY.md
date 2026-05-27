@@ -87,16 +87,19 @@ worth noting:
   produces a deterministic `k` from (privkey, message) so the **value**
   of `k` is fixed for a given message, but the **execution time** of
   scalar_mult leaks `k`'s bit pattern. Each `PrivateKey::sign` doc
-  comment marks this.
-- **RSA `BigInt.pow`** is variable-time on `d`. We do **not** do CRT,
-  so no CRT-fault-injection vector either, but a timing attacker who
-  triggers many sign operations may recover `d`.
+  comment marks this. The final ECDSA nonce inverse no longer uses
+  `@bigint.pow`, but affine point operations still do variable-time field
+  inversions.
+- **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
+  modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
+  branchless in source structure, but not yet proven constant-time across
+  MoonBit backends, allocation, GC, and generated JavaScript/native code.
 - **Verify-side timing**: variable-time too, but only on public inputs;
   no key material leaks.
 
-Closing these requires a constant-time scalar-mult ladder and a
-constant-time modular exponentiation, both of which need
-`crypto_bigint` rewritten as a real limb-based implementation.
+Closing these requires fixed-limb ECDSA scalar multiplication and an external
+leakage harness (for example dudect or callgrind-style class comparisons) for
+the RSA/JWE/ECDSA sign paths.
 
 ### Caller responsibilities
 

@@ -51,6 +51,32 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 | Experimental-status warning in every module README + moon.mod | workspace | 6fccbf7 |
 | CI target matrix for `wasm-gc`, `native`, and `js`; `moon prove` separate | CI | done |
 
+## Constant-Time / BigInt Reduction
+
+- Move `crypto_bigint` modular add/sub/mul/pow and Montgomery `r2` reduction
+  off the BigInt fallback onto fixed-limb code.
+- Replace `crypto_bigint.inv_mod`'s BigInt-backed fallback with a limb-based
+  odd-modulus binary-GCD path that rejects unsupported even moduli fail-closed.
+- Replace the variable-iteration `crypto_bigint.inv_mod` loop with a
+  fixed-iteration odd-modulus almost-inverse path.
+- Keep BigInt only as a test oracle for 256-bit carries, operands wider than
+  the modulus, multi-limb exponents, Montgomery `r2`, and modular inverses.
+- Add a 32-bit-word native Montgomery multiplication path for odd moduli and
+  route `Uint::pow_mod` / `Montgomery::{to_mont,from_mont,mul,pow}` through it.
+- Route RSA PKCS#1 v1.5 / PSS sign-side private modexp through
+  `crypto_bigint.Uint::pow_mod`, leaving BigInt for public verification and key
+  parsing.
+- Route JWE RSA-OAEP private unwrap modexp through `crypto_bigint.Uint::pow_mod`,
+  leaving BigInt for public RSA-OAEP encryption and key parsing.
+- Route P-256 / P-384 / secp256k1 final ECDSA nonce inverses through
+  `crypto_bigint.Uint::inv_mod`, reducing one sign-side `@bigint.pow` use while
+  leaving affine scalar multiplication as the remaining side-channel item.
+- Document the exact terminology split in `docs/CONSTANT_TIME.md`: current
+  code is fixed-limb / fixed-iteration and branchless-intended, not measured
+  constant-clock.
+- Add `crypto_bigint` sparse-vs-dense `moon bench` smoke targets for `pow_mod`
+  and `inv_mod`; these are regression aids, not constant-time evidence.
+
 ## Parser And Protocol Hardening
 
 ### ASN.1 / PEM / PKCS#8 / PKIX

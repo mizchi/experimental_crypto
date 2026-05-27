@@ -1,10 +1,12 @@
 // Fixed-size unsigned BigInt for cryptographic primitives.
 //
 // NOTE on constant time:
-//   The current implementation routes arithmetic through
-//   `moonbitlang/core/bigint` for correctness and to lock down the public
-//   surface. It is NOT constant time. Replacing the BigInt fallback with
-//   per-limb constant-time arithmetic is a future task.
+//   This is a source-level fixed-limb / fixed-iteration implementation, not a
+//   measured constant-clock implementation. Modular add/sub/mul/pow avoid
+//   secret-dependent branches on operand bits, and `inv_mod` uses a
+//   fixed-iteration odd-modulus path. The MoonBit backend, allocator, GC, and
+//   generated machine code still need external leakage measurement before this
+//   package can be treated as production constant-time code.
 
 ///|
 pub(all) struct Uint {
@@ -64,49 +66,451 @@ pub suberror CryptoBigintError {
   NotInvertible
 } derive(Debug)
 
+///|
+let word32_mask : UInt64 = 0xffff_ffffUL
+
 // ---------------------------------------------------------------------------
-// Limb <-> BigInt conversion helpers.
+// Limb helpers.
 //
 // Internal representation: `FixedArray[UInt64]` little-endian (least
-// significant limb at index 0).
+// significant limb at index 0). Modular arithmetic works at the modulus'
+// fixed limb width. Inputs with wider limb arrays are reduced bit-by-bit so
+// high limbs are not silently truncated.
 // ---------------------------------------------------------------------------
 
 ///|
-fn limbs_to_bigint(limbs : FixedArray[UInt64]) -> @bigint.BigInt {
-  let n = limbs.length()
-  if n == 0 {
-    return @bigint.BigInt::from_int(0)
+fn limbs_is_zero(limbs : FixedArray[UInt64]) -> Bool {
+  limbs_is_zero_bit(limbs) == 1UL
+}
+
+///|
+fn limbs_is_zero_bit(limbs : FixedArray[UInt64]) -> UInt64 {
+  let mut acc = 0UL
+  for i in 0..<limbs.length() {
+    acc = acc | limbs[i]
   }
-  // Build the integer limb-by-limb from MSB down. core/bigint's
-  // `from_octets` does not robustly handle multi-limb leading zeros, so we
-  // assemble via shifts which keeps internal invariants happy.
-  let mut acc = @bigint.BigInt::from_int(0)
+  u64_nonzero_01(acc) ^ 1UL
+}
+
+///|
+fn limbs_is_one(limbs : FixedArray[UInt64]) -> Bool {
+  limbs_is_one_bit(limbs) == 1UL
+}
+
+///|
+fn limbs_is_one_bit(limbs : FixedArray[UInt64]) -> UInt64 {
+  if limbs.length() == 0 {
+    return 0UL
+  }
+  let mut acc = limbs[0] ^ 1UL
+  for i in 1..<limbs.length() {
+    acc = acc | limbs[i]
+  }
+  u64_nonzero_01(acc) ^ 1UL
+}
+
+///|
+fn limbs_is_even(limbs : FixedArray[UInt64]) -> Bool {
+  limbs_is_even_bit(limbs) == 1UL
+}
+
+///|
+fn limbs_is_even_bit(limbs : FixedArray[UInt64]) -> UInt64 {
+  if limbs.length() == 0 {
+    1UL
+  } else {
+    (limbs[0] & 1UL) ^ 1UL
+  }
+}
+
+///|
+fn require_nonzero_modulus(modulus : Uint) -> Unit {
+  if limbs_is_zero(modulus.limbs) {
+    abort("crypto_bigint: zero modulus")
+  }
+}
+
+///|
+fn ct_select_u64(a : UInt64, b : UInt64, bit : UInt64) -> UInt64 {
+  let mask = 0UL - (bit & 1UL)
+  (a & mask.lnot()) | (b & mask)
+}
+
+///|
+fn ct_select_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  bit : UInt64,
+) -> FixedArray[UInt64] {
+  let n = a.length()
+  let out = FixedArray::make(n, 0UL)
+  for i in 0..<n {
+    out[i] = ct_select_u64(a[i], b[i], bit)
+  }
+  out
+}
+
+///|
+fn limb_bit(limbs : FixedArray[UInt64], bit_index : Int) -> UInt64 {
+  let limb_idx = bit_index / 64
+  let shift = bit_index % 64
+  (limbs[limb_idx] >> shift) & 1UL
+}
+
+///|
+fn limbs_add_n(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+) -> (FixedArray[UInt64], UInt64) {
+  let n = a.length()
+  let out = FixedArray::make(n, 0UL)
+  let mut carry = 0UL
+  for i in 0..<n {
+    let av = a[i]
+    let bv = b[i]
+    let s1 = av + bv
+    let c1 = u64_lt_01(s1, av)
+    let s2 = s1 + carry
+    let c2 = u64_lt_01(s2, s1)
+    out[i] = s2
+    carry = c1 | c2
+  }
+  (out, carry)
+}
+
+///|
+fn limbs_sub_n(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+) -> (FixedArray[UInt64], UInt64) {
+  let n = a.length()
+  let out = FixedArray::make(n, 0UL)
+  let mut borrow = 0UL
+  for i in 0..<n {
+    let av = a[i]
+    let bv = b[i]
+    let d1 = av - bv
+    let b1 = u64_lt_01(av, bv)
+    let d2 = d1 - borrow
+    let b2 = u64_lt_01(d1, borrow)
+    out[i] = d2
+    borrow = b1 | b2
+  }
+  (out, borrow)
+}
+
+///|
+fn limbs_geq_n_bit(a : FixedArray[UInt64], b : FixedArray[UInt64]) -> UInt64 {
+  let (_, borrow) = limbs_sub_n(a, b)
+  borrow ^ 1UL
+}
+
+///|
+fn limbs_shr1_with_top_bit(
+  limbs : FixedArray[UInt64],
+  top_bit : UInt64,
+) -> FixedArray[UInt64] {
+  let n = limbs.length()
+  let out = FixedArray::make(n, 0UL)
+  let mut carry = top_bit & 1UL
   for i = n - 1; i >= 0; i = i - 1 {
-    acc = (acc << 64) + @bigint.BigInt::from_uint64(limbs[i])
+    let next_carry = limbs[i] & 1UL
+    out[i] = (limbs[i] >> 1) | (carry << 63)
+    carry = next_carry
+  }
+  out
+}
+
+///|
+fn add_mod_reduced_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+) -> FixedArray[UInt64] {
+  if limbs_is_one(modulus) {
+    return FixedArray::make(modulus.length(), 0UL)
+  }
+  let (sum, carry) = limbs_add_n(a, b)
+  let (sub, borrow) = limbs_sub_n(sum, modulus)
+  // `a,b < m`, so a single subtraction is enough. If the fixed-width add
+  // overflowed, the mathematical sum is `2^(64n) + sum` and must subtract m.
+  let use_sub = carry | (borrow ^ 1UL)
+  ct_select_limbs(sum, sub, use_sub)
+}
+
+///|
+fn sub_mod_reduced_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+) -> FixedArray[UInt64] {
+  if limbs_is_one(modulus) {
+    return FixedArray::make(modulus.length(), 0UL)
+  }
+  let (diff, borrow) = limbs_sub_n(a, b)
+  let (wrapped, _) = limbs_add_n(diff, modulus)
+  ct_select_limbs(diff, wrapped, borrow)
+}
+
+///|
+fn half_mod_odd_limbs(
+  x : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+) -> FixedArray[UInt64] {
+  let half = limbs_shr1_with_top_bit(x, 0UL)
+  let (sum, carry) = limbs_add_n(x, modulus)
+  let adjusted_half = limbs_shr1_with_top_bit(sum, carry)
+  ct_select_limbs(half, adjusted_half, limbs_is_even_bit(x) ^ 1UL)
+}
+
+///|
+fn one_mod_limbs(modulus : FixedArray[UInt64]) -> FixedArray[UInt64] {
+  let n = modulus.length()
+  let out = FixedArray::make(n, 0UL)
+  if n > 0 && !limbs_is_one(modulus) {
+    out[0] = 1UL
+  }
+  out
+}
+
+///|
+fn reduce_limbs_mod(
+  limbs : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+) -> FixedArray[UInt64] {
+  let n = modulus.length()
+  let mut acc = FixedArray::make(n, 0UL)
+  if n == 0 || limbs_is_zero(modulus) {
+    abort("crypto_bigint: zero modulus")
+  }
+  if limbs_is_one(modulus) {
+    return acc
+  }
+  let one = one_mod_limbs(modulus)
+  for bit_index = limbs.length() * 64 - 1
+      bit_index >= 0
+      bit_index = bit_index - 1 {
+    let doubled = add_mod_reduced_limbs(acc, acc, modulus)
+    let plus_one = add_mod_reduced_limbs(doubled, one, modulus)
+    acc = ct_select_limbs(doubled, plus_one, limb_bit(limbs, bit_index))
   }
   acc
 }
 
 ///|
-fn bigint_to_limbs(x : @bigint.BigInt, limb_count : Int) -> FixedArray[UInt64] {
-  let limbs = FixedArray::make(limb_count, 0UL)
-  if limb_count == 0 {
-    return limbs
+fn mul_mod_reduced_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+) -> FixedArray[UInt64] {
+  let n = modulus.length()
+  let mut acc = FixedArray::make(n, 0UL)
+  if limbs_is_one(modulus) {
+    return acc
   }
-  let total_bytes = limb_count * 8
-  // BigInt::to_octets returns big-endian, left-padded to `length`.
-  let octets = x.to_octets(length=total_bytes)
-  let off = octets.length() - total_bytes
-  for i in 0..<limb_count {
-    // Limb i is the (limb_count - 1 - i)-th 8-byte block from the MSB side.
-    let base = off + (limb_count - 1 - i) * 8
-    let mut v : UInt64 = 0UL
-    for j in 0..<8 {
-      v = (v << 8) | octets[base + j].to_uint64()
+  let mut base = a
+  for bit_index in 0..<(n * 64) {
+    let sum = add_mod_reduced_limbs(acc, base, modulus)
+    acc = ct_select_limbs(acc, sum, limb_bit(b, bit_index))
+    base = add_mod_reduced_limbs(base, base, modulus)
+  }
+  acc
+}
+
+///|
+fn limbs_to_words32(
+  limbs : FixedArray[UInt64],
+  word_count : Int,
+) -> FixedArray[UInt64] {
+  let out = FixedArray::make(word_count, 0UL)
+  for i in 0..<limbs.length() {
+    let lo = limbs[i] & word32_mask
+    let hi = (limbs[i] >> 32) & word32_mask
+    let j = i * 2
+    if j < word_count {
+      out[j] = lo
     }
-    limbs[i] = v
+    if j + 1 < word_count {
+      out[j + 1] = hi
+    }
   }
-  limbs
+  out
+}
+
+///|
+fn words32_to_limbs(
+  words : FixedArray[UInt64],
+  limb_count : Int,
+) -> FixedArray[UInt64] {
+  let out = FixedArray::make(limb_count, 0UL)
+  for i in 0..<limb_count {
+    let j = i * 2
+    let lo = if j < words.length() { words[j] & word32_mask } else { 0UL }
+    let hi = if j + 1 < words.length() {
+      words[j + 1] & word32_mask
+    } else {
+      0UL
+    }
+    out[i] = lo | (hi << 32)
+  }
+  out
+}
+
+///|
+fn words32_sub_n(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  n : Int,
+) -> (FixedArray[UInt64], UInt64) {
+  let out = FixedArray::make(n, 0UL)
+  let mut borrow = 0UL
+  for i in 0..<n {
+    let av = a[i] & word32_mask
+    let bv = b[i] & word32_mask
+    let subtrahend = bv + borrow
+    let next_borrow = u64_lt_01(av, subtrahend)
+    out[i] = (av - subtrahend) & word32_mask
+    borrow = next_borrow
+  }
+  (out, borrow)
+}
+
+///|
+fn words32_select(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  bit : UInt64,
+  n : Int,
+) -> FixedArray[UInt64] {
+  let out = FixedArray::make(n, 0UL)
+  for i in 0..<n {
+    out[i] = ct_select_u64(a[i], b[i], bit) & word32_mask
+  }
+  out
+}
+
+///|
+fn mont_inv32(m0 : UInt64) -> UInt64 {
+  let mut y = 1UL
+  let x = m0 & word32_mask
+  for _ in 0..<5 {
+    y = (y * ((2UL - ((x * y) & word32_mask)) & word32_mask)) & word32_mask
+  }
+  (0UL - y) & word32_mask
+}
+
+///|
+fn montgomery_mul_words32(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+  inv32 : UInt64,
+  word_count : Int,
+) -> FixedArray[UInt64] {
+  let t = FixedArray::make(word_count + 2, 0UL)
+  for i in 0..<word_count {
+    let bi = b[i] & word32_mask
+    let mut carry = 0UL
+    for j in 0..<word_count {
+      let uv = t[j] + (a[j] & word32_mask) * bi + carry
+      t[j] = uv & word32_mask
+      carry = uv >> 32
+    }
+    t[word_count] = t[word_count] + carry
+    let q = (t[0] * inv32) & word32_mask
+    carry = 0UL
+    for j in 0..<word_count {
+      let uv = t[j] + q * (modulus[j] & word32_mask) + carry
+      t[j] = uv & word32_mask
+      carry = uv >> 32
+    }
+    t[word_count] = t[word_count] + carry
+    t[word_count + 1] = t[word_count + 1] + (t[word_count] >> 32)
+    t[word_count] = t[word_count] & word32_mask
+    for j in 0..<(word_count + 1) {
+      t[j] = t[j + 1]
+    }
+    t[word_count + 1] = 0UL
+  }
+  let candidate = FixedArray::make(word_count, 0UL)
+  for i in 0..<word_count {
+    candidate[i] = t[i] & word32_mask
+  }
+  let (reduced, borrow) = words32_sub_n(candidate, modulus, word_count)
+  let use_reduced = u64_nonzero_01(t[word_count]) | (borrow ^ 1UL)
+  words32_select(candidate, reduced, use_reduced, word_count)
+}
+
+///|
+fn montgomery_r2_limbs(modulus : FixedArray[UInt64]) -> FixedArray[UInt64] {
+  let n = modulus.length()
+  let r2_source = FixedArray::make(2 * n + 1, 0UL)
+  r2_source[2 * n] = 1UL
+  reduce_limbs_mod(r2_source, modulus)
+}
+
+///|
+fn montgomery_pow_odd_limbs(
+  base : FixedArray[UInt64],
+  exponent : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+) -> FixedArray[UInt64] {
+  let limb_count = modulus.length()
+  let word_count = limb_count * 2
+  let modulus_words = limbs_to_words32(modulus, word_count)
+  let inv32 = mont_inv32(modulus_words[0])
+  let base_red = reduce_limbs_mod(base, modulus)
+  let base_words = limbs_to_words32(base_red, word_count)
+  let r2_words = limbs_to_words32(montgomery_r2_limbs(modulus), word_count)
+  let one_words = limbs_to_words32(one_mod_limbs(modulus), word_count)
+  let mut result = montgomery_mul_words32(
+    one_words, r2_words, modulus_words, inv32, word_count,
+  )
+  let mut base_m = montgomery_mul_words32(
+    base_words, r2_words, modulus_words, inv32, word_count,
+  )
+  for bit_index in 0..<(exponent.length() * 64) {
+    let product = montgomery_mul_words32(
+      result, base_m, modulus_words, inv32, word_count,
+    )
+    result = words32_select(
+      result,
+      product,
+      limb_bit(exponent, bit_index),
+      word_count,
+    )
+    base_m = montgomery_mul_words32(
+      base_m, base_m, modulus_words, inv32, word_count,
+    )
+  }
+  words32_to_limbs(
+    montgomery_mul_words32(result, one_words, modulus_words, inv32, word_count),
+    limb_count,
+  )
+}
+
+///|
+fn montgomery_mul_odd_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+  inv : UInt64,
+) -> FixedArray[UInt64] {
+  let limb_count = modulus.length()
+  let word_count = limb_count * 2
+  let modulus_words = limbs_to_words32(modulus, word_count)
+  let a_words = limbs_to_words32(reduce_limbs_mod(a, modulus), word_count)
+  let b_words = limbs_to_words32(reduce_limbs_mod(b, modulus), word_count)
+  words32_to_limbs(
+    montgomery_mul_words32(
+      a_words,
+      b_words,
+      modulus_words,
+      inv & word32_mask,
+      word_count,
+    ),
+    limb_count,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +640,7 @@ pub fn Uint::bit_len(self : Uint) -> Int {
 // Comparisons.
 //
 // `ct_eq` / `ct_lt` walk every zero-extended limb and avoid early return on
-// limb values. They still only cover comparisons; modular arithmetic below
-// remains BigInt-backed and is not constant-time.
+// limb values.
 // ---------------------------------------------------------------------------
 
 ///|
@@ -284,11 +687,6 @@ pub fn Uint::ct_lt(self : Uint, other : Uint) -> Bool {
 
 // ---------------------------------------------------------------------------
 // Modular arithmetic.
-//
-// Internal helper: do the arithmetic via core/bigint, then re-pack into
-// `limb_count` limbs based on the modulus' width. All inputs are assumed
-// already reduced modulo `modulus` (mirrors the typical cryptographic
-// invariant). We still reduce defensively on the result.
 // ---------------------------------------------------------------------------
 
 ///|
@@ -298,43 +696,52 @@ fn mod_limb_count(modulus : Uint) -> Int {
 
 ///|
 pub fn Uint::add_mod(self : Uint, other : Uint, modulus : Uint) -> Uint {
-  let a = limbs_to_bigint(self.limbs)
-  let b = limbs_to_bigint(other.limbs)
-  let m = limbs_to_bigint(modulus.limbs)
-  let r = (a + b) % m
-  { limbs: bigint_to_limbs(r, mod_limb_count(modulus)) }
+  require_nonzero_modulus(modulus)
+  let a = reduce_limbs_mod(self.limbs, modulus.limbs)
+  let b = reduce_limbs_mod(other.limbs, modulus.limbs)
+  { limbs: add_mod_reduced_limbs(a, b, modulus.limbs) }
 }
 
 ///|
 pub fn Uint::sub_mod(self : Uint, other : Uint, modulus : Uint) -> Uint {
-  let a = limbs_to_bigint(self.limbs)
-  let b = limbs_to_bigint(other.limbs)
-  let m = limbs_to_bigint(modulus.limbs)
-  let mut r = (a - b) % m
-  // Normalize to non-negative representative.
-  let zero = @bigint.BigInt::from_int(0)
-  if r < zero {
-    r = r + m
-  }
-  { limbs: bigint_to_limbs(r, mod_limb_count(modulus)) }
+  require_nonzero_modulus(modulus)
+  let a = reduce_limbs_mod(self.limbs, modulus.limbs)
+  let b = reduce_limbs_mod(other.limbs, modulus.limbs)
+  { limbs: sub_mod_reduced_limbs(a, b, modulus.limbs) }
 }
 
 ///|
 pub fn Uint::mul_mod(self : Uint, other : Uint, modulus : Uint) -> Uint {
-  let a = limbs_to_bigint(self.limbs)
-  let b = limbs_to_bigint(other.limbs)
-  let m = limbs_to_bigint(modulus.limbs)
-  let r = a * b % m
-  { limbs: bigint_to_limbs(r, mod_limb_count(modulus)) }
+  require_nonzero_modulus(modulus)
+  let a = reduce_limbs_mod(self.limbs, modulus.limbs)
+  let b = reduce_limbs_mod(other.limbs, modulus.limbs)
+  { limbs: mul_mod_reduced_limbs(a, b, modulus.limbs) }
 }
 
 ///|
 pub fn Uint::pow_mod(self : Uint, exponent : Uint, modulus : Uint) -> Uint {
-  let base = limbs_to_bigint(self.limbs)
-  let exp = limbs_to_bigint(exponent.limbs)
-  let m = limbs_to_bigint(modulus.limbs)
-  let r = base.pow(exp, modulus=m)
-  { limbs: bigint_to_limbs(r, mod_limb_count(modulus)) }
+  require_nonzero_modulus(modulus)
+  let n = mod_limb_count(modulus)
+  if limbs_is_one(modulus.limbs) {
+    return { limbs: FixedArray::make(n, 0UL) }
+  }
+  if !limbs_is_even(modulus.limbs) {
+    return {
+      limbs: montgomery_pow_odd_limbs(self.limbs, exponent.limbs, modulus.limbs),
+    }
+  }
+  let mut result = one_mod_limbs(modulus.limbs)
+  let mut base = reduce_limbs_mod(self.limbs, modulus.limbs)
+  for bit_index in 0..<(exponent.limbs.length() * 64) {
+    let product = mul_mod_reduced_limbs(result, base, modulus.limbs)
+    result = ct_select_limbs(
+      result,
+      product,
+      limb_bit(exponent.limbs, bit_index),
+    )
+    base = mul_mod_reduced_limbs(base, base, modulus.limbs)
+  }
+  { limbs: result }
 }
 
 ///|
@@ -342,54 +749,79 @@ pub fn Uint::inv_mod(
   self : Uint,
   modulus : Uint,
 ) -> Uint raise CryptoBigintError {
-  let a = limbs_to_bigint(self.limbs)
-  let m = limbs_to_bigint(modulus.limbs)
-  let zero = @bigint.BigInt::from_int(0)
-  let one = @bigint.BigInt::from_int(1)
-  if m <= one {
+  require_nonzero_modulus(modulus)
+  if limbs_is_one(modulus.limbs) || limbs_is_even(modulus.limbs) {
     raise NotInvertible
   }
-  // Reduce `a` into [0, m).
-  let mut a_red = a % m
-  if a_red < zero {
-    a_red = a_red + m
+  let n = mod_limb_count(modulus)
+  let mut u = reduce_limbs_mod(self.limbs, modulus.limbs)
+  // Fixed-iteration binary almost-inverse over limbs. This still uses the
+  // caller-visible failure branch at the end for non-invertible values, but
+  // the update loop itself always runs for the full limb width.
+  let mut v = modulus.limbs
+  let mut x1 = one_mod_limbs(modulus.limbs)
+  let mut x2 = FixedArray::make(n, 0UL)
+  let iterations = n * 128 + 1
+  for _ in 0..<iterations {
+    let done = limbs_is_one_bit(u) | limbs_is_one_bit(v)
+    let active = done ^ 1UL
+    let u_even = limbs_is_even_bit(u)
+    let v_even = limbs_is_even_bit(v)
+    let u_ge_v = limbs_geq_n_bit(u, v)
+    let case_u_even = active & u_even
+    let case_v_even = active & (u_even ^ 1UL) & v_even
+    let case_u_sub = active & (u_even ^ 1UL) & (v_even ^ 1UL) & u_ge_v
+    let case_v_sub = active & (u_even ^ 1UL) & (v_even ^ 1UL) & (u_ge_v ^ 1UL)
+
+    let u_half = limbs_shr1_with_top_bit(u, 0UL)
+    let v_half = limbs_shr1_with_top_bit(v, 0UL)
+    let (u_minus_v, _) = limbs_sub_n(u, v)
+    let (v_minus_u, _) = limbs_sub_n(v, u)
+    let u_minus_v_half = limbs_shr1_with_top_bit(u_minus_v, 0UL)
+    let v_minus_u_half = limbs_shr1_with_top_bit(v_minus_u, 0UL)
+    let x1_half = half_mod_odd_limbs(x1, modulus.limbs)
+    let x2_half = half_mod_odd_limbs(x2, modulus.limbs)
+    let x1_minus_x2_half = half_mod_odd_limbs(
+      sub_mod_reduced_limbs(x1, x2, modulus.limbs),
+      modulus.limbs,
+    )
+    let x2_minus_x1_half = half_mod_odd_limbs(
+      sub_mod_reduced_limbs(x2, x1, modulus.limbs),
+      modulus.limbs,
+    )
+
+    let mut next_u = u
+    next_u = ct_select_limbs(next_u, u_half, case_u_even)
+    next_u = ct_select_limbs(next_u, u_minus_v_half, case_u_sub)
+    let mut next_v = v
+    next_v = ct_select_limbs(next_v, v_half, case_v_even)
+    next_v = ct_select_limbs(next_v, v_minus_u_half, case_v_sub)
+    let mut next_x1 = x1
+    next_x1 = ct_select_limbs(next_x1, x1_half, case_u_even)
+    next_x1 = ct_select_limbs(next_x1, x1_minus_x2_half, case_u_sub)
+    let mut next_x2 = x2
+    next_x2 = ct_select_limbs(next_x2, x2_half, case_v_even)
+    next_x2 = ct_select_limbs(next_x2, x2_minus_x1_half, case_v_sub)
+    u = next_u
+    v = next_v
+    x1 = next_x1
+    x2 = next_x2
   }
-  if a_red == zero {
+  if limbs_is_one(u) {
+    { limbs: x1 }
+  } else if limbs_is_one(v) {
+    { limbs: x2 }
+  } else {
     raise NotInvertible
   }
-  // Extended Euclidean algorithm.
-  // Track (old_r, r) and (old_s, s) such that old_r = old_s * a (mod m).
-  let mut old_r = a_red
-  let mut r = m
-  let mut old_s = one
-  let mut s = zero
-  while r != zero {
-    let q = old_r / r
-    let new_r = old_r - q * r
-    old_r = r
-    r = new_r
-    let new_s = old_s - q * s
-    old_s = s
-    s = new_s
-  }
-  if old_r != one {
-    raise NotInvertible
-  }
-  // old_s is the inverse, but may be negative. Normalize.
-  let mut inv = old_s % m
-  if inv < zero {
-    inv = inv + m
-  }
-  { limbs: bigint_to_limbs(inv, mod_limb_count(modulus)) }
 }
 
 // ---------------------------------------------------------------------------
 // Montgomery form.
 //
-// Today this is a thin wrapper that stores the modulus and reuses
-// `mul_mod` / `pow_mod`. The `r2` / `inv` fields are kept on the struct so
-// that future native Montgomery multiplication can drop in without an API
-// break.
+// Odd moduli use 32-bit-word Montgomery multiplication. Even moduli keep the
+// generic modular-arithmetic fallback because Montgomery reduction is not
+// defined for them.
 // ---------------------------------------------------------------------------
 
 ///|
@@ -405,19 +837,16 @@ pub fn Montgomery::new(modulus : Uint) -> Montgomery {
   // not consume it. This keeps the public surface aligned with the future
   // native implementation.
   let n = modulus.limbs.length()
-  let m_big = limbs_to_bigint(modulus.limbs)
-  let zero = @bigint.BigInt::from_int(0)
-  let one = @bigint.BigInt::from_int(1)
-  let r2_big = if m_big == zero || m_big == one {
-    zero
+  let r2 = if n == 0 ||
+    limbs_is_zero(modulus.limbs) ||
+    limbs_is_one(modulus.limbs) {
+    { limbs: FixedArray::make(n, 0UL) }
   } else {
-    let r = one << (64 * n)
-    r * r % m_big
+    { limbs: montgomery_r2_limbs(modulus.limbs) }
   }
-  let r2 = { limbs: bigint_to_limbs(r2_big, n) }
   // inv = -modulus^-1 mod 2^64. If modulus is even, leave 0 (Montgomery is
-  // undefined for even modulus, but we still need a value; the fallback
-  // arithmetic path does not consume `inv`).
+  // undefined for even modulus, but we still need a value; the current
+  // multiply/reduce path does not consume `inv`).
   let inv = if n == 0 || (modulus.limbs[0] & 1UL) == 0UL {
     0UL
   } else {
@@ -440,33 +869,83 @@ fn mont_inv64(m0 : UInt64) -> UInt64 {
 
 ///|
 pub fn Montgomery::to_mont(self : Montgomery, x : Uint) -> Uint {
-  // Reduce x into the modulus' field while we're here.
-  let m = limbs_to_bigint(self.modulus.limbs)
-  let zero = @bigint.BigInt::from_int(0)
-  if m == zero {
+  if limbs_is_zero(self.modulus.limbs) {
     return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
   }
-  let xb = limbs_to_bigint(x.limbs)
-  let mut r = xb % m
-  if r < zero {
-    r = r + m
+  if limbs_is_one(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
   }
-  { limbs: bigint_to_limbs(r, self.modulus.limbs.length()) }
+  if limbs_is_even(self.modulus.limbs) {
+    return { limbs: reduce_limbs_mod(x.limbs, self.modulus.limbs) }
+  }
+  {
+    limbs: montgomery_mul_odd_limbs(
+      x.limbs,
+      self.r2.limbs,
+      self.modulus.limbs,
+      self.inv,
+    ),
+  }
 }
 
 ///|
 pub fn Montgomery::from_mont(self : Montgomery, x : Uint) -> Uint {
-  // The current to/from pair is the identity because we do not actually
-  // multiply by R. This keeps `to_mont` / `from_mont` round-trips correct.
-  self.to_mont(x)
+  if limbs_is_zero(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_one(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_even(self.modulus.limbs) {
+    return { limbs: reduce_limbs_mod(x.limbs, self.modulus.limbs) }
+  }
+  {
+    limbs: montgomery_mul_odd_limbs(
+      x.limbs,
+      one_mod_limbs(self.modulus.limbs),
+      self.modulus.limbs,
+      self.inv,
+    ),
+  }
 }
 
 ///|
 pub fn Montgomery::mul(self : Montgomery, a : Uint, b : Uint) -> Uint {
-  a.mul_mod(b, self.modulus)
+  if limbs_is_zero(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_one(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_even(self.modulus.limbs) {
+    return a.mul_mod(b, self.modulus)
+  }
+  {
+    limbs: montgomery_mul_odd_limbs(
+      a.limbs,
+      b.limbs,
+      self.modulus.limbs,
+      self.inv,
+    ),
+  }
 }
 
 ///|
 pub fn Montgomery::pow(self : Montgomery, base : Uint, exponent : Uint) -> Uint {
-  base.pow_mod(exponent, self.modulus)
+  if limbs_is_zero(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_one(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_even(self.modulus.limbs) {
+    return base.pow_mod(exponent, self.modulus)
+  }
+  {
+    limbs: montgomery_pow_odd_limbs(
+      base.limbs,
+      exponent.limbs,
+      self.modulus.limbs,
+    ),
+  }
 }

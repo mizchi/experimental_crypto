@@ -37,10 +37,10 @@ where the gaps are.
 | `aead`        | RFC 8439, NIST SP 800-38D                    | 60    | ChaCha20-Poly1305 (5-limb), AES-128/256-GCM (self-impl)        |
 | `x25519`      | RFC 7748                                     | 31    | 10-limb radix-2^25.5 Montgomery ladder; ~90 µs / ECDH          |
 | `ed25519`     | RFC 8032                                     | 17    | SHA-512 self-impl; @bigint-backed Edwards curve (limb rewrite pending) |
-| `crypto_bigint` | (Rust crypto-bigint shape)                 | 19    | Uint, Montgomery; arithmetic delegated to @bigint for now      |
+| `crypto_bigint` | (Rust crypto-bigint shape)                 | 39    | Fixed-limb Uint, Montgomery, modular pow/inv; BigInt only as test oracle |
 | `getrandom`   | OS CSPRNG bridge                             | 6     | `crypto.getRandomValues` on JS, `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native |
 
-`moon test` from the workspace root runs the full suite (270+ tests).
+`moon test` from the workspace root runs the full suite (1200+ tests).
 
 ## Cross-implementation interop
 
@@ -59,7 +59,7 @@ parsers and codecs aren't only validated against bytes we produced ourselves:
 ## Build
 
 ```
-moon test                       # all 13 modules
+moon test                       # all workspace modules
 moon test --target all          # wasm-gc + wasm + native
 moon test -p mizchi/asn1        # single module
 moon bench --release -p mizchi/x25519
@@ -99,10 +99,13 @@ backend where possible).
 
 These are intentional and called out in the source where they apply:
 
-- **Not constant-time end-to-end.** `crypto_bigint` and `ed25519` still
-  delegate to `@bigint`, which is variable-time. `x25519` and `aead`
-  (Poly1305) use limb arithmetic with branch-free conditional swaps, but
-  u64 mul on wasm/JS is not formally constant-time either.
+- **Not constant-time end-to-end.** `crypto_bigint` now uses fixed-limb /
+  fixed-iteration modular arithmetic instead of runtime `@bigint` fallbacks,
+  but this is branchless-intended source code, not measured constant-clock
+  code. ECDSA scalar multiplication and Ed25519 field arithmetic still rely on
+  variable-time BigInt-style code in places. `x25519` and `aead` (Poly1305) use
+  limb arithmetic with branch-free conditional swaps, but u64 mul on wasm/JS is
+  not formally constant-time either. See `docs/CONSTANT_TIME.md`.
 - **No XChaCha20-Poly1305 yet** (the enum variant raises
   `UnsupportedAlgorithm`).
 - **No SHA-1 / SHA-384 / SHA-512 HMAC paths** in `hkdf` / `pbkdf2` until

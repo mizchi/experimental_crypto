@@ -53,12 +53,15 @@ pub fn decrypt(token : String, key : DecryptionKey) -> Bytes raise JweError
 ## Security caveats
 
 - AES is not constant-time (T-table). Same caveat as `mizchi/aead`.
-- RSA modexp uses `@bigint.pow`, also not constant-time.
+- RSA-OAEP public encrypt uses `@bigint.pow` only over public inputs.
+- RSA-OAEP private unwrap uses `crypto_bigint` fixed-limb exponentiation, but
+  still needs external leakage measurement before claiming full constant-time
+  behavior.
 - RSA-OAEP unwrap is **Manger-attack-resistant in error shape**: every
   validation failure (size, Y != 0x00, lHash mismatch, missing 0x01
   separator) collapses into a single `AuthenticationFailed`. This blocks
-  the textbook padding oracle (RFC 8017 §7.1.2 step 3.g) but does NOT
-  eliminate the timing channel through variable-time `@bigint.pow`.
+  the textbook padding oracle (RFC 8017 §7.1.2 step 3.g), but it is not a
+  standalone constant-time proof.
 - No RNG path in v0: the caller MUST pass `cek`, `iv`, and `oaep_seed`
   explicitly. This is deliberate (deterministic tests, no hidden
   side-effect), not a permanent design.

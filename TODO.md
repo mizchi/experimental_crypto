@@ -7,10 +7,23 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
 
 1. [ ] **Constant-time secret-key operations**: remove secret-dependent timing
    from `crypto_bigint`, RSA private modexp, and ECDSA scalar multiplication.
-   - [ ] Replace BigInt-backed secret modexp / scalar multiplication with
-     fixed-limb constant-time implementations.
+   - [x] Move `crypto_bigint` modular add/sub/mul/pow and Montgomery reduction
+     off the BigInt fallback onto fixed-limb code.
+   - [x] Replace `crypto_bigint.inv_mod`'s BigInt-backed extended-GCD fallback
+     with a limb-based odd-modulus binary-GCD path.
+   - [x] Replace variable-time `crypto_bigint.inv_mod` with a fixed-iteration
+     algorithm before using it on secret inverses.
+   - [x] Wire RSA PKCS#1 v1.5 / PSS sign-side private modexp to fixed-limb
+     modular exponentiation.
+   - [x] Wire JWE RSA-OAEP private decrypt modexp to fixed-limb modular
+     exponentiation.
+   - [x] Route ECDSA nonce inverses away from `@bigint.pow` and through
+     `crypto_bigint.inv_mod`.
+   - [ ] Replace ECDSA scalar multiplication with fixed-limb constant-time
+     implementations.
    - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
-     RSA and ECDSA sign paths.
+     RSA/JWE private operations and ECDSA sign paths. Measurement scope and
+     terminology are in `docs/CONSTANT_TIME.md`.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
@@ -103,10 +116,12 @@ fails closed before returning authenticated / verified / trusted.
 
 ## Security Gaps
 
-- [ ] **ECDSA / RSA sign side-channel**: `scalar_mult` and `@bigint.pow` are
-  variable-time on the secret. Fix needs constant-time scalar multiplication
-  and modular exponentiation, which in turn needs `crypto_bigint` rewritten as
-  a real limb-based implementation.
+- [ ] **ECDSA / private-operation side-channel**: ECDSA `scalar_mult` remains
+  variable-time on secrets. RSA sign and JWE RSA-OAEP private modexp now use
+  `crypto_bigint`'s fixed-limb path, and ECDSA final nonce inverses no longer
+  use `@bigint.pow`. The remaining ECDSA risk is the affine, branch-dependent
+  scalar multiplication, including field inversions inside point operations.
+  `crypto_bigint` still needs external leakage measurement.
 - [ ] **PSS RNG-backed sign in JWT**: PS256/384/512 currently uses
   deterministic PSS (`sLen = 0`) because the workspace has no vetted RNG at the
   JWT layer. RFC 7518 mandates `sLen = hLen`; callers needing full interop call
@@ -129,12 +144,18 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **Cross-format fuzz breadth**: PEM -> ASN.1 -> PKCS#8 / PKIX integration
   fuzzing exists; extend to CMS / OCSP / CRL and JOSE containers.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
-  `valgrind --tool=callgrind`).
+  `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
+  operations, and ECDSA signing once scalar multiplication is fixed. Scope and
+  acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
-- [ ] **`crypto_bigint`** real limb-based implementation (unlocks CT modexp and
-  faster signing).
+- [ ] **`crypto_bigint` remaining work**: wire remaining ECDSA secret
+  operations to the limb implementation and add external leakage measurement.
+- [ ] **ECDSA field rewrite**: move p256/p384/secp256k1 scalar multiplication
+  off affine BigInt point formulas; previous attempt to route every field
+  inverse through fixed-iteration `crypto_bigint.inv_mod` made full JS tests
+  impractically slow.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
 - [ ] **`ed25519`** 10-limb field arithmetic, matching the speedup already

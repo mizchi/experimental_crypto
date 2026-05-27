@@ -29,15 +29,14 @@
 // Security caveats:
 //   - AES is not constant-time (table-based S-box) — same caveat as
 //     `mizchi/aead`. Do not use where cache-timing matters.
-//   - RSA modexp uses `@bigint.pow` which is also not constant-time.
+//   - RSA-OAEP public encrypt still uses `@bigint.pow` over public inputs.
+//     Private unwrap is routed through `crypto_bigint`'s fixed-limb
+//     exponentiation, but still needs external leakage measurement.
 //   - Manger's attack mitigation: the RSA-OAEP unwrap path collapses every
 //     validation failure (RSA size mismatch, Y != 0x00, lHash mismatch,
 //     no 0x01 separator) into a single AuthenticationFailed error. This
-//     prevents the textbook Manger attack (RFC 8017 §7.1.2 step 3.g) which
-//     distinguishes the integer-to-octet-string conversion failure from
-//     other OAEP failures. The variable-time `@bigint.pow` itself still
-//     leaks the private exponent over a timing side-channel, so this is
-//     "no padding-oracle" rather than full constant-time.
+//     prevents the textbook Manger attack (RFC 8017 §7.1.2 step 3.g), but
+//     this is still "no padding-oracle" rather than proven constant-time.
 
 ///|
 pub(all) enum JweAlg {
@@ -485,9 +484,9 @@ fn rsa_oaep_256_encrypt(
 ///|
 /// RSA-OAEP-256 decrypt. Constant-error-shape: every failure (size
 /// mismatch, Y != 0x00, lHash mismatch, missing 0x01 separator) raises
-/// the same `AuthenticationFailed`. The underlying `@bigint.pow` is still
-/// variable-time over the private exponent, so this is only "no padding
-/// oracle", not full Manger-resistant.
+/// the same `AuthenticationFailed`. Private modexp is routed through
+/// `crypto_bigint`'s fixed-limb exponentiation, but this still needs external
+/// leakage measurement before claiming full constant-time behavior.
 fn rsa_oaep_256_decrypt(
   privkey : @rsa.RsaPrivateKey,
   c : Bytes,
@@ -513,8 +512,7 @@ fn rsa_oaep_256_decrypt(
   if c_int.compare(privkey.n) >= 0 {
     raise AuthenticationFailed
   }
-  let m_int = c_int.pow(privkey.d, modulus=privkey.n)
-  let em = m_int.to_octets(length=k)
+  let em = rsa_private_modexp_bytes(c, privkey.d, privkey.n, k)
   // Manger's attack mitigation: from this point onwards, every check
   // contributes to a single `bad` boolean, and we raise *one* error at
   // the end. Branches still differ in timing, but no two failure modes
@@ -561,6 +559,35 @@ fn rsa_oaep_256_decrypt(
   // Extract M = db[sep+1 .. end]
   let m_len = db_len - sep - 1
   Bytes::makei(m_len, fn(i) { db[sep + 1 + i] })
+}
+
+///|
+fn rsa_private_modexp_bytes(
+  base : Bytes,
+  d : @bigint.BigInt,
+  n : @bigint.BigInt,
+  n_bytes_len : Int,
+) -> Bytes raise JweError {
+  let limb_count = (n_bytes_len + 7) / 8
+  let base_u = @crypto_bigint.Uint::from_be_bytes(base, limb_count) catch {
+    _ => raise AuthenticationFailed
+  }
+  let d_u = @crypto_bigint.Uint::from_be_bytes(
+    d.to_octets(length=n_bytes_len),
+    limb_count,
+  ) catch {
+    _ => raise AuthenticationFailed
+  }
+  let n_u = @crypto_bigint.Uint::from_be_bytes(
+    n.to_octets(length=n_bytes_len),
+    limb_count,
+  ) catch {
+    _ => raise AuthenticationFailed
+  }
+  let m_u = base_u.pow_mod(d_u, n_u)
+  let full = m_u.to_be_bytes()
+  let off = full.length() - n_bytes_len
+  Bytes::makei(n_bytes_len, fn(i) { full[off + i] })
 }
 
 ///|

@@ -1,5 +1,6 @@
-// Benchmarks for P-384 ECDSA. Field arithmetic goes through @bigint affine
-// point ops — baseline before a planned 14-limb radix-2^28 field rewrite.
+// Benchmarks for P-384 ECDSA. Field arithmetic still goes through @bigint
+// affine point ops; only the final nonce inverse is routed through
+// crypto_bigint — baseline before a planned 14-limb radix-2^28 field rewrite.
 
 ///|
 let bench_priv_scalar : Bytes = b"\x6b\x9d\x3d\xad\x2e\x1b\x8c\x1c\x05\xb1\x98\x75\xb6\x65\x9f\x4d\xe2\x3c\x3b\x66\x7b\xf2\x97\xba\x9a\xa4\x77\x40\x78\x71\x37\xd8\x96\xd5\x72\x4e\x4c\x70\xa8\x25\xf8\x72\xc9\xea\x60\xd2\xed\xf5"
