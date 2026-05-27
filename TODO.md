@@ -156,6 +156,10 @@ fails closed before returning authenticated / verified / trusted.
   off affine BigInt point formulas; previous attempt to route every field
   inverse through fixed-iteration `crypto_bigint.inv_mod` made full JS tests
   impractically slow.
+  - [x] Add P-256 10-limb field I/O, canonical reduction, add/sub/neg, and
+    interim fixed-width mul/square/inversion helpers with BigInt oracle tests.
+  - [ ] Add P-256 projective point formulas, then wire private scalar
+    multiplication away from affine `@bigint`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
 - [ ] **`ed25519`** 10-limb field arithmetic, matching the speedup already

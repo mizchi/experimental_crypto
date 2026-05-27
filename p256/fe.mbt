@@ -14,10 +14,10 @@
 // bits. fe_from_bytes/fe_to_bytes do the BE ⇄ LE flip.
 //
 // Scope of this file (Milestone 1): the type, constants, I/O, copy,
-// and a fe_carry_full that handles inputs whose limbs are already small
-// (post-fe_from_bytes, or pre-multiplication). The wider-input fe_carry
-// that takes ~2^62 limbs from fe_mul / fe_sqr lives in a follow-up
-// commit so this file stays reviewable.
+// add/sub/neg, and a fe_carry_full that handles inputs whose limbs are already
+// small (post-fe_from_bytes, or pre-multiplication). The wider-input fe_carry
+// that takes ~2^62 limbs from fe_mul / fe_sqr lives in a follow-up commit so
+// this file stays reviewable.
 
 ///|
 type Fe = FixedArray[UInt64]
@@ -50,6 +50,101 @@ fn fe_copy(a : Fe) -> Fe {
     r[i] = a[i]
   }
   r
+}
+
+///|
+fn fe_u64_lt_01(a : UInt64, b : UInt64) -> UInt64 {
+  let diff = a - b
+  (((a.lnot() & b) | ((a ^ b).lnot() & diff)) >> 63) & 1UL
+}
+
+///|
+#warnings("-unused_value")
+fn fe_add(a : Fe, b : Fe) -> Fe {
+  let h = FixedArray::make(10, 0UL)
+  for i = 0; i < 10; i = i + 1 {
+    h[i] = a[i] + b[i]
+  }
+  fe_carry_full(h)
+}
+
+///|
+fn fe_sub(a : Fe, b : Fe) -> Fe {
+  let mask26 : UInt64 = (1UL << 26) - 1UL
+  // Compute a + p - b so the intermediate is non-negative for canonical
+  // field elements. This handles a < b without introducing a sign branch.
+  let sum = FixedArray::make(10, 0UL)
+  let mut carry = 0UL
+  for i = 0; i < 10; i = i + 1 {
+    let v = a[i] + p256_p_limbs[i] + carry
+    sum[i] = v & mask26
+    carry = v >> 26
+  }
+  if carry != 0UL {
+    abort("fe_sub: overflow above 2^260 not yet handled")
+  }
+  let h = FixedArray::make(10, 0UL)
+  let mut borrow = 0UL
+  for i = 0; i < 10; i = i + 1 {
+    let subtrahend = b[i] + borrow
+    let next_borrow = fe_u64_lt_01(sum[i], subtrahend)
+    h[i] = (sum[i] - subtrahend) & mask26
+    borrow = next_borrow
+  }
+  if borrow != 0UL {
+    abort("fe_sub: underflow below zero")
+  }
+  fe_carry_full(h)
+}
+
+///|
+#warnings("-unused_value")
+fn fe_neg(a : Fe) -> Fe {
+  fe_sub(FixedArray::make(10, 0UL), a)
+}
+
+///|
+fn fe_p_uint() -> @crypto_bigint.Uint {
+  let p_be : Bytes = b"\xff\xff\xff\xff\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+  @crypto_bigint.Uint::from_be_bytes(p_be, 4) catch {
+    _ => abort("P-256 modulus must fit 32 bytes")
+  }
+}
+
+///|
+fn fe_to_uint(a : Fe) -> @crypto_bigint.Uint {
+  @crypto_bigint.Uint::from_be_bytes(Bytes::from_array(fe_to_bytes(a)), 4) catch {
+    _ => abort("P-256 field element must fit 32 bytes")
+  }
+}
+
+///|
+fn fe_from_uint(a : @crypto_bigint.Uint) -> Fe {
+  let b = a.to_be_bytes()
+  fe_from_bytes(FixedArray::makei(32, fn(i) { b[i] }))
+}
+
+///|
+#warnings("-unused_value")
+fn fe_mul(a : Fe, b : Fe) -> Fe {
+  // Interim fixed-width implementation. This keeps field multiplication off
+  // `@bigint` while the dedicated P-256 pseudo-Mersenne reducer is built.
+  fe_from_uint(fe_to_uint(a).mul_mod(fe_to_uint(b), fe_p_uint()))
+}
+
+///|
+#warnings("-unused_value")
+fn fe_square(a : Fe) -> Fe {
+  fe_mul(a, a)
+}
+
+///|
+#warnings("-unused_value")
+fn fe_inv(a : Fe) -> Fe {
+  let inv = fe_to_uint(a).inv_mod(fe_p_uint()) catch {
+    _ => abort("P-256 field inverse does not exist")
+  }
+  fe_from_uint(inv)
 }
 
 ///|

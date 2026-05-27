@@ -76,6 +76,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   constant-clock.
 - Add `crypto_bigint` sparse-vs-dense `moon bench` smoke targets for `pow_mod`
   and `inv_mod`; these are regression aids, not constant-time evidence.
+- Add P-256 10-limb field add/sub/neg plus interim fixed-width
+  mul/square/inversion helpers and BigInt-oracle whitebox tests. These helpers
+  are not wired into scalar multiplication yet.
 
 ## Parser And Protocol Hardening
 

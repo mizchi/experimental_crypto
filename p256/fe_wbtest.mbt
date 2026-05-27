@@ -132,3 +132,95 @@ test "p256_p_limbs reconstructs to the FIPS 186-4 prime" {
   )
   @debug.assert_eq(acc == expected, true)
 }
+
+///|
+test "fe add/sub/neg match @bigint oracle" {
+  let p = BigInt::from_string(
+    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF",
+    radix=16,
+  )
+  let samples : Array[(String, String)] = [
+    ("0", "0"),
+    ("1", "2"),
+    ("ffffffff", "100000001"),
+    ("ffffffff00000001000000000000000000000000fffffffffffffffffffffffe", "1"),
+    (
+      "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    ),
+  ]
+  for pair in samples {
+    let (a_hex, b_hex) = pair
+    let a_big = BigInt::from_string(a_hex, radix=16) % p
+    let b_big = BigInt::from_string(b_hex, radix=16) % p
+    let a = fe_from_bytes(bigint_to_be32(a_big))
+    let b = fe_from_bytes(bigint_to_be32(b_big))
+    let got_add = be32_to_bigint(fe_to_bytes(fe_add(a, b)))
+    let got_sub = be32_to_bigint(fe_to_bytes(fe_sub(a, b)))
+    let got_neg = be32_to_bigint(fe_to_bytes(fe_neg(a)))
+    let expected_add = (a_big + b_big) % p
+    let mut expected_sub = (a_big - b_big) % p
+    if expected_sub < BigInt::from_int(0) {
+      expected_sub = expected_sub + p
+    }
+    let expected_neg = if a_big == BigInt::from_int(0) {
+      BigInt::from_int(0)
+    } else {
+      p - a_big
+    }
+    @debug.assert_eq(got_add.to_string(), expected_add.to_string())
+    @debug.assert_eq(got_sub.to_string(), expected_sub.to_string())
+    @debug.assert_eq(got_neg.to_string(), expected_neg.to_string())
+  }
+}
+
+///|
+test "fe mul/square match @bigint oracle" {
+  let p = BigInt::from_string(
+    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF",
+    radix=16,
+  )
+  let samples : Array[(String, String)] = [
+    ("0", "0"),
+    ("1", "2"),
+    ("ffffffff", "100000001"),
+    ("ffffffff00000001000000000000000000000000fffffffffffffffffffffffe", "2"),
+    (
+      "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    ),
+  ]
+  for pair in samples {
+    let (a_hex, b_hex) = pair
+    let a_big = BigInt::from_string(a_hex, radix=16) % p
+    let b_big = BigInt::from_string(b_hex, radix=16) % p
+    let a = fe_from_bytes(bigint_to_be32(a_big))
+    let b = fe_from_bytes(bigint_to_be32(b_big))
+    let got_mul = be32_to_bigint(fe_to_bytes(fe_mul(a, b)))
+    let got_square = be32_to_bigint(fe_to_bytes(fe_square(a)))
+    let expected_mul = a_big * b_big % p
+    let expected_square = a_big * a_big % p
+    @debug.assert_eq(got_mul.to_string(), expected_mul.to_string())
+    @debug.assert_eq(got_square.to_string(), expected_square.to_string())
+  }
+}
+
+///|
+test "fe inv matches @bigint oracle for non-zero values" {
+  let p = BigInt::from_string(
+    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF",
+    radix=16,
+  )
+  let samples : Array[String] = [
+    "1", "2", "ffffffff", "100000001", "ffffffff00000001000000000000000000000000fffffffffffffffffffffffe",
+    "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
+  ]
+  for s in samples {
+    let a_big = BigInt::from_string(s, radix=16) % p
+    let a = fe_from_bytes(bigint_to_be32(a_big))
+    let inv = fe_inv(a)
+    let got = be32_to_bigint(fe_to_bytes(inv))
+    let expected = a_big.pow(p - BigInt::from_int(2), modulus=p)
+    let prod = be32_to_bigint(fe_to_bytes(fe_mul(a, inv)))
+    @debug.assert_eq(got.to_string(), expected.to_string())
+    @debug.assert_eq(prod.to_string(), "1")
+  }
+}
