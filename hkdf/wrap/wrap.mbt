@@ -19,10 +19,8 @@ pub fn hkdf_block_count(
   proof_require: l > 0,
   proof_require: hash_len > 0,
   proof_require: l <= 255 * hash_len,
-  proof_ensure: result => 1 <= result,
-  proof_ensure: result => result <= 255,
-  proof_ensure: result => (result - 1) * hash_len < l,
-  proof_ensure: result => l <= result * hash_len,
+  proof_ensure: result => result == hkdf_block_count_logic(l, hash_len),
+  proof_ensure: result => hkdf_output_ok(l, hash_len, result),
 } {
   (l + hash_len - 1) / hash_len
 }

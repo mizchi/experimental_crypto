@@ -1,0 +1,29 @@
+// Logic-side spec for `mizchi/hkdf/wrap`. The predicate captures the
+// full RFC 5869 §2.3 well-formedness condition for HKDF-Expand's block
+// count `N = ceil(L / HashLen)`, so callers can name the property
+// rather than restate four inequalities.
+
+fn hkdf_block_count_logic(l : Int, hash_len : Int) -> Int {
+  (l + hash_len - 1) / hash_len
+}
+
+// HKDF-Expand output configuration is RFC 5869 §2.3 well-formed.
+predicate hkdf_output_ok(l : Int, hash_len : Int, n : Int) {
+  l > 0 &&
+  hash_len > 0 &&
+  l <= 255 * hash_len &&
+  1 <= n &&
+  n <= 255 &&
+  (n - 1) * hash_len < l &&
+  l <= n * hash_len
+}
+
+// Lemma: the closed-form block count satisfies the predicate.
+lemma hkdf_block_count_logic_ok(l : Int, hash_len : Int) where {
+  proof_require: l > 0,
+  proof_require: hash_len > 0,
+  proof_require: l <= 255 * hash_len,
+  proof_ensure: hkdf_output_ok(l, hash_len, hkdf_block_count_logic(l, hash_len)),
+} {
+
+}
