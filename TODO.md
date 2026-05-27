@@ -41,7 +41,7 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
 4. [ ] **SSH allowed_signers feature gaps**.
    - [ ] Add explicit SSH certificate support before accepting
      `cert-authority`.
-   - [ ] Add a time-aware allowed_signers API before accepting
+   - [x] Add a time-aware allowed_signers API before accepting
      `valid-after` / `valid-before`.
 5. [x] **Cross-format fuzz breadth**.
    - [x] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
@@ -128,6 +128,7 @@ fails closed before returning authenticated / verified / trusted.
   fixed-iteration complete-addition field paths, and final nonce inverses no
   longer use `@bigint.pow`. The remaining ECDSA risk is unmeasured
   backend/allocation leakage, not the old affine secret-scalar ladder.
+
 ## Formal Methods
 
 - [ ] Remove the `partial_prover` shim in `proofs/why3.conf` once Why3 1.7.2

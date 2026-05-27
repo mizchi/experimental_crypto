@@ -6,9 +6,10 @@
 // where:
 //   - `principals` is a comma-separated list. May contain `*`/`?` glob
 //     patterns. A standalone `*` matches any principal.
-//   - `options` may include namespaces="git,file".
-//   - cert-authority / valid-after / valid-before are deliberately rejected
-//     until this package has SSH certificate and time-aware verification.
+//   - `options` may include namespaces="git,file", valid-after="YYYYMMDDZ",
+//     and valid-before="YYYYMMDDZ" / "YYYYMMDDHHMMSSZ".
+//   - cert-authority is deliberately rejected until this package has SSH
+//     certificate verification.
 //   - `keytype` + `base64-key` is exactly what's emitted by ssh-keygen.
 //
 // Lines starting with `#` and blank lines are ignored.
@@ -19,7 +20,17 @@ pub(all) struct AllowedSigner {
   // Optional sig_namespace filter, derived from a namespaces="..." option.
   // None means the signer is unconstrained.
   namespaces : Array[String]?
+  // Optional Unix-time validity window. `valid_before` is exclusive.
+  valid_after : Int64?
+  valid_before : Int64?
   pubkey : SshPublicKey
+}
+
+///|
+priv struct ParsedAllowedOptions {
+  namespaces : Array[String]?
+  valid_after : Int64?
+  valid_before : Int64?
 }
 
 ///|
@@ -85,21 +96,39 @@ fn try_parse_allowed_signer_line(
   // token is the base64 key. Security-sensitive options that this module
   // cannot enforce make the line invalid rather than silently widening trust.
   let mut namespaces : Array[String]? = None
+  let mut valid_after : Int64? = None
+  let mut valid_before : Int64? = None
   let mut idx = 1
   while idx < tokens.length() {
     let t = tokens[idx]
     if is_known_keytype(t) {
       break
     }
-    let (ok, parsed_namespaces) = parse_options_token(t)
+    let (ok, parsed) = parse_options_token(t)
     if !ok {
       return None
     }
-    match parsed_namespaces {
+    match parsed.namespaces {
       Some(ns) =>
         match namespaces {
           Some(_) => return None
           None => namespaces = Some(ns)
+        }
+      None => ()
+    }
+    match parsed.valid_after {
+      Some(ts) =>
+        match valid_after {
+          Some(_) => return None
+          None => valid_after = Some(ts)
+        }
+      None => ()
+    }
+    match parsed.valid_before {
+      Some(ts) =>
+        match valid_before {
+          Some(_) => return None
+          None => valid_before = Some(ts)
         }
       None => ()
     }
@@ -120,40 +149,60 @@ fn try_parse_allowed_signer_line(
   } else {
     return None
   }
-  Some({ principals, namespaces, pubkey })
+  Some({ principals, namespaces, valid_after, valid_before, pubkey })
 }
 
 ///|
-fn parse_options_token(token : String) -> (Bool, Array[String]?) {
+fn parse_options_token(token : String) -> (Bool, ParsedAllowedOptions) {
   let opts = split_options(token)
   let mut namespaces : Array[String]? = None
+  let mut valid_after : Int64? = None
+  let mut valid_before : Int64? = None
   for opt in opts {
     if opt == "" {
-      return (false, None)
+      return (false, { namespaces, valid_after, valid_before })
     }
     let eq = index_of(opt, '=')
     if eq < 0 {
-      return (false, None)
+      return (false, { namespaces, valid_after, valid_before })
     }
     let k = substr(opt, 0, eq)
     let v = strip_quotes(substr(opt, eq + 1, opt.length()))
     if k == "namespaces" {
       match namespaces {
-        Some(_) => return (false, None)
+        Some(_) => return (false, { namespaces, valid_after, valid_before })
         None => ()
       }
       let ns = split_on(v, ',')
       for n in ns {
         if n == "" {
-          return (false, None)
+          return (false, { namespaces, valid_after, valid_before })
         }
       }
       namespaces = Some(ns)
+    } else if k == "valid-after" {
+      match valid_after {
+        Some(_) => return (false, { namespaces, valid_after, valid_before })
+        None => ()
+      }
+      match parse_validity_time(v) {
+        Some(ts) => valid_after = Some(ts)
+        None => return (false, { namespaces, valid_after, valid_before })
+      }
+    } else if k == "valid-before" {
+      match valid_before {
+        Some(_) => return (false, { namespaces, valid_after, valid_before })
+        None => ()
+      }
+      match parse_validity_time(v) {
+        Some(ts) => valid_before = Some(ts)
+        None => return (false, { namespaces, valid_after, valid_before })
+      }
     } else {
-      return (false, None)
+      return (false, { namespaces, valid_after, valid_before })
     }
   }
-  (true, namespaces)
+  (true, { namespaces, valid_after, valid_before })
 }
 
 ///|
@@ -188,6 +237,47 @@ pub fn verify_with_allowed_signers(
   message : Bytes,
   sig_namespace? : String = "git",
 ) -> Bool raise SshError {
+  verify_with_allowed_signers_internal(
+    allowed_signers_text,
+    principal,
+    armor,
+    message,
+    None,
+    sig_namespace~,
+  )
+}
+
+///|
+/// Time-aware allowed_signers verification. This is the only high-level API
+/// that accepts entries carrying `valid-after` / `valid-before`; the plain
+/// `verify_with_allowed_signers` path rejects those entries fail-closed.
+pub fn verify_with_allowed_signers_at(
+  allowed_signers_text : String,
+  principal : String,
+  armor : String,
+  message : Bytes,
+  now_unix : Int64,
+  sig_namespace? : String = "git",
+) -> Bool raise SshError {
+  verify_with_allowed_signers_internal(
+    allowed_signers_text,
+    principal,
+    armor,
+    message,
+    Some(now_unix),
+    sig_namespace~,
+  )
+}
+
+///|
+fn verify_with_allowed_signers_internal(
+  allowed_signers_text : String,
+  principal : String,
+  armor : String,
+  message : Bytes,
+  now_unix : Int64?,
+  sig_namespace~ : String,
+) -> Bool raise SshError {
   validate_namespace(sig_namespace)
   let signers = parse_allowed_signers(allowed_signers_text)
   let matched = find_signers(signers, principal)
@@ -195,20 +285,11 @@ pub fn verify_with_allowed_signers(
     return false
   }
   for s in matched {
-    match s.namespaces {
-      Some(ns_list) => {
-        let mut ok = false
-        for n in ns_list {
-          if n == sig_namespace {
-            ok = true
-            break
-          }
-        }
-        if !ok {
-          continue
-        }
-      }
-      None => ()
+    if !signer_namespace_allows(s, sig_namespace) {
+      continue
+    }
+    if !signer_time_allows(s, now_unix) {
+      continue
     }
     if verify_armor_with(armor, message, s.pubkey, sig_namespace~) {
       return true
@@ -218,6 +299,43 @@ pub fn verify_with_allowed_signers(
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
+
+///|
+fn signer_namespace_allows(s : AllowedSigner, sig_namespace : String) -> Bool {
+  match s.namespaces {
+    Some(ns_list) => {
+      for n in ns_list {
+        if n == sig_namespace {
+          return true
+        }
+      }
+      false
+    }
+    None => true
+  }
+}
+
+///|
+fn signer_time_allows(s : AllowedSigner, now_unix : Int64?) -> Bool {
+  match (s.valid_after, s.valid_before) {
+    (None, None) => true
+    _ =>
+      match now_unix {
+        None => false
+        Some(now) => {
+          match s.valid_after {
+            Some(after) => if now < after { return false }
+            None => ()
+          }
+          match s.valid_before {
+            Some(before) => if now >= before { return false }
+            None => ()
+          }
+          true
+        }
+      }
+  }
+}
 
 ///|
 fn principal_matches(pattern : String, candidate : String) -> Bool {
@@ -264,6 +382,113 @@ fn is_known_keytype(s : String) -> Bool {
   s == "ecdsa-sha2-nistp256" ||
   s == "ecdsa-sha2-nistp384" ||
   s == "ecdsa-sha2-nistp521"
+}
+
+///|
+fn parse_validity_time(s : String) -> Int64? {
+  let has_date_only = s.length() == 9
+  let has_seconds = s.length() == 15
+  if !has_date_only && !has_seconds {
+    return None
+  }
+  if s.get_char(s.length() - 1).unwrap() != 'Z' {
+    return None
+  }
+  let year = decimal4(s, 0)
+  let month = decimal2(s, 4)
+  let day = decimal2(s, 6)
+  let hour = if has_seconds { decimal2(s, 8) } else { 0 }
+  let minute = if has_seconds { decimal2(s, 10) } else { 0 }
+  let second = if has_seconds { decimal2(s, 12) } else { 0 }
+  if year < 1970 {
+    return None
+  }
+  if month < 1 || month > 12 {
+    return None
+  }
+  if day < 1 || day > days_in_month(year, month) {
+    return None
+  }
+  if hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59 {
+    return None
+  }
+  let days = days_from_civil(year, month, day)
+  Some(
+    int_to_i64(days) * 86400L +
+    int_to_i64(hour) * 3600L +
+    int_to_i64(minute) * 60L +
+    int_to_i64(second),
+  )
+}
+
+///|
+fn int_to_i64(n : Int) -> Int64 {
+  n.to_uint64().reinterpret_as_int64()
+}
+
+///|
+fn decimal2(s : String, offset : Int) -> Int {
+  let hi = digit_at(s, offset)
+  let lo = digit_at(s, offset + 1)
+  if hi < 0 || lo < 0 {
+    -1
+  } else {
+    hi * 10 + lo
+  }
+}
+
+///|
+fn decimal4(s : String, offset : Int) -> Int {
+  let a = digit_at(s, offset)
+  let b = digit_at(s, offset + 1)
+  let c = digit_at(s, offset + 2)
+  let d = digit_at(s, offset + 3)
+  if a < 0 || b < 0 || c < 0 || d < 0 {
+    -1
+  } else {
+    ((a * 10 + b) * 10 + c) * 10 + d
+  }
+}
+
+///|
+fn digit_at(s : String, idx : Int) -> Int {
+  let c = s.get_char(idx).unwrap()
+  if c >= '0' && c <= '9' {
+    c.to_int() - '0'.to_int()
+  } else {
+    -1
+  }
+}
+
+///|
+fn is_leap_year(year : Int) -> Bool {
+  (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+///|
+fn days_in_month(year : Int, month : Int) -> Int {
+  match month {
+    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
+    4 | 6 | 9 | 11 => 30
+    2 => if is_leap_year(year) { 29 } else { 28 }
+    _ => 0
+  }
+}
+
+///|
+fn days_from_civil(year : Int, month : Int, day : Int) -> Int {
+  let y = if month <= 2 { year - 1 } else { year }
+  let era = y / 400
+  let yoe = y - era * 400
+  let m = if month > 2 { month - 3 } else { month + 9 }
+  let doy = (153 * m + 2) / 5 + day - 1
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+  era * 146097 + doe - 719468
 }
 
 ///|

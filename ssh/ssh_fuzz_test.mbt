@@ -144,6 +144,26 @@ test "fuzz allowed_signers: structured options preserve or narrow trust" {
           fuzz_message(),
         ),
       )
+    } else if opt == "valid-before=\"20990101Z\"" ||
+      opt == "valid-after=\"19700101Z\"" {
+      @debug.assert_eq(signers.length(), 1)
+      assert_false(
+        @ssh.verify_with_allowed_signers(
+          text,
+          "fuzz@example.com",
+          fuzz_armored_signature,
+          fuzz_message(),
+        ),
+      )
+      assert_true(
+        @ssh.verify_with_allowed_signers_at(
+          text,
+          "fuzz@example.com",
+          fuzz_armored_signature,
+          fuzz_message(),
+          1_700_000_000L,
+        ),
+      )
     } else {
       @debug.assert_eq(signers.length(), 0)
     }

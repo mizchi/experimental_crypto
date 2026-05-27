@@ -152,6 +152,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add high-level `verify_with_allowed_signers` regressions proving unsupported
   `cert-authority`, `valid-after`, and `valid-before` policy lines fail closed
   instead of authenticating a valid signature under unenforced policy.
+- Add explicit `verify_with_allowed_signers_at` so `valid-after` /
+  `valid-before` are accepted only when callers provide Unix time; keep the
+  plain `verify_with_allowed_signers` path fail-closed for time-scoped entries.
 
 ### HPKE / JWK / TOTP / BLAKE3
 

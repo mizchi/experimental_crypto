@@ -68,6 +68,8 @@ pub fn verify_armor_with(String, Bytes, SshPublicKey, sig_namespace? : String) -
 
 pub fn verify_with_allowed_signers(String, String, String, Bytes, sig_namespace? : String) -> Bool raise SshError
 
+pub fn verify_with_allowed_signers_at(String, String, String, Bytes, Int64, sig_namespace? : String) -> Bool raise SshError
+
 // Errors
 pub suberror SshError {
   TruncatedInput(String)
@@ -83,6 +85,8 @@ pub suberror SshError {
 pub(all) struct AllowedSigner {
   principals : Array[String]
   namespaces : Array[String]?
+  valid_after : Int64?
+  valid_before : Int64?
   pubkey : SshPublicKey
 }
 

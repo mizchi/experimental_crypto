@@ -291,18 +291,29 @@ test "ATTACK: duplicate allowed_signers namespaces fail closed" {
 }
 
 ///|
-test "ATTACK: validity-window allowed_signers entries fail closed" {
+test "ssh: parse allowed_signers validity-window options" {
   let time_scoped_text =
-    #|time@example.com valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+    #|time@example.com valid-after="19700101Z",valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let signers = @ssh.parse_allowed_signers(time_scoped_text)
-  @debug.assert_eq(signers.length(), 0)
-  let after_text =
-    #|time@example.com valid-after="19700101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
-  @debug.assert_eq(@ssh.parse_allowed_signers(after_text).length(), 0)
+  @debug.assert_eq(signers.length(), 1)
+  @debug.assert_eq(signers[0].valid_after, Some(0L))
+  @debug.assert_eq(signers[0].valid_before, Some(4070908800L))
+  let seconds_text =
+    #|time@example.com valid-before="19700101000001Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let seconds_signers = @ssh.parse_allowed_signers(seconds_text)
+  @debug.assert_eq(seconds_signers.length(), 1)
+  @debug.assert_eq(seconds_signers[0].valid_before, Some(1L))
 }
 
 ///|
-test "ATTACK: high-level allowed_signers rejects unsupported time policy" {
+test "ATTACK: malformed validity-window allowed_signers entries fail closed" {
+  let malformed_text =
+    #|time@example.com valid-before="2099-01-01" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  @debug.assert_eq(@ssh.parse_allowed_signers(malformed_text).length(), 0)
+}
+
+///|
+test "ATTACK: plain allowed_signers API rejects time policy" {
   let time_scoped_text =
     #|mizchi@misc-test valid-after="19700101Z",valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let ok = @ssh.verify_with_allowed_signers(
@@ -312,6 +323,39 @@ test "ATTACK: high-level allowed_signers rejects unsupported time policy" {
     fixture_message(),
   )
   assert_false(ok)
+}
+
+///|
+test "ssh: time-aware allowed_signers API honours validity window" {
+  let time_scoped_text =
+    #|mizchi@misc-test valid-after="19700101Z",valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  assert_true(
+    @ssh.verify_with_allowed_signers_at(
+      time_scoped_text,
+      "mizchi@misc-test",
+      armored_signature,
+      fixture_message(),
+      1_700_000_000L,
+    ),
+  )
+  assert_false(
+    @ssh.verify_with_allowed_signers_at(
+      time_scoped_text,
+      "mizchi@misc-test",
+      armored_signature,
+      fixture_message(),
+      -1L,
+    ),
+  )
+  assert_false(
+    @ssh.verify_with_allowed_signers_at(
+      time_scoped_text,
+      "mizchi@misc-test",
+      armored_signature,
+      fixture_message(),
+      4070908800L,
+    ),
+  )
 }
 
 ///|
