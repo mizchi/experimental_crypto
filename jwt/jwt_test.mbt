@@ -94,6 +94,19 @@ fn sign_hs256_token_with_raw_json(
 }
 
 ///|
+fn sign_hs256_token_with_payload_bytes(
+  header_json : String,
+  payload : Bytes,
+  secret : Bytes,
+) -> String {
+  let header_b64 = b64u_encode(@utf8.encode(header_json[:]))
+  let payload_b64 = b64u_encode(payload)
+  let signing_input = header_b64 + "." + payload_b64
+  let sig = @hash.hmac_sha256(secret, @utf8.encode(signing_input[:]))
+  signing_input + "." + b64u_encode(sig)
+}
+
+///|
 fn sign_ed25519_token_with_raw_json(
   header_json : String,
   payload_json : String,
@@ -541,6 +554,38 @@ test "ATTACK jwt: duplicate claims members are rejected" {
     other => abort("expected ClaimsParseError, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted JWT with duplicate claims member")
+  }
+}
+
+///|
+test "ATTACK jwt: malformed UTF-8 JOSE header is rejected" {
+  let secret : Bytes = b"bad-header-utf8-secret"
+  let token = b64u_encode(b"\xff") +
+    "." +
+    b64u_encode(b"{}") +
+    "." +
+    b64u_encode(b"sig")
+  let opts = @jwt.VerifyOptions::default(0L)
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidHeader(_) => ()
+    other => abort("expected InvalidHeader, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted JWT with malformed UTF-8 header")
+  }
+}
+
+///|
+test "ATTACK jwt: signed malformed UTF-8 payload is rejected after signature" {
+  let secret : Bytes = b"bad-payload-utf8-secret"
+  let token = sign_hs256_token_with_payload_bytes(
+    "{\"alg\":\"HS256\",\"typ\":\"JWT\"}", b"\xff", secret,
+  )
+  let opts = @jwt.VerifyOptions::default(0L)
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClaimsParseError(_) => ()
+    other => abort("expected ClaimsParseError, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted JWT with signed malformed UTF-8 payload")
   }
 }
 
@@ -2798,6 +2843,29 @@ fn make_ed25519_dpop_proof(
 }
 
 ///|
+fn dpop_header_json_for_test(sk : @ed25519.PrivateKey) -> String {
+  let x = b64u_encode(sk.public_key().to_bytes())
+  "{\"alg\":\"EdDSA\",\"typ\":\"dpop+jwt\",\"jwk\":{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"" +
+  x +
+  "\"}}"
+}
+
+///|
+fn dpop_opts_for_test(now : Int64) -> @jwt.DpopVerifyOptions {
+  {
+    now,
+    max_iat_age_sec: 30L,
+    clock_skew_sec: 0L,
+    http_method: "POST",
+    http_uri: "https://rs.example.com/resource",
+    bound_access_token: None,
+    expected_jkt: None,
+    expected_nonce: None,
+    allowed_algorithms: Some([@jwt.Algorithm::EdDSA]),
+  }
+}
+
+///|
 test "dpop: happy path verifies proof + htm/htu/iat" {
   let seed = Bytes::makei(32, fn(i) { (i + 11).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
@@ -2849,6 +2917,60 @@ test "ATTACK dpop: duplicate embedded jwk members reject before map collapse" {
     other => abort("expected duplicate jwk rejection, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted DPoP proof with duplicate embedded jwk member")
+  }
+}
+
+///|
+test "ATTACK dpop: malformed jwk header shape is rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 13).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let header_json = "{\"alg\":\"EdDSA\",\"typ\":\"dpop+jwt\",\"jwk\":[]}"
+  let payload_json = "{\"htm\":\"POST\",\"htu\":\"https://rs.example.com/resource\",\"iat\":1700000000,\"jti\":\"bad-jwk-shape\"}"
+  let proof = sign_ed25519_token_with_raw_json(header_json, payload_json, sk)
+  try @jwt.verify_dpop_proof(proof, dpop_opts_for_test(now)) catch {
+    InvalidDpopProof(_) => ()
+    other => abort("expected InvalidDpopProof, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted DPoP proof with non-object jwk header")
+  }
+}
+
+///|
+test "ATTACK dpop: non-string htm claim is rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 14).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let payload_json = "{\"htm\":42,\"htu\":\"https://rs.example.com/resource\",\"iat\":1700000000,\"jti\":\"bad-htm-shape\"}"
+  let proof = sign_ed25519_token_with_raw_json(
+    dpop_header_json_for_test(sk),
+    payload_json,
+    sk,
+  )
+  try @jwt.verify_dpop_proof(proof, dpop_opts_for_test(now)) catch {
+    InvalidDpopProof(_) => ()
+    other => abort("expected InvalidDpopProof, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted DPoP proof with non-string htm")
+  }
+}
+
+///|
+test "ATTACK dpop: non-numeric iat claim is rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 15).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  let payload_json = "{\"htm\":\"POST\",\"htu\":\"https://rs.example.com/resource\",\"iat\":\"1700000000\",\"jti\":\"bad-iat-shape\"}"
+  let proof = sign_ed25519_token_with_raw_json(
+    dpop_header_json_for_test(sk),
+    payload_json,
+    sk,
+  )
+  try @jwt.verify_dpop_proof(proof, dpop_opts_for_test(now)) catch {
+    InvalidDpopProof(_) => ()
+    other => abort("expected InvalidDpopProof, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted DPoP proof with non-numeric iat")
   }
 }
 
