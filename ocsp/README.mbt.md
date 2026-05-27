@@ -8,6 +8,8 @@
 OCSP (RFC 6960) response parsing + verification.
 
 ```moonbit nocheck
+@ocsp.build_request(cert, issuer_cert, hash=Sha256, nonce=Some(nonce)) -> Bytes raise OcspError
+@ocsp.build_http_post_request(cert, issuer_cert, nonce=Some(nonce)) -> OcspHttpPostRequest raise OcspError
 @ocsp.parse_response(der) -> OcspResponse raise OcspError
 @ocsp.verify(der, cert, issuer_cert, now) -> CertStatus raise OcspError
 @ocsp.verify_with_nonce(der, cert, issuer_cert, now, expected_nonce) -> CertStatus raise OcspError
@@ -18,8 +20,12 @@ Supports direct-signed and delegated-responder OCSP signing paths and
 SHA-1 / SHA-256 CertIDs. Delegated responder certs must carry the non-critical
 `id-pkix-ocsp-nocheck` extension because this module does not recursively check
 responder-certificate revocation. Verified `SingleResponse` entries must carry
-a freshness upper bound (`thisUpdate <= now < nextUpdate`).
+a freshness upper bound (`thisUpdate <= now < nextUpdate`). Request and
+verification APIs reject an `issuer_cert` whose subject is not the target
+certificate's issuer.
 `verify_with_nonce` requires the signed `id-pkix-ocsp-nonce` response extension
 to exactly match the request nonce. The legacy `verify` API rejects
 nonce-bearing responses because it cannot bind them to a request. OCSP request
-construction, HTTP transport, and archive cutoff are out of scope.
+construction emits unsigned OCSPRequest DER and optional HTTP POST metadata;
+URL selection, network I/O, TLS policy, timeouts, and archive cutoff are out
+of scope.

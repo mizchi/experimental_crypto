@@ -54,6 +54,7 @@ pub(all) struct JwkSetEntry {
   kid : String?
   alg : String?
   use_ : String?
+  key_ops : Array[String]?
 }
 
 // Type aliases

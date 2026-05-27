@@ -315,6 +315,15 @@ fn crl_extension_elem(
   oid : @asn1.ObjectIdentifier,
   critical : Bool,
 ) -> @asn1.Element {
+  crl_extension_elem_with_value(oid, critical, b"\x05\x00")
+}
+
+///|
+fn crl_extension_elem_with_value(
+  oid : @asn1.ObjectIdentifier,
+  critical : Bool,
+  extn_value : Bytes,
+) -> @asn1.Element {
   let items : Array[@asn1.Element] = [
     @asn1.Element::new(@asn1.tag_oid, Oid(oid)),
   ]
@@ -322,9 +331,18 @@ fn crl_extension_elem(
     items.push(@asn1.Element::new(@asn1.tag_boolean, Boolean(true)))
   }
   items.push(
-    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"\x05\x00")),
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(extn_value)),
   )
   @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
+fn crl_number_extension_elem(critical : Bool, value : Bytes) -> @asn1.Element {
+  crl_extension_elem_with_value(
+    @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 20]),
+    critical,
+    value,
+  )
 }
 
 ///|
@@ -621,6 +639,199 @@ test "ATTACK crl: unsupported non-critical CRL extension is rejected" {
     other => abort("expected Malformed, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted CRL with unsupported non-critical extension")
+  }
+}
+
+///|
+test "ATTACK crl: delta CRL indicator is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let delta_crl_indicator_oid = @asn1.ObjectIdentifier::from_arcs([
+    2U, 5, 29, 27,
+  ])
+  let base_crl_number = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [
+      crl_extensions_explicit([
+        crl_extension_elem_with_value(
+          delta_crl_indicator_oid, false, base_crl_number,
+        ),
+      ]),
+    ],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted delta CRL without base-CRL semantics")
+  }
+}
+
+///|
+test "ATTACK crl: issuingDistributionPoint scoped CRL is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let issuing_distribution_point_oid = @asn1.ObjectIdentifier::from_arcs([
+    2U, 5, 29, 28,
+  ])
+  let empty_scope = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence([])),
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [
+      crl_extensions_explicit([
+        crl_extension_elem_with_value(
+          issuing_distribution_point_oid, true, empty_scope,
+        ),
+      ]),
+    ],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted scoped CRL without distribution-point matching")
+  }
+}
+
+///|
+test "ATTACK crl: certificateIssuer entry extension is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let certificate_issuer_oid = @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 29])
+  let entry = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_integer, Integer(b"\x10")),
+      @asn1.Element::new(@asn1.tag_utc_time, UtcTime("240501000000Z")),
+      @asn1.Element::new(
+        @asn1.tag_sequence,
+        Sequence([
+          crl_extension_elem_with_value(
+            certificate_issuer_oid,
+            true,
+            @asn1.encode_der(
+              @asn1.Element::new(@asn1.tag_sequence, Sequence([])),
+            ),
+          ),
+        ]),
+      ),
+    ]),
+  )
+  let der = build_crl_der_with_revoked_entry_elems(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [entry],
+    issuer_seed_hex,
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted indirect CRL entry without certificateIssuer support")
+  }
+}
+
+///|
+test "crl: non-critical cRLNumber is accepted after value validation" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [
+      crl_extensions_explicit([
+        crl_number_extension_elem(
+          false,
+          @asn1.encode_der(
+            @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+          ),
+        ),
+      ]),
+    ],
+  )
+  let crl = @crl.verify(der, issuer, "250601000000Z")
+  @debug.assert_eq(crl.revoked.length(), 0)
+}
+
+///|
+test "ATTACK crl: cRLNumber value must be DER INTEGER" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [crl_extensions_explicit([crl_number_extension_elem(false, b"\x05\x00")])],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted cRLNumber extension without INTEGER value")
+  }
+}
+
+///|
+test "ATTACK crl: critical cRLNumber is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [
+      crl_extensions_explicit([
+        crl_number_extension_elem(
+          true,
+          @asn1.encode_der(
+            @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+          ),
+        ),
+      ]),
+    ],
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted critical cRLNumber extension")
   }
 }
 

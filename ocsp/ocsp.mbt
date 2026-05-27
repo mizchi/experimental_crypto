@@ -2,7 +2,8 @@
 //
 // Scope: PARSE-AND-VERIFY of an OCSPResponse (DER bytes). The caller fetches
 // the response over HTTP (or via cached AIA URL) and hands us the bytes.
-// We do not initiate any network I/O.
+// We can construct OCSP request bytes and HTTP POST metadata, but we do not
+// initiate any network I/O.
 //
 // What we verify (`verify(...)`):
 //   1. OCSPResponseStatus == 0 (successful).
@@ -20,10 +21,26 @@
 //      `verify_with_nonce(...)`.
 //
 // Out of scope:
-//   - OCSP request construction
-//   - HTTP transport
+//   - HTTP client / network transport execution
 
 // ─── data types ──────────────────────────────────────────────────────────
+
+///|
+/// Hash algorithm used in OCSP CertID issuerNameHash / issuerKeyHash fields.
+pub(all) enum OcspCertIdHash {
+  Sha1
+  Sha256
+} derive(Debug, Eq)
+
+///|
+/// HTTP POST metadata for an OCSP request. The caller still owns URL
+/// selection, network I/O, timeouts, TLS policy, and response byte handling.
+pub(all) struct OcspHttpPostRequest {
+  http_method : String
+  content_type : String
+  accept : String
+  body : Bytes
+} derive(Debug)
 
 ///|
 /// Status of a single cert as reported by an OCSP responder
@@ -80,6 +97,9 @@ pub suberror OcspError {
   UnsupportedResponseType(@asn1.ObjectIdentifier)
   /// Cert under inspection is not in the SingleResponse list.
   CertNotFound
+  /// The supplied issuer cert is not named as the issuer of the cert under
+  /// inspection.
+  IssuerMismatch
   /// CertID hashAlgorithm is neither SHA-1 nor SHA-256.
   UnsupportedHashAlgorithm(@asn1.ObjectIdentifier)
   /// thisUpdate > now (response is from the future), or nextUpdate <= now.
@@ -435,6 +455,142 @@ fn run_hash_alg(
     @hash.sha256(data)
   } else {
     raise UnsupportedHashAlgorithm(alg)
+  }
+}
+
+// ─── OCSP request construction ──────────────────────────────────────────
+
+///|
+fn ocsp_cert_id_hash_oid(hash : OcspCertIdHash) -> @asn1.ObjectIdentifier {
+  match hash {
+    Sha1 => id_sha1()
+    Sha256 => id_sha256()
+  }
+}
+
+///|
+fn algorithm_identifier_elem(oid : @asn1.ObjectIdentifier) -> @asn1.Element {
+  @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(oid))]),
+  )
+}
+
+///|
+fn build_cert_id_for_request(
+  cert : @pkix.Certificate,
+  issuer_cert : @pkix.Certificate,
+  hash : OcspCertIdHash,
+) -> @asn1.Element raise OcspError {
+  if !cert_issuer_matches(cert, issuer_cert) {
+    raise IssuerMismatch
+  }
+  let alg = ocsp_cert_id_hash_oid(hash)
+  @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      algorithm_identifier_elem(alg),
+      @asn1.Element::new(
+        @asn1.tag_octet_string,
+        OctetString(
+          run_hash_alg(alg, @pkix.serialize_name(issuer_cert.tbs.subject)),
+        ),
+      ),
+      @asn1.Element::new(
+        @asn1.tag_octet_string,
+        OctetString(
+          run_hash_alg(
+            alg,
+            issuer_cert.tbs.subject_public_key_info.subject_public_key.bytes,
+          ),
+        ),
+      ),
+      @asn1.Element::new(@asn1.tag_integer, Integer(cert.tbs.serial_number)),
+    ]),
+  )
+}
+
+///|
+fn wrap_context_explicit(number : UInt, inner : @asn1.Element) -> @asn1.Element {
+  @asn1.Element::new(
+    @asn1.Tag::context(number, constructed=true),
+    Unknown(@asn1.encode_der(inner)),
+  )
+}
+
+///|
+fn extension_elem(
+  oid : @asn1.ObjectIdentifier,
+  critical : Bool,
+  extn_value : Bytes,
+) -> @asn1.Element {
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_oid, Oid(oid)),
+  ]
+  if critical {
+    items.push(@asn1.Element::new(@asn1.tag_boolean, Boolean(true)))
+  }
+  items.push(
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(extn_value)),
+  )
+  @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+}
+
+///|
+fn request_nonce_extension(nonce : Bytes) -> @asn1.Element raise OcspError {
+  if nonce.length() == 0 {
+    raise Malformed("OCSP request nonce must be non-empty")
+  }
+  let inner = @asn1.Element::new(@asn1.tag_octet_string, OctetString(nonce))
+  extension_elem(id_pkix_ocsp_nonce(), false, @asn1.encode_der(inner))
+}
+
+///|
+/// Build an unsigned RFC 6960 OCSPRequest for `cert` under `issuer_cert`.
+///
+/// The request omits `requestorName` and `optionalSignature`. When `nonce` is
+/// present, it is encoded as a non-critical `id-pkix-ocsp-nonce` request
+/// extension and should be checked with `verify_with_nonce` on the response.
+pub fn build_request(
+  cert : @pkix.Certificate,
+  issuer_cert : @pkix.Certificate,
+  hash? : OcspCertIdHash = Sha256,
+  nonce? : Bytes? = None,
+) -> Bytes raise OcspError {
+  let request = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([build_cert_id_for_request(cert, issuer_cert, hash)]),
+  )
+  let request_list = @asn1.Element::new(@asn1.tag_sequence, Sequence([request]))
+  let tbs_items : Array[@asn1.Element] = [request_list]
+  match nonce {
+    Some(n) => {
+      let exts = @asn1.Element::new(
+        @asn1.tag_sequence,
+        Sequence([request_nonce_extension(n)]),
+      )
+      tbs_items.push(wrap_context_explicit(2U, exts))
+    }
+    None => ()
+  }
+  let tbs = @asn1.Element::new(@asn1.tag_sequence, Sequence(tbs_items))
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence([tbs])))
+}
+
+///|
+/// Build a POST request descriptor for RFC 6960 HTTP transport. This function
+/// does not perform network I/O.
+pub fn build_http_post_request(
+  cert : @pkix.Certificate,
+  issuer_cert : @pkix.Certificate,
+  hash? : OcspCertIdHash = Sha256,
+  nonce? : Bytes? = None,
+) -> OcspHttpPostRequest raise OcspError {
+  {
+    http_method: "POST",
+    content_type: "application/ocsp-request",
+    accept: "application/ocsp-response",
+    body: build_request(cert, issuer_cert, hash~, nonce~),
   }
 }
 
@@ -1180,6 +1336,9 @@ fn verify_internal(
   now : String,
   expected_nonce : Bytes?,
 ) -> CertStatus raise OcspError {
+  if !cert_issuer_matches(cert, issuer_cert) {
+    raise IssuerMismatch
+  }
   // 1. Parse and structural checks.
   let outer = @asn1.decode_der(response_der) catch { e => raise Asn1(e) }
   let items = expect_sequence(outer)

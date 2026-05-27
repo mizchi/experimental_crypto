@@ -11,26 +11,21 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      fixed-limb constant-time implementations.
    - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
      RSA and ECDSA sign paths.
-2. [ ] **OCSP / CRL revocation semantics**: implement the semantics currently
-   treated as fail-closed at the high-level trust boundary.
-   - [ ] Implement delta CRL and indirect CRL handling.
-   - [ ] Implement CRL distribution-point matching.
-   - [ ] Add OCSP request construction and HTTP transport semantics.
-3. [ ] **PGP sign-side interop**: verify generated signatures with external
+2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [ ] Add external sign-output verification for v4 signatures.
    - [ ] Add v6 sign-output verification once a v6-capable reference tool is
      available in CI.
-4. [ ] **JWT remaining algorithm / parser coverage**.
+3. [ ] **JWT remaining algorithm / parser coverage**.
    - [ ] Add `ES512` only after a P-521 implementation exists.
-5. [ ] **SSH allowed_signers feature gaps**.
+4. [ ] **SSH allowed_signers feature gaps**.
    - [ ] Add explicit SSH certificate support before accepting
      `cert-authority`.
    - [ ] Add a time-aware allowed_signers API before accepting
      `valid-after` / `valid-before`.
-6. [ ] **PBES2 / encrypted private key interop**.
+5. [ ] **PBES2 / encrypted private key interop**.
    - [ ] Add PBES2 `id-scrypt` support and interop fixtures.
-7. [ ] **Cross-format fuzz breadth**.
+6. [ ] **Cross-format fuzz breadth**.
    - [ ] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
    - [ ] Add OCSP / CRL -> PKIX_VERIFY fuzz.
 
@@ -104,9 +99,11 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **Ed448 / X448** (RFC 8032 / 7748).
 - [ ] **PKCS#12 (PFX)**.
 - [ ] **AES-GCM-SIV / AES-SIV** nonce-misuse-resistant AEADs.
-- [ ] **OCSP / CRL extensions**: archive cutoff, delta-CRLs, CRL
-  distribution-point matching, indirect CRLs, request construction, and HTTP
-  transport.
+- [ ] **OCSP / CRL extension feature support**: archive cutoff, delta-CRLs,
+  CRL distribution-point matching, indirect CRLs, and OCSP HTTP client
+  execution. High-level CRL trust APIs currently reject unsupported scoped /
+  delta / indirect semantics fail-closed, and OCSP exposes request DER plus
+  POST metadata without performing network I/O.
 - [ ] **`age`** file encryption format.
 - [ ] **EIP-712 / EIP-191** structured Ethereum signing helpers.
 

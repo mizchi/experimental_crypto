@@ -454,6 +454,59 @@ fn ocsp_extensions_explicit(
 }
 
 ///|
+fn test_sequence(elem : @asn1.Element) -> Array[@asn1.Element] {
+  match elem.value {
+    Sequence(items) => items
+    _ => abort("expected SEQUENCE")
+  }
+}
+
+///|
+fn test_oid(elem : @asn1.Element) -> @asn1.ObjectIdentifier {
+  match elem.value {
+    Oid(oid) => oid
+    _ => abort("expected OID")
+  }
+}
+
+///|
+fn test_octet_string(elem : @asn1.Element) -> Bytes {
+  match elem.value {
+    OctetString(bytes) => bytes
+    _ => abort("expected OCTET STRING")
+  }
+}
+
+///|
+fn test_integer(elem : @asn1.Element) -> Bytes {
+  match elem.value {
+    Integer(bytes) => bytes
+    _ => abort("expected INTEGER")
+  }
+}
+
+///|
+fn test_context_explicit(elem : @asn1.Element, number : UInt) -> @asn1.Element {
+  if elem.tag.class_ != ContextSpecific || elem.tag.number != number {
+    abort("expected context [" + number.to_string() + "]")
+  }
+  match elem.value {
+    Unknown(raw) => @asn1.decode_der(raw) catch { _ => abort("decode context") }
+    _ => abort("expected explicit context payload")
+  }
+}
+
+///|
+fn decode_built_ocsp_request(der : Bytes) -> Array[@asn1.Element] {
+  let outer = @asn1.decode_der(der) catch { _ => abort("decode request") }
+  let outer_items = test_sequence(outer)
+  if outer_items.length() != 1 {
+    abort("OCSPRequest arity")
+  }
+  test_sequence(outer_items[0])
+}
+
+///|
 fn build_basic_ocsp_der_with_extra(
   response_data_elem : @asn1.Element,
   signer_seed_hex : String,
@@ -687,6 +740,250 @@ test "ocsp: good status, direct-signed, SHA-256 CertID" {
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, cert, issuer, "20250601000000Z")
   @debug.assert_eq(status, Good)
+}
+
+///|
+test "ocsp: build_request emits SHA-256 CertID by default" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let tbs_items = decode_built_ocsp_request(@ocsp.build_request(cert, issuer))
+  @debug.assert_eq(tbs_items.length(), 1)
+  let request_list = test_sequence(tbs_items[0])
+  @debug.assert_eq(request_list.length(), 1)
+  let request_items = test_sequence(request_list[0])
+  @debug.assert_eq(request_items.length(), 1)
+  let cert_id = test_sequence(request_items[0])
+  @debug.assert_eq(cert_id.length(), 4)
+  let alg_items = test_sequence(cert_id[0])
+  @debug.assert_eq(alg_items.length(), 1)
+  @debug.assert_eq(test_oid(alg_items[0]), id_sha256_oid())
+  @debug.assert_eq(
+    test_octet_string(cert_id[1]),
+    @hash.sha256(@pkix.serialize_name(issuer.tbs.subject)),
+  )
+  @debug.assert_eq(
+    test_octet_string(cert_id[2]),
+    @hash.sha256(issuer.tbs.subject_public_key_info.subject_public_key.bytes),
+  )
+  @debug.assert_eq(test_integer(cert_id[3]), cert.tbs.serial_number)
+}
+
+///|
+test "ocsp: build_request can encode SHA-1 CertID for legacy responders" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let tbs_items = decode_built_ocsp_request(
+    @ocsp.build_request(cert, issuer, hash=Sha1),
+  )
+  let cert_id = test_sequence(test_sequence(test_sequence(tbs_items[0])[0])[0])
+  let alg_items = test_sequence(cert_id[0])
+  @debug.assert_eq(test_oid(alg_items[0]), id_sha1_oid())
+  @debug.assert_eq(
+    test_octet_string(cert_id[1]),
+    @hash.sha1(@pkix.serialize_name(issuer.tbs.subject)),
+  )
+  @debug.assert_eq(
+    test_octet_string(cert_id[2]),
+    @hash.sha1(issuer.tbs.subject_public_key_info.subject_public_key.bytes),
+  )
+}
+
+///|
+test "ocsp: build_request encodes non-critical nonce request extension" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let nonce = b"request-nonce-001"
+  let tbs_items = decode_built_ocsp_request(
+    @ocsp.build_request(cert, issuer, nonce=Some(nonce)),
+  )
+  @debug.assert_eq(tbs_items.length(), 2)
+  let exts = test_sequence(test_context_explicit(tbs_items[1], 2U))
+  @debug.assert_eq(exts.length(), 1)
+  let ext_items = test_sequence(exts[0])
+  @debug.assert_eq(ext_items.length(), 2)
+  @debug.assert_eq(test_oid(ext_items[0]), ocsp_nonce_oid())
+  let inner = @asn1.decode_der(test_octet_string(ext_items[1])) catch {
+    _ => abort("decode nonce")
+  }
+  @debug.assert_eq(test_octet_string(inner), nonce)
+}
+
+///|
+test "ATTACK ocsp: build_request rejects empty nonce" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  try @ocsp.build_request(cert, issuer, nonce=Some(b"")) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("built OCSP request with empty nonce")
+  }
+}
+
+///|
+test "ATTACK ocsp: build_request rejects issuer mismatch" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Other Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  try @ocsp.build_request(cert, issuer) catch {
+    IssuerMismatch => ()
+    other => abort("expected IssuerMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("built OCSP request for cert with mismatched issuer")
+  }
+}
+
+///|
+test "ocsp: build_http_post_request supplies strict OCSP media types" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let nonce = b"request-nonce-002"
+  let req = @ocsp.build_http_post_request(cert, issuer, nonce=Some(nonce))
+  @debug.assert_eq(req.http_method, "POST")
+  @debug.assert_eq(req.content_type, "application/ocsp-request")
+  @debug.assert_eq(req.accept, "application/ocsp-response")
+  @debug.assert_eq(
+    req.body,
+    @ocsp.build_request(cert, issuer, nonce=Some(nonce)),
+  )
+}
+
+///|
+test "ATTACK ocsp: verify rejects cert issuer mismatch" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Other Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    IssuerMismatch => ()
+    other => abort("expected IssuerMismatch, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP response for cert with mismatched issuer")
+  }
 }
 
 ///|

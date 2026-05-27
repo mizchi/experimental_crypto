@@ -22,4 +22,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "EXPERIMENTAL — RFC 6960 OCSP response parser and verifier. Parse-and-verify only."
+description = "EXPERIMENTAL — RFC 6960 OCSP request builder and response verifier."

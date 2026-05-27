@@ -138,9 +138,18 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   would otherwise be unchecked.
 - Add external OpenSSL OCSP fixtures for direct responder acceptance and
   delegated responder rejection without `id-pkix-ocsp-nocheck`.
+- Add unsigned OCSPRequest construction with SHA-1 / SHA-256 CertID selection
+  and non-empty request nonce extension support.
+- Add OCSP HTTP POST request metadata (`application/ocsp-request` /
+  `application/ocsp-response`) without performing network I/O.
+- Reject OCSP request construction and response verification when the supplied
+  issuer cert is not named as the target certificate issuer.
 - Reject unsupported CRL / CRL-entry extensions instead of ignoring scope, delta, or indirect-CRL semantics.
 - Reject unsupported CRL `TBSCertList.version` values.
 - Require high-level CRL verification to include `nextUpdate`.
+- Pin CRL fail-closed behavior for `deltaCRLIndicator`,
+  `issuingDistributionPoint`, and `certificateIssuer` entry extensions.
+- Validate accepted `cRLNumber` extensions as non-critical DER INTEGER values.
 - Add external OpenSSL CRL fixture with `cRLSign` issuer key usage and revoked serial lookup.
 - Reject PGP detached signature armor with anything other than exactly one Signature packet.
 - Reject non-`SIGNATURE` armor labels and unsupported critical PGP signature subpackets.

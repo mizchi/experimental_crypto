@@ -9,18 +9,27 @@ import {
 }
 
 // Values
+pub fn build_http_post_request(@pkix.Certificate, @pkix.Certificate, hash? : OcspCertIdHash, nonce? : Bytes?) -> OcspHttpPostRequest raise OcspError
+
+pub fn build_request(@pkix.Certificate, @pkix.Certificate, hash? : OcspCertIdHash, nonce? : Bytes?) -> Bytes raise OcspError
+
 pub fn parse_response(Bytes) -> OcspResponse raise OcspError
 
 pub fn verify(Bytes, @pkix.Certificate, @pkix.Certificate, String) -> CertStatus raise OcspError
+
+pub fn verify_with_nonce(Bytes, @pkix.Certificate, @pkix.Certificate, String, Bytes) -> CertStatus raise OcspError
 
 // Errors
 pub suberror OcspError {
   ResponseNotSuccessful(Int)
   UnsupportedResponseType(@asn1.ObjectIdentifier)
   CertNotFound
+  IssuerMismatch
   UnsupportedHashAlgorithm(@asn1.ObjectIdentifier)
   StaleResponse(String)
   BadSignature
+  ResponderRevocationNotChecked
+  NonceMismatch
   ResponderMissingOcspSigningEku
   ResponderMissingDigitalSignatureKeyUsage
   ResponderNotSignedByIssuer
@@ -38,9 +47,22 @@ pub(all) enum CertStatus {
   Unknown
 } derive(Eq, @debug.Debug)
 
+pub(all) enum OcspCertIdHash {
+  Sha1
+  Sha256
+} derive(Eq, @debug.Debug)
+
+pub(all) struct OcspHttpPostRequest {
+  http_method : String
+  content_type : String
+  accept : String
+  body : Bytes
+} derive(@debug.Debug)
+
 pub(all) struct OcspResponse {
   produced_at : String
   responses : Array[OcspSingleResponse]
+  response_nonce : Bytes?
   signer_cert : @pkix.Certificate?
 } derive(@debug.Debug)
 

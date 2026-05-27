@@ -14,6 +14,7 @@ X.509 Certificate Revocation List (CRL) parse + verify per RFC 5280 §5.
 ```
 
 Verifies the CRL signature against the issuer's `SubjectPublicKeyInfo`
-and checks `thisUpdate <= now < nextUpdate`. Unsupported CRL and CRL-entry
-extensions are rejected rather than ignored; delta-CRLs, CRL distribution
-points, and indirect CRLs are not implemented yet.
+and checks `thisUpdate <= now < nextUpdate`. `cRLNumber` is accepted only as a
+non-critical DER INTEGER. Other CRL and CRL-entry extensions are rejected
+rather than ignored, including delta CRLs, issuing distribution points, and
+indirect-CRL `certificateIssuer` entry semantics.

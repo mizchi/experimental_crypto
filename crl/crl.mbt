@@ -184,9 +184,9 @@ fn match_context_explicit(
 }
 
 ///|
-fn parse_extension_meta(
+fn parse_extension(
   elem : @asn1.Element,
-) -> (@asn1.ObjectIdentifier, Bool) raise CrlError {
+) -> (@asn1.ObjectIdentifier, Bool, Bytes) raise CrlError {
   let items = expect_sequence(elem)
   if items.length() < 2 || items.length() > 3 {
     raise Malformed("Extension arity")
@@ -199,13 +199,31 @@ fn parse_extension_meta(
   } else {
     1
   }
-  let _ = expect_octet_string(items[value_index])
-  (oid, critical)
+  let value = expect_octet_string(items[value_index])
+  (oid, critical, value)
 }
 
 ///|
 fn id_ce_crl_number() -> @asn1.ObjectIdentifier {
   @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 20])
+}
+
+///|
+fn validate_crl_number_extension(
+  critical : Bool,
+  value : Bytes,
+) -> Unit raise CrlError {
+  if critical {
+    raise Malformed("crlExtensions: cRLNumber must be non-critical")
+  }
+  let inner = @asn1.decode_der(value) catch { e => raise Asn1(e) }
+  let number = expect_integer(inner)
+  if number.length() == 0 {
+    raise Malformed("crlExtensions: cRLNumber empty INTEGER")
+  }
+  if (number[0].to_int() & 0x80) != 0 {
+    raise Malformed("crlExtensions: cRLNumber must be non-negative")
+  }
 }
 
 ///|
@@ -216,7 +234,7 @@ fn reject_unsupported_extensions(
   let items = expect_sequence(elem)
   let seen : Array[@asn1.ObjectIdentifier] = []
   for item in items {
-    let (oid, _) = parse_extension_meta(item)
+    let (oid, _, _) = parse_extension(item)
     for prev in seen {
       if prev == oid {
         raise Malformed(context + ": duplicate extension")
@@ -225,8 +243,9 @@ fn reject_unsupported_extensions(
     seen.push(oid)
   }
   for item in items {
-    let (oid, _) = parse_extension_meta(item)
+    let (oid, critical, value) = parse_extension(item)
     if context == "crlExtensions" && oid == id_ce_crl_number() {
+      validate_crl_number_extension(critical, value)
       continue
     }
     raise Malformed(context + ": unsupported extension")
