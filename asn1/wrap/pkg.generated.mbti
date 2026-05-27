@@ -4,7 +4,11 @@ package "mizchi/asn1/wrap"
 // Values
 pub fn der_length_prefix_size(Int) -> Int
 
+pub fn der_length_prefix_size_monotone(Int, Int) -> Int
+
 pub fn der_oid_arc_byte_count(Int) -> Int
+
+pub fn der_oid_arc_byte_count_monotone(Int, Int) -> Int
 
 // Errors
 

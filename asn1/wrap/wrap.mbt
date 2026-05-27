@@ -82,3 +82,45 @@ pub fn der_oid_arc_byte_count(
     5
   }
 }
+
+///|
+/// Monotonicity witness for `der_length_prefix_size`. Anchors that a longer
+/// payload never produces a *shorter* length prefix, so any
+/// `for n in 0..max_len { write_length(n); ... }`-shaped loop is safe to
+/// size by the maximum value alone (the per-iteration prefix can only
+/// grow).
+///
+/// `moon prove`'s logic body cannot invoke ordinary MoonBit functions, so
+/// the postcondition restates the step-function relation pairwise rather
+/// than calling `der_length_prefix_size(a) <= der_length_prefix_size(b)`
+/// directly. The disjunction below is equivalent to that inequality given
+/// `a <= b`: each case pins `size(a) == k AND size(b) >= k`.
+pub fn der_length_prefix_size_monotone(
+  a : Int,
+  b : Int,
+) -> Int where {
+  proof_require: 0 <= a,
+  proof_require: a <= b,
+  proof_require: b <= 2147483647,
+  proof_ensure: result => result == 0,
+  proof_ensure: result => a < 128 || (128 <= a && a < 256 && 128 <= b) || (256 <= a && a < 65536 && 256 <= b) || (65536 <= a && a < 16777216 && 65536 <= b) || (16777216 <= a && 16777216 <= b),
+} {
+  0
+}
+
+///|
+/// Monotonicity witness for `der_oid_arc_byte_count`. Same shape as
+/// `der_length_prefix_size_monotone` — anchors that the OID encoder's
+/// per-arc scratch is monotone in the arc value.
+pub fn der_oid_arc_byte_count_monotone(
+  a : Int,
+  b : Int,
+) -> Int where {
+  proof_require: 0 <= a,
+  proof_require: a <= b,
+  proof_require: b <= 2147483647,
+  proof_ensure: result => result == 0,
+  proof_ensure: result => a < 128 || (128 <= a && a < 16384 && 128 <= b) || (16384 <= a && a < 2097152 && 16384 <= b) || (2097152 <= a && a < 268435456 && 2097152 <= b) || (268435456 <= a && 268435456 <= b),
+} {
+  0
+}

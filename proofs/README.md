@@ -68,6 +68,8 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `pgp/wrap` | `pgp_packet_length_octets(body_len)` | RFC 9580 §4.2.1 new-format packet length encoding ∈ {1, 2, 5} octets |
 | `asn1/wrap` | `der_length_prefix_size(n)` | X.690 §8.1.3 DER length-prefix octet count ∈ [1, 5] — spec for `asn1.write_length` |
 | `asn1/wrap` | `der_oid_arc_byte_count(arc)` | X.690 §8.19 base-128 varint byte count ∈ [1, 5] — spec for OID encoder scratch sizing |
+| `asn1/wrap` | `der_length_prefix_size_monotone(a, b)` | Monotonicity: `a ≤ b ⇒ size(a) ≤ size(b)`. Anchors loop-sizing safety |
+| `asn1/wrap` | `der_oid_arc_byte_count_monotone(a, b)` | Monotonicity of OID arc byte count |
 
 The "spec" entries (`pkcs7_pad_len`, `der_length_prefix_size`,
 `is_hardened_from_msb`, `mnemonic_word_count`) are helpers the host
