@@ -1037,6 +1037,7 @@ fn ed_point_cmov(a : EdPoint, b : EdPoint, bit : UInt64) -> EdPoint {
 // the (projective) identity -- this depended on ed_point_double being
 // safe for inputs whose coordinates encode 0 with all-max ("p"-form)
 // limbs; see the regression comment on ed_point_double.
+
 ///|
 // Thin shim kept for the whitebox test suite that exercised the old
 // generic scalar mult directly. Internally routes through the windowed
@@ -1084,11 +1085,7 @@ fn ed_to_niels(p : EdPoint) -> NielsPoint {
   let xn = fe_mul(p.x, z_inv)
   let yn = fe_mul(p.y, z_inv)
   let tn = fe_mul(p.t, z_inv)
-  {
-    y_plus_x: fe_add(yn, xn),
-    y_minus_x: fe_sub(yn, xn),
-    k: fe_mul(tn, ed_d2),
-  }
+  { y_plus_x: fe_add(yn, xn), y_minus_x: fe_sub(yn, xn), k: fe_mul(tn, ed_d2) }
 }
 
 ///|
@@ -1107,11 +1104,7 @@ fn make_niels_base_table() -> FixedArray[NielsPoint] {
 }
 
 ///|
-fn niels_cmov(
-  a : NielsPoint,
-  b : NielsPoint,
-  bit : UInt64,
-) -> NielsPoint {
+fn niels_cmov(a : NielsPoint, b : NielsPoint, bit : UInt64) -> NielsPoint {
   {
     y_plus_x: fe_cmov(a.y_plus_x, b.y_plus_x, bit),
     y_minus_x: fe_cmov(a.y_minus_x, b.y_minus_x, bit),
@@ -1172,10 +1165,7 @@ fn ed_make_window_table(base : EdPoint) -> FixedArray[EdPoint] {
 // branching on the secret idx. The for-loop iterates over a constant
 // range, so the only data-dependent operations are the cmov bit
 // computation (`i == idx` is i-known) and the cmov merge itself.
-fn ed_window_table_lookup(
-  table : FixedArray[EdPoint],
-  idx : Int,
-) -> EdPoint {
+fn ed_window_table_lookup(table : FixedArray[EdPoint], idx : Int) -> EdPoint {
   let mut result = ed_identity()
   for i = 0; i < 16; i = i + 1 {
     let eq = if i == idx { 1UL } else { 0UL }
