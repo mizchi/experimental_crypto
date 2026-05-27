@@ -42,4 +42,5 @@ members = [
   "./pbkdf2/wrap",
   "./bip32/wrap",
   "./bip39/wrap",
+  "./hash/wrap",
 ]

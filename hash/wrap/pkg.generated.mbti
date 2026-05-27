@@ -1,0 +1,16 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/hash/wrap"
+
+// Values
+pub fn sha256_pad_len(Int) -> Int
+
+pub fn sha512_pad_len(Int) -> Int
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+
