@@ -44,4 +44,5 @@ members = [
   "./bip39/wrap",
   "./hash/wrap",
   "./totp/wrap",
+  "./scrypt/wrap",
 ]
