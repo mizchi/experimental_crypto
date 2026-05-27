@@ -490,6 +490,20 @@ fn get_string(m : Map[String, Json], key : String) -> String? {
 }
 
 ///|
+fn ascii_lower(s : String) -> String {
+  let buf = StringBuilder::new()
+  for c in s {
+    let n = c.to_int()
+    if n >= 0x41 && n <= 0x5a {
+      buf.write_char((n + 0x20).to_char().unwrap())
+    } else {
+      buf.write_char(c)
+    }
+  }
+  buf.to_string()
+}
+
+///|
 let max_kid_len : Int = 256
 
 ///|
@@ -605,9 +619,10 @@ pub fn verify(
         Some(s) => s
         None => raise InvalidType("missing typ header")
       }
+      let actual_norm = ascii_lower(actual)
       let mut ok = false
       for t in allowed {
-        if t == actual {
+        if ascii_lower(t) == actual_norm {
           ok = true
           break
         }
@@ -627,13 +642,14 @@ pub fn verify(
       // pass `typ_allowed=Some([...])` to opt in.
       match get_string(header, "typ") {
         Some(t) => {
+          let t_norm = ascii_lower(t)
           let denied = [
             "at+jwt", "application/at+jwt", "logout+jwt", "application/logout+jwt",
             "dpop+jwt", "application/dpop+jwt", "entity-statement+jwt", "application/entity-statement+jwt",
             "secevent+jwt", "application/secevent+jwt", "ciba+jwt", "application/ciba+jwt",
           ]
           for d in denied {
-            if t == d {
+            if t_norm == d {
               raise InvalidType(
                 "specialised typ '" +
                 t +
@@ -1281,6 +1297,19 @@ pub fn OidcIdTokenVerifyOptions::default(
     max_age_sec: None,
     expected_acr: None,
     allowed_algorithms: None,
+  }
+}
+
+///|
+pub fn OidcIdTokenVerifyOptions::strict(
+  now : Int64,
+  issuer : String,
+  client_id : String,
+  expected_nonce : String,
+) -> OidcIdTokenVerifyOptions {
+  {
+    ..OidcIdTokenVerifyOptions::default(now, issuer, client_id),
+    expected_nonce: Some(expected_nonce),
   }
 }
 
@@ -1993,8 +2022,9 @@ pub fn verify_logout_token(
   match v.claims.get("events") {
     Some(Object(m)) =>
       match m.get("http://schemas.openid.net/event/backchannel-logout") {
-        Some(_) => ()
+        Some(Object(_)) => ()
         None => raise MissingLogoutEvent
+        _ => raise MissingLogoutEvent
       }
     _ => raise MissingLogoutEvent
   }
