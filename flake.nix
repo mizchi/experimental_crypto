@@ -72,6 +72,32 @@
             pkgs.moonbit-bin.core.latest
           ];
         });
+        devShellPackages = [
+          moonbit
+
+          # Why3 1.7.2 (the only version `moon prove` accepts) + Alt-Ergo
+          # 2.5.4 (which Why3 1.7.2 recognizes natively). Both from
+          # nixos-24.05.
+          pkgs-why3.why3
+          pkgs-why3.alt-ergo
+
+          # Newer Z3 / CVC5 from unstable. Why3 1.7.2 marks them as
+          # "unrecognized version" but still dispatches via the closest
+          # driver; the custom strategy in proofs/why3.conf names the
+          # exact versions so this is fine.
+          pkgs.z3
+          pkgs.cvc5
+        ];
+
+        shellHook = ''
+          export MOON_HOME=${moonbit}
+          if [ ! -f proofs/why3.conf ]; then
+            echo "[moonbit-crypto] First time: generate the multi-solver Why3 config:"
+            echo "    bash proofs/setup.sh"
+          else
+            echo "[moonbit-crypto] dev shell ready: why3=$(why3 --version 2>/dev/null | head -1)"
+          fi
+        '';
       in
       {
         packages = {
@@ -80,36 +106,17 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [
-            moonbit
+          packages = devShellPackages;
+          inherit shellHook;
+        };
 
-            # Why3 1.7.2 (the only version `moon prove` accepts) + Alt-Ergo
-            # 2.5.4 (which Why3 1.7.2 recognizes natively). Both from
-            # nixos-24.05.
-            pkgs-why3.why3
-            pkgs-why3.alt-ergo
-
-            # Newer Z3 / CVC5 from unstable. Why3 1.7.2 marks them as
-            # "unrecognized version" but still dispatches via the closest
-            # driver; the custom strategy in proofs/why3.conf names the
-            # exact versions so this is fine.
-            pkgs.z3
-            pkgs.cvc5
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+        devShells.leakage = pkgs.mkShell {
+          packages = devShellPackages ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # Used by leakage_harness/callgrind_check.sh. Valgrind does not
             # support macOS in nixpkgs, so keep it Linux-only.
             pkgs.valgrind
           ];
-
-          shellHook = ''
-            export MOON_HOME=${moonbit}
-            if [ ! -f proofs/why3.conf ]; then
-              echo "[moonbit-crypto] First time: generate the multi-solver Why3 config:"
-              echo "    bash proofs/setup.sh"
-            else
-              echo "[moonbit-crypto] dev shell ready: why3=$(why3 --version 2>/dev/null | head -1)"
-            fi
-          '';
+          inherit shellHook;
         };
       }
     );

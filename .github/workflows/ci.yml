@@ -68,7 +68,7 @@ jobs:
 
       - name: leakage harness smoke
         run: |
-          nix develop --impure --command bash -c '
+          nix develop --impure .#leakage --command bash -c '
             unset MOON_HOME
             moon update >/dev/null
             moon run --target native ./leakage_harness -- list

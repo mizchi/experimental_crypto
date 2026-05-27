@@ -59,6 +59,7 @@ moon run --target native ./leakage_harness -- compare 8 1
 moon run --target native ./leakage_harness -- run p256-sign sparse 100
 moon run --target native ./leakage_harness -- run p256-sign dense 100
 bash leakage_harness/callgrind_check.sh
+nix develop --impure .#leakage --command bash leakage_harness/callgrind_check.sh
 ```
 
 Use `compare` as a local dudect-style timing smoke test. Use `run` under an
@@ -69,7 +70,7 @@ workflow by building the native harness, running each sparse/dense class under
 callgrind, parsing `summary:` instruction totals, and failing if the percentage
 delta exceeds `LEAKAGE_CALLGRIND_MAX_DELTA_PCT`.
 
-CI runs two intentionally loose checks:
+CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
 
 - a tiny timing smoke test (`compare 2 1 1000000`), which only prevents the
   timing harness from rotting;
