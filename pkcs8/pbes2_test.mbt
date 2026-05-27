@@ -128,6 +128,65 @@ fn pbes2_params_for_test(
 }
 
 ///|
+fn pbes2_scrypt_params_for_test(
+  cipher_oid : String,
+  key_len : Int,
+  iv : Bytes,
+) -> Bytes raise {
+  pbes2_scrypt_params_from_kdf_params(
+    cipher_oid,
+    scrypt_params_for_test(b"\x10", b"\x01", b"\x01", Some(key_len)),
+    iv,
+  )
+}
+
+///|
+fn scrypt_params_for_test(
+  cost : Bytes,
+  block_size : Bytes,
+  parallelization : Bytes,
+  key_len : Int?,
+) -> Bytes {
+  let scrypt_params : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"salt")),
+    @asn1.Element::new(@asn1.tag_integer, Integer(cost)),
+    @asn1.Element::new(@asn1.tag_integer, Integer(block_size)),
+    @asn1.Element::new(@asn1.tag_integer, Integer(parallelization)),
+  ]
+  match key_len {
+    Some(k) =>
+      scrypt_params.push(
+        @asn1.Element::new(
+          @asn1.tag_integer,
+          Integer(Bytes::makei(1, fn(_) { k.to_byte() })),
+        ),
+      )
+    None => ()
+  }
+  @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence(scrypt_params)),
+  )
+}
+
+///|
+fn pbes2_scrypt_params_from_kdf_params(
+  cipher_oid : String,
+  scrypt_params : Bytes,
+  iv : Bytes,
+) -> Bytes raise {
+  let kdf = alg_elem("1.3.6.1.4.1.11591.4.11", Some(scrypt_params))
+  let enc = alg_elem(
+    cipher_oid,
+    Some(
+      @asn1.encode_der(
+        @asn1.Element::new(@asn1.tag_octet_string, OctetString(iv)),
+      ),
+    ),
+  )
+  @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence([kdf, enc])))
+}
+
+///|
 fn encrypted_fixture_for_test(
   hash : @pbkdf2.HashAlg,
   prf_oid : String,
@@ -147,6 +206,45 @@ fn encrypted_fixture_for_test(
       ),
     },
     encrypted_data,
+  }
+}
+
+///|
+fn encrypted_scrypt_fixture_for_test(
+  cipher_oid : String,
+  key_len : Int,
+) -> @pkcs8.EncryptedPrivateKeyInfo raise {
+  let password : Bytes = b"pw"
+  let iv = Bytes::makei(16, fn(i) { (i + 16).to_byte() })
+  let plain = @pkcs8.serialize_der(test_private_key_info())
+  let params : @scrypt.Params = { log_n: 4, r: 1, p: 1, dk_len: key_len }
+  let key = @scrypt.derive_key(params, password, b"salt")
+  let encrypted_data = @aead.aes_cbc_encrypt(key, iv, pkcs7_pad_for_test(plain))
+  {
+    algorithm: {
+      algorithm: oid("1.2.840.113549.1.5.13"),
+      parameters: Some(pbes2_scrypt_params_for_test(cipher_oid, key_len, iv)),
+    },
+    encrypted_data,
+  }
+}
+
+///|
+fn encrypted_with_scrypt_params(
+  scrypt_params : Bytes,
+) -> @pkcs8.EncryptedPrivateKeyInfo raise {
+  {
+    algorithm: {
+      algorithm: oid("1.2.840.113549.1.5.13"),
+      parameters: Some(
+        pbes2_scrypt_params_from_kdf_params(
+          "2.16.840.1.101.3.4.1.42",
+          scrypt_params,
+          Bytes::makei(16, fn(_) { b'\x00' }),
+        ),
+      ),
+    },
+    encrypted_data: Bytes::makei(16, fn(_) { b'\x00' }),
   }
 }
 
@@ -308,6 +406,56 @@ test "pbes2: decrypts AES-192-CBC fixture" {
     b"pw",
   )
   @debug.assert_eq(got.private_key, expected.private_key)
+}
+
+///|
+test "pbes2: decrypts id-scrypt + AES-256-CBC fixture" {
+  let expected = test_private_key_info()
+  let got = @pkcs8.decrypt(
+    encrypted_scrypt_fixture_for_test("2.16.840.1.101.3.4.1.42", 32),
+    b"pw",
+  )
+  @debug.assert_eq(got.private_key, expected.private_key)
+}
+
+///|
+test "ATTACK pbes2: id-scrypt costParameter must be a power of two" {
+  let params = scrypt_params_for_test(b"\x12", b"\x01", b"\x01", Some(32))
+  try @pkcs8.decrypt(encrypted_with_scrypt_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted non-power-of-two scrypt costParameter")
+  }
+}
+
+///|
+test "ATTACK pbes2: id-scrypt keyLength must match cipher key size" {
+  let params = scrypt_params_for_test(b"\x10", b"\x01", b"\x01", Some(16))
+  try @pkcs8.decrypt(encrypted_with_scrypt_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted id-scrypt keyLength mismatch")
+  }
+}
+
+///|
+test "ATTACK pbes2: id-scrypt excessive memory cost is rejected" {
+  // N=2^17,r=8 would need 128 MiB of V-buffer. The PBES2 entry point keeps
+  // attacker-supplied encrypted keys under a 64 MiB scrypt scratch cap.
+  let params = scrypt_params_for_test(
+    b"\x02\x00\x00",
+    b"\x08",
+    b"\x01",
+    Some(32),
+  )
+  try @pkcs8.decrypt(encrypted_with_scrypt_params(params), b"pw") catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other => abort("expected UnexpectedStructure, got " + repr(other))
+  } noraise {
+    _ => abort("accepted excessive id-scrypt memory cost")
+  }
 }
 
 ///|

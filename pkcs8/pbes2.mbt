@@ -3,6 +3,7 @@
 // Supported parameters:
 //   keyDerivationFunc : id-PBKDF2 (1.2.840.113549.1.5.12)
 //     prf : hmacWithSHA1/256/384/512
+//   keyDerivationFunc : id-scrypt (1.3.6.1.4.1.11591.4.11)
 //   encryptionScheme : aes128-cbc (2.16.840.1.101.3.4.1.2) or
 //                      aes192-cbc (2.16.840.1.101.3.4.1.22) or
 //                      aes256-cbc (2.16.840.1.101.3.4.1.42).
@@ -22,6 +23,9 @@ let oid_pbes2 : String = "1.2.840.113549.1.5.13"
 
 ///|
 let oid_pbkdf2 : String = "1.2.840.113549.1.5.12"
+
+///|
+let oid_scrypt : String = "1.3.6.1.4.1.11591.4.11"
 
 ///|
 let oid_hmac_sha1 : String = "1.2.840.113549.2.7"
@@ -62,17 +66,32 @@ fn parse_pbes2_params(
   }
   let kdf_alg = parse_algorithm_identifier_elem(items[0])
   let enc_alg = parse_algorithm_identifier_elem(items[1])
-  let kdf = parse_pbkdf2(kdf_alg)
+  let kdf = parse_key_derivation_func(kdf_alg)
   let cipher = parse_encryption_scheme(enc_alg)
   (kdf, cipher)
 }
 
 ///|
-priv struct Pbes2Kdf {
+priv enum Pbes2Kdf {
+  KdfPbkdf2(Pbkdf2Params)
+  KdfScrypt(ScryptParams)
+}
+
+///|
+priv struct Pbkdf2Params {
   salt : Bytes
   iterations : Int
   key_length : Int? // OPTIONAL keyLength; encryption-scheme implies if absent.
   prf : @pbkdf2.HashAlg
+}
+
+///|
+priv struct ScryptParams {
+  salt : Bytes
+  log_n : Int
+  r : Int
+  p : Int
+  key_length : Int?
 }
 
 ///|
@@ -85,9 +104,23 @@ priv struct Pbes2Cipher {
 }
 
 ///|
-fn parse_pbkdf2(
+fn parse_key_derivation_func(
   kdf_alg : @pkix.AlgorithmIdentifier,
 ) -> Pbes2Kdf raise Pkcs8Error {
+  let oid_str = kdf_alg.algorithm.to_string()
+  if oid_str == oid_pbkdf2 {
+    KdfPbkdf2(parse_pbkdf2(kdf_alg))
+  } else if oid_str == oid_scrypt {
+    KdfScrypt(parse_scrypt(kdf_alg))
+  } else {
+    raise UnsupportedKdf(kdf_alg.algorithm)
+  }
+}
+
+///|
+fn parse_pbkdf2(
+  kdf_alg : @pkix.AlgorithmIdentifier,
+) -> Pbkdf2Params raise Pkcs8Error {
   if kdf_alg.algorithm != oid_from_string(oid_pbkdf2) {
     raise UnsupportedKdf(kdf_alg.algorithm)
   }
@@ -144,6 +177,74 @@ fn parse_pbkdf2(
     i = i + 1
   }
   { salt, iterations, key_length, prf }
+}
+
+///|
+fn parse_scrypt(
+  kdf_alg : @pkix.AlgorithmIdentifier,
+) -> ScryptParams raise Pkcs8Error {
+  if kdf_alg.algorithm != oid_from_string(oid_scrypt) {
+    raise UnsupportedKdf(kdf_alg.algorithm)
+  }
+  let params_bytes = match kdf_alg.parameters {
+    Some(b) => b
+    None => raise UnexpectedStructure("scrypt missing parameters")
+  }
+  let elem = decode_der(params_bytes)
+  let items = expect_sequence(elem)
+  if items.length() != 4 && items.length() != 5 {
+    raise UnexpectedStructure("scrypt-params arity")
+  }
+  let salt = expect_octet_string(items[0])
+  let cost = expect_integer_small(items[1])
+  let r = expect_integer_small(items[2])
+  let p = expect_integer_small(items[3])
+  let key_length = if items.length() == 5 {
+    let k = expect_integer_small(items[4])
+    if k < 1 {
+      raise UnexpectedStructure("scrypt keyLength must be >= 1")
+    }
+    Some(k)
+  } else {
+    None
+  }
+  if cost < 2 {
+    raise UnexpectedStructure("scrypt costParameter must be >= 2")
+  }
+  if r < 1 {
+    raise UnexpectedStructure("scrypt blockSize must be >= 1")
+  }
+  if p < 1 {
+    raise UnexpectedStructure("scrypt parallelizationParameter must be >= 1")
+  }
+  let log_n = log2_power_of_two(cost)
+  validate_scrypt_memory_cost(log_n, r)
+  { salt, log_n, r, p, key_length }
+}
+
+///|
+fn log2_power_of_two(n : Int) -> Int raise Pkcs8Error {
+  let mut value = 1
+  let mut log = 0
+  while value < n {
+    value = value << 1
+    log = log + 1
+  }
+  if value != n {
+    raise UnexpectedStructure("scrypt costParameter must be a power of two")
+  }
+  log
+}
+
+///|
+fn validate_scrypt_memory_cost(log_n : Int, r : Int) -> Unit raise Pkcs8Error {
+  // PBES2 inputs are attacker-controlled until the key decrypts. Keep the
+  // scrypt V-buffer under 64 MiB so parsing an encrypted key cannot request
+  // multi-GB scratch space. OpenSSL's common N=16384,r=8 default is 16 MiB.
+  let memory_bytes : UInt64 = (1UL << log_n) * 128UL * r.to_uint64()
+  if memory_bytes > 64UL * 1024UL * 1024UL {
+    raise UnexpectedStructure("scrypt memory cost exceeds PBES2 limit")
+  }
 }
 
 ///|
@@ -233,7 +334,7 @@ fn strip_pkcs7_padding(data : Bytes) -> Bytes raise Pkcs8Error {
 /// the parsed inner `PrivateKeyInfo`.
 ///
 /// Supports PBES2 (RFC 8018) with PBKDF2-HMAC-SHA1/256/384/512 and
-/// AES-128 / AES-192 / AES-256 CBC. A wrong password
+/// id-scrypt, plus AES-128 / AES-192 / AES-256 CBC. A wrong password
 /// surfaces as `InvalidPadding` in almost all cases; in the rare case the
 /// (random) padding byte happens to be valid, the subsequent
 /// `parse_der` will raise `Asn1` / `UnexpectedStructure` instead.
@@ -249,28 +350,59 @@ pub fn decrypt(
     None => raise UnexpectedStructure("PBES2 missing parameters")
   }
   let (kdf, cipher) = parse_pbes2_params(params_bytes)
-  // keyLength from PBKDF2 params is optional; if absent, derive the AES
+  // keyLength from KDF params is optional; if absent, derive the AES
   // key length from the encryptionScheme.
-  let dk_len = match kdf.key_length {
-    Some(k) => k
-    None => cipher.key_size
-  }
+  let dk_len = kdf_key_length(kdf, cipher.key_size)
   if dk_len != cipher.key_size {
     raise UnexpectedStructure(
-      "PBKDF2 keyLength " +
+      "PBES2 keyLength " +
       dk_len.to_string() +
       " disagrees with cipher key size " +
       cipher.key_size.to_string(),
     )
   }
-  let key = @pbkdf2.pbkdf2(kdf.prf, password, kdf.salt, kdf.iterations, dk_len) catch {
-    e => raise Pbkdf2(e)
-  }
+  let key = derive_pbes2_key(kdf, password, dk_len)
   let padded_plain = @aead.aes_cbc_decrypt(key, cipher.iv, enc.encrypted_data) catch {
     e => raise Aead(e)
   }
   let plain = strip_pkcs7_padding(padded_plain)
   parse_der(plain)
+}
+
+///|
+fn kdf_key_length(kdf : Pbes2Kdf, cipher_key_size : Int) -> Int {
+  match kdf {
+    KdfPbkdf2(p) =>
+      match p.key_length {
+        Some(k) => k
+        None => cipher_key_size
+      }
+    KdfScrypt(s) =>
+      match s.key_length {
+        Some(k) => k
+        None => cipher_key_size
+      }
+  }
+}
+
+///|
+fn derive_pbes2_key(
+  kdf : Pbes2Kdf,
+  password : Bytes,
+  dk_len : Int,
+) -> Bytes raise Pkcs8Error {
+  match kdf {
+    KdfPbkdf2(k) =>
+      @pbkdf2.pbkdf2(k.prf, password, k.salt, k.iterations, dk_len) catch {
+        e => raise Pbkdf2(e)
+      }
+    KdfScrypt(k) => {
+      let params : @scrypt.Params = { log_n: k.log_n, r: k.r, p: k.p, dk_len }
+      @scrypt.derive_key(params, password, k.salt) catch {
+        e => raise Scrypt(e)
+      }
+    }
+  }
 }
 
 ///|

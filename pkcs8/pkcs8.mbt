@@ -28,6 +28,7 @@ pub suberror Pkcs8Error {
   UnsupportedCipher(@asn1.ObjectIdentifier)
   InvalidPadding
   Pbkdf2(@pbkdf2.Pbkdf2Error)
+  Scrypt(@scrypt.ScryptError)
   Aead(@aead.AeadError)
 } derive(Debug)
 

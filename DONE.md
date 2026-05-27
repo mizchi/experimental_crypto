@@ -71,6 +71,8 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Reject PKCS#8 PEM legacy `Proc-Type` / `DEK-Info` headers.
 - Route RSA / Ed25519 / P-256 / P-384 `from_pkcs8_pem` through the hardened PKCS#8 PEM parser.
 - Reject mismatched optional PKCS#8 v2 `publicKey` in RSA / Ed25519 / P-256 / P-384 loaders.
+- Add PBES2 `id-scrypt` decryption for encrypted PKCS#8 and a Node.js
+  `crypto.scryptSync` / AES-256-CBC oracle fixture.
 - Reject recognised-but-unenforced critical PKIX extensions such as `certificatePolicies`, `policyConstraints`, `inhibitAnyPolicy`, critical EKU, and critical SAN gaps.
 - Handle leading-dot DNS nameConstraints and reject unsupported top-level nameConstraints fields.
 

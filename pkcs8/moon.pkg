@@ -3,6 +3,7 @@ import {
   "mizchi/pkix",
   "mizchi/pem",
   "mizchi/pbkdf2",
+  "mizchi/scrypt",
   "mizchi/aead",
   "moonbitlang/core/debug",
 }
@@ -11,3 +12,7 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
 } for "test"
+
+options(
+  targets: { "pbes2_oracle_js_test.mbt": [ "js" ] },
+)

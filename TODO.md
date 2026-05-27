@@ -23,9 +23,7 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      `cert-authority`.
    - [ ] Add a time-aware allowed_signers API before accepting
      `valid-after` / `valid-before`.
-5. [ ] **PBES2 / encrypted private key interop**.
-   - [ ] Add PBES2 `id-scrypt` support and interop fixtures.
-6. [ ] **Cross-format fuzz breadth**.
+5. [ ] **Cross-format fuzz breadth**.
    - [ ] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
    - [ ] Add OCSP / CRL -> PKIX_VERIFY fuzz.
 
@@ -71,9 +69,6 @@ fails closed before returning authenticated / verified / trusted.
 - **Interop-only sign output checks**: external `gpg` / `sq` / `rsop`
   validation of signatures we produce mostly causes false negatives with other
   tools rather than false positives in our verifiers.
-- **PBES2 `id-scrypt` support**: encrypted private keys using scrypt may fail
-  to decrypt until implemented, as long as unknown KDFs return `UnsupportedKdf`
-  and do not silently use PBKDF2.
 - **Coverage expansion after strict behavior exists**: more fuzzing for
   CMS -> PKIX -> PKIX_VERIFY and OCSP / CRL -> PKIX_VERIFY is valuable, but the
   immediate false-positive control is fail-closed behavior.
@@ -94,7 +89,6 @@ fails closed before returning authenticated / verified / trusted.
   on `@secp256k1.PublicKey`.
 - [ ] **PGP v6 real-gpg fixture**: blocked on GnuPG >= 2.4.9 emitting v4 by
   default. Cross-test once rpgpie / rsop / a v6-capable gpg becomes available.
-- [ ] **scrypt-based PBES2**.
 - [ ] **Post-quantum ML-KEM / ML-DSA** (FIPS 203 / 204).
 - [ ] **Ed448 / X448** (RFC 8032 / 7748).
 - [ ] **PKCS#12 (PFX)**.
