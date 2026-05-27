@@ -81,6 +81,7 @@ pub fn parse_signature_packet(body : Bytes) -> PgpSignature raise PgpError {
     hashed_start,
     hashed_start + hashed_len,
   )
+  reject_unknown_critical_subpackets(hashed_subpackets_body, "hashed")
   // Prelude for trailer: version..end of hashed subpackets.
   let hashed_subpackets_raw = bytes_slice(body, 0, hashed_start + hashed_len)
   let unhashed_len_pos = hashed_start + hashed_len
@@ -99,6 +100,12 @@ pub fn parse_signature_packet(body : Bytes) -> PgpSignature raise PgpError {
   if after_unhashed + 2 > body.length() {
     raise PacketTooShort("unhashed subpacket area / left16")
   }
+  let unhashed_subpackets_body = bytes_slice(
+    body,
+    unhashed_len_pos + len_field,
+    after_unhashed,
+  )
+  reject_unknown_critical_subpackets(unhashed_subpackets_body, "unhashed")
   let left16 = (body[after_unhashed].to_uint() << 8) |
     body[after_unhashed + 1].to_uint()
   // v6 inserts: 1-byte salt_len || S-byte salt before the signature material.
@@ -135,6 +142,75 @@ fn _unused_field(_p : PgpSignature) -> Unit {
   let _ = _p.hashed_subpackets_body
   let _ = _p.left16
   let _ = _p.salt
+}
+
+///|
+fn reject_unknown_critical_subpackets(
+  subpackets : Bytes,
+  context : String,
+) -> Unit raise PgpError {
+  let mut pos = 0
+  while pos < subpackets.length() {
+    let (sub_len, header_len) = read_signature_subpacket_len(
+      subpackets, pos, context,
+    )
+    let sub_start = pos + header_len
+    if sub_len <= 0 {
+      raise ArmorMalformed(context + " signature subpacket has empty body")
+    }
+    if sub_start + sub_len > subpackets.length() {
+      raise PacketTooShort(context + " signature subpacket")
+    }
+    let type_octet = subpackets[sub_start].to_int()
+    let subtype = type_octet & 0x7f
+    let critical = (type_octet & 0x80) != 0
+    if critical && !is_supported_critical_signature_subpacket(subtype) {
+      raise ArmorMalformed(
+        "unsupported critical " +
+        context +
+        " signature subpacket type " +
+        subtype.to_string(),
+      )
+    }
+    pos = sub_start + sub_len
+  }
+}
+
+///|
+fn read_signature_subpacket_len(
+  data : Bytes,
+  pos : Int,
+  context : String,
+) -> (Int, Int) raise PgpError {
+  if pos >= data.length() {
+    raise PacketTooShort(context + " signature subpacket length")
+  }
+  let first = data[pos].to_int()
+  if first < 192 {
+    (first, 1)
+  } else if first < 255 {
+    if pos + 1 >= data.length() {
+      raise PacketTooShort(context + " signature subpacket length")
+    }
+    (((first - 192) << 8) + data[pos + 1].to_int() + 192, 2)
+  } else {
+    if pos + 4 >= data.length() {
+      raise PacketTooShort(context + " signature subpacket length")
+    }
+    let len = (data[pos + 1].to_int() << 24) |
+      (data[pos + 2].to_int() << 16) |
+      (data[pos + 3].to_int() << 8) |
+      data[pos + 4].to_int()
+    if len < 0 {
+      raise PacketTooShort(context + " signature subpacket")
+    }
+    (len, 5)
+  }
+}
+
+///|
+fn is_supported_critical_signature_subpacket(subtype : Int) -> Bool {
+  subtype == 2 || subtype == 16 || subtype == 33
 }
 
 ///|

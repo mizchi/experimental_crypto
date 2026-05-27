@@ -213,6 +213,9 @@ fn is_p384_oid(b : Bytes) -> Bool {
 /// packets) and user IDs are skipped.
 pub fn parse_pubkey_armor(armor : String) -> PgpPublicKeyPacket raise PgpError {
   let a = decode_armor(armor)
+  if a.label != "PUBLIC KEY BLOCK" {
+    raise ArmorMalformed("expected PGP PUBLIC KEY BLOCK armor")
+  }
   let packets = parse_packets(a.data)
   for p in packets {
     if p.tag == 6 {

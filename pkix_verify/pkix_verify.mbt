@@ -342,10 +342,14 @@ fn extract_dns_names_from_san_value(
 }
 
 ///|
-fn bytes_to_ascii(b : Bytes) -> String {
+fn bytes_to_ascii(b : Bytes) -> String raise PkixVerifyError {
   let buf = StringBuilder::new()
   for i in 0..<b.length() {
-    buf.write_char(b[i].to_int().to_char().unwrap())
+    let v = b[i].to_int()
+    if v > 0x7f || v <= 0x20 || v == 0x7f {
+      raise MalformedExtension("dNSName: invalid IA5String byte")
+    }
+    buf.write_char(v.to_char().unwrap())
   }
   buf.to_string()
 }
@@ -393,18 +397,33 @@ fn parse_dns_name_constraints(
   }
   let permitted : Array[String] = []
   let excluded : Array[String] = []
+  let mut saw_permitted = false
+  let mut saw_excluded = false
   for item in items {
     // permittedSubtrees [0], excludedSubtrees [1] (both context-tagged,
     // CONSTRUCTED — they're SEQUENCEs).
     if item.tag.class_ != @asn1.TagClass::ContextSpecific {
-      continue
+      raise MalformedExtension("nameConstraints: unexpected field")
+    }
+    if !item.tag.constructed {
+      raise MalformedExtension(
+        "nameConstraints: subtree list must be constructed",
+      )
     }
     let target_array = if item.tag.number == 0U {
+      if saw_permitted {
+        raise MalformedExtension("nameConstraints: duplicate permittedSubtrees")
+      }
+      saw_permitted = true
       permitted
     } else if item.tag.number == 1U {
+      if saw_excluded {
+        raise MalformedExtension("nameConstraints: duplicate excludedSubtrees")
+      }
+      saw_excluded = true
       excluded
     } else {
-      continue
+      raise MalformedExtension("nameConstraints: unsupported top-level field")
     }
     // Re-parse the context-tagged inner as a SEQUENCE OF GeneralSubtree
     // (GeneralSubtree ::= SEQUENCE { base GeneralName, ... }).
@@ -477,6 +496,13 @@ fn dns_name_in_subtree(name : String, subtree : String) -> Bool {
   if s == "" {
     return true
   }
+  if s.get_char(0).unwrap() == '.' {
+    if n.length() <= s.length() {
+      return false
+    }
+    let offset = n.length() - s.length()
+    return string_region_equals(n, offset, s)
+  }
   if n == s {
     return true
   }
@@ -496,6 +522,19 @@ fn dns_name_in_subtree(name : String, subtree : String) -> Bool {
     }
   }
   false
+}
+
+///|
+fn string_region_equals(s : String, offset : Int, pattern : String) -> Bool {
+  if offset < 0 || offset + pattern.length() > s.length() {
+    return false
+  }
+  for i = 0; i < pattern.length(); i = i + 1 {
+    if s.get_char(offset + i).unwrap() != pattern.get_char(i).unwrap() {
+      return false
+    }
+  }
+  true
 }
 
 ///|

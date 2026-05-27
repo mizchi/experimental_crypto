@@ -18,7 +18,11 @@
 pub fn mnemonic_word_count(
   ent_bits : Int,
 ) -> Int where {
-  proof_require: ent_bits == 128 || ent_bits == 160 || ent_bits == 192 || ent_bits == 224 || ent_bits == 256,
+  proof_require: ent_bits == 128 ||
+  ent_bits == 160 ||
+  ent_bits == 192 ||
+  ent_bits == 224 ||
+  ent_bits == 256,
   proof_ensure: result => 12 <= result,
   proof_ensure: result => result <= 24,
   proof_ensure: result => ent_bits != 128 || result == 12,

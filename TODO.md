@@ -274,6 +274,11 @@ Current fail-closed fixes applied in this sweep:
 - [x] JWT/JWE/JWK have attack regression tests for non-canonical base64url
   pad-bit spellings at trust boundaries.
 - [x] PGP detached signature armor must contain exactly one Signature packet.
+- [x] PGP detached signature verification rejects non-`SIGNATURE` armor labels
+  and unsupported critical signature subpackets.
+- [x] PGP public-key parsing rejects non-`PUBLIC KEY BLOCK` armor labels.
+- [x] PKIX nameConstraints now handles leading-dot DNS subtrees and rejects
+  unsupported top-level nameConstraints fields.
 - [x] `git_object.parse_signed_commit` rejects signed tag objects instead of
   delegating to the generic signed-object parser.
 

@@ -25,6 +25,9 @@ pub fn verify_armor(
   pubkey : PgpPublicKey,
 ) -> Bool raise PgpError {
   let a = decode_armor(signature_armor)
+  if a.label != "SIGNATURE" {
+    raise ArmorMalformed("expected PGP SIGNATURE armor")
+  }
   let packets = parse_packets(a.data)
   let sig = find_signature_packet(packets)
   if sig.sig_type != 0x00 && sig.sig_type != 0x01 {

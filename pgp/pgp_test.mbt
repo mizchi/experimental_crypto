@@ -71,8 +71,142 @@ fn concat_bytes(a : Bytes, b : Bytes) -> Bytes {
 
 ///|
 fn armor_signature_no_crc(data : Bytes) -> String {
+  armor_block_no_crc("SIGNATURE", data)
+}
+
+///|
+fn armor_block_no_crc(label : String, data : Bytes) -> String {
   let b64 = @base64.encode(data[:])
-  "-----BEGIN PGP SIGNATURE-----\n\n" + b64 + "\n-----END PGP SIGNATURE-----\n"
+  "-----BEGIN PGP " +
+  label +
+  "-----\n\n" +
+  b64 +
+  "\n-----END PGP " +
+  label +
+  "-----\n"
+}
+
+///|
+fn encode_mpi_for_test(b : Bytes) -> Bytes {
+  let mut start = 0
+  while start < b.length() && b[start] == b'\x00' {
+    start = start + 1
+  }
+  if start == b.length() {
+    return b"\x00\x00"
+  }
+  let n_bytes = b.length() - start
+  let mut bits = (n_bytes - 1) * 8
+  let mut x = b[start].to_int()
+  while x > 0 {
+    bits = bits + 1
+    x = x >> 1
+  }
+  Bytes::makei(2 + n_bytes, fn(i) {
+    if i == 0 {
+      ((bits >> 8) & 0xff).to_byte()
+    } else if i == 1 {
+      (bits & 0xff).to_byte()
+    } else {
+      b[start + i - 2]
+    }
+  })
+}
+
+///|
+fn wrap_new_format_packet_for_test(tag : Int, body : Bytes) -> Bytes {
+  let header = (0xc0 | (tag & 0x3f)).to_byte()
+  let len = body.length()
+  if len >= 192 {
+    abort("test helper only supports one-octet packet lengths")
+  }
+  Bytes::makei(2 + len, fn(i) {
+    if i == 0 {
+      header
+    } else if i == 1 {
+      len.to_byte()
+    } else {
+      body[i - 2]
+    }
+  })
+}
+
+///|
+fn pgp_v4_pre_hash_input_for_test(message : Bytes, prelude : Bytes) -> Bytes {
+  let prelude_len = prelude.length()
+  let total = message.length() + prelude_len + 6
+  let buf = FixedArray::make(total, b'\x00')
+  let mut off = 0
+  for i = 0; i < message.length(); i = i + 1 {
+    buf[off + i] = message[i]
+  }
+  off = off + message.length()
+  for i = 0; i < prelude_len; i = i + 1 {
+    buf[off + i] = prelude[i]
+  }
+  off = off + prelude_len
+  buf[off] = b'\x04'
+  buf[off + 1] = b'\xff'
+  let n = prelude_len.reinterpret_as_uint()
+  buf[off + 2] = ((n >> 24) & 0xffU).to_byte()
+  buf[off + 3] = ((n >> 16) & 0xffU).to_byte()
+  buf[off + 4] = ((n >> 8) & 0xffU).to_byte()
+  buf[off + 5] = (n & 0xffU).to_byte()
+  Bytes::makei(total, fn(i) { buf[i] })
+}
+
+///|
+fn detached_ed25519_with_unknown_critical_hashed_subpacket_for_test(
+  sk : @ed25519.PrivateKey,
+  message : Bytes,
+) -> String {
+  let creation : Bytes = b"\x05\x02\x65\x53\xf1\x00"
+  // Subpacket length 1, critical unknown type 100 (0x80 | 0x64).
+  let critical_unknown : Bytes = b"\x01\xe4"
+  let hashed_sub = concat_bytes(creation, critical_unknown)
+  let hashed_len = hashed_sub.length()
+  let prelude_len = 6 + hashed_len
+  let prelude = Bytes::makei(prelude_len, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else if i == 1 {
+      b'\x00'
+    } else if i == 2 {
+      @pgp.algo_eddsa_legacy.to_byte()
+    } else if i == 3 {
+      @pgp.hash_sha512.to_byte()
+    } else if i == 4 {
+      ((hashed_len >> 8) & 0xff).to_byte()
+    } else if i == 5 {
+      (hashed_len & 0xff).to_byte()
+    } else {
+      hashed_sub[i - 6]
+    }
+  })
+  let digest = @hash.sha512(pgp_v4_pre_hash_input_for_test(message, prelude))
+  let raw = sk.sign(digest)
+  let r = Bytes::makei(32, fn(i) { raw[i] })
+  let s = Bytes::makei(32, fn(i) { raw[i + 32] })
+  let sig_material = concat_bytes(
+    encode_mpi_for_test(r),
+    encode_mpi_for_test(s),
+  )
+  let body_len = prelude_len + 2 + 2 + sig_material.length()
+  let left16 = (digest[0].to_uint() << 8) | digest[1].to_uint()
+  let body = Bytes::makei(body_len, fn(i) {
+    if i < prelude_len {
+      prelude[i]
+    } else if i < prelude_len + 2 {
+      b'\x00'
+    } else if i == prelude_len + 2 {
+      ((left16 >> 8) & 0xffU).to_byte()
+    } else if i == prelude_len + 3 {
+      (left16 & 0xffU).to_byte()
+    } else {
+      sig_material[i - prelude_len - 4]
+    }
+  })
+  armor_block_no_crc("SIGNATURE", wrap_new_format_packet_for_test(2, body))
 }
 
 ///|
@@ -183,6 +317,57 @@ test "ATTACK pgp: detached signature armor rejects extra packets" {
   } noraise {
     true => abort("accepted detached signature armor with extra packet")
     false => ()
+  }
+}
+
+///|
+test "ATTACK pgp: verify_armor rejects non-signature armor label" {
+  let seed = Bytes::makei(32, fn(i) { (i + 43).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"pgp armor label confusion",
+  )
+  let decoded = @pgp.decode_armor(armor)
+  let mislabeled = armor_block_no_crc("PUBLIC KEY BLOCK", decoded.data)
+  try
+    @pgp.verify_armor(mislabeled, b"pgp armor label confusion", pk_pgp)
+  catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted detached signature packet under non-signature armor")
+  }
+}
+
+///|
+test "ATTACK pgp: parse_pubkey_armor rejects non-public-key armor label" {
+  let decoded = @pgp.decode_armor(pubkey_armor)
+  let mislabeled = armor_block_no_crc("SIGNATURE", decoded.data)
+  try @pgp.parse_pubkey_armor(mislabeled) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted public-key packet under non-public-key armor")
+  }
+}
+
+///|
+test "ATTACK pgp: unknown critical hashed signature subpacket is rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 47).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let msg : Bytes = b"pgp critical subpacket"
+  let armor = detached_ed25519_with_unknown_critical_hashed_subpacket_for_test(
+    sk, msg,
+  )
+  try @pgp.verify_armor(armor, msg, pk_pgp) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted unknown critical signature subpacket")
+    false => abort("signature construction failed before critical check")
   }
 }
 

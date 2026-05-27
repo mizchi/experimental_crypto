@@ -894,6 +894,20 @@ fn name_constraints_excluded_with_maximum_ext(dns : String) -> @pkix.Extension {
 }
 
 ///|
+fn name_constraints_unknown_top_level_ext() -> @pkix.Extension {
+  let unexpected = @asn1.Element::new(
+    @asn1.Tag::context(2U, constructed=true),
+    @asn1.Value::Unknown(b""),
+  )
+  let nc = @asn1.Element::new(@asn1.tag_sequence, Sequence([unexpected]))
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value: @asn1.encode_der(nc),
+  }
+}
+
+///|
 // extendedKeyUsage with one explicit OID (e.g. id-kp-serverAuth).
 fn eku_ext_server_auth() -> @pkix.Extension {
   let server_auth = @asn1.ObjectIdentifier::from_arcs([
@@ -1127,6 +1141,76 @@ test "ATTACK nameConstraints: unsupported GeneralSubtree maximum is rejected" {
     other => abort("GeneralSubtree maximum not rejected: " + repr(other))
   } noraise {
     other => abort("GeneralSubtree maximum not rejected: " + repr(other))
+  }
+}
+
+///|
+test "ATTACK nameConstraints: leading-dot excludedSubtrees blocks subdomain" {
+  let inter_seed = "9192939495969798999a9b9c9d9e9fa09192939495969798999a9b9c9d9e9fa0"
+  let leaf_seed = "a1a2a3a4a5a6a7a8a9aaabacadaeafa0a1a2a3a4a5a6a7a8a9aaabacadaeafa0"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Leading Dot NC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_excluded_ext(".evil.com"),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Leading Dot NC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("api.evil.com")],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "api.evil.com")
+    other => abort("leading-dot excludedSubtrees not enforced: " + repr(other))
+  } noraise {
+    _ => abort("accepted subdomain under leading-dot excludedSubtrees")
+  }
+}
+
+///|
+test "ATTACK nameConstraints: unknown top-level field is rejected" {
+  let inter_seed = "b1b2b3b4b5b6b7b8b9babbbcbdbebfb0b1b2b3b4b5b6b7b8b9babbbcbdbebfb0"
+  let leaf_seed = "c1c2c3c4c5c6c7c8c9cacbcccdcecfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfc0"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Unknown NC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_unknown_top_level_ext(),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Unknown NC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("api.good.com")],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    MalformedExtension(_) => ()
+    other => abort("unknown nameConstraints field not rejected: " + repr(other))
+  } noraise {
+    _ => abort("accepted unknown top-level nameConstraints field")
   }
 }
 
