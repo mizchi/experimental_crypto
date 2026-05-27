@@ -7,3 +7,7 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
 } for "test"
+
+options(
+  targets: { "hkdf_oracle_js_test.mbt": [ "js" ] },
+)

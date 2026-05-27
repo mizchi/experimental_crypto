@@ -45,6 +45,16 @@ fn to_hex_wb(b : Bytes) -> String {
 }
 
 ///|
+fn zero_pad_len_wb(len : Int, block_size : Int) -> Int {
+  let rem = len % block_size
+  if rem == 0 {
+    0
+  } else {
+    block_size - rem
+  }
+}
+
+///|
 test "RFC 8439 §2.5.2 Poly1305 known-answer" {
   let key = hex_wb(
     "85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b",
@@ -179,8 +189,8 @@ test "RFC 8439 §2.8.2 mac_data matches expected layout" {
     "6116",
   )
   // Reconstruct mac_data the same way poly1305_aead_tag does and inspect it.
-  let aad_pad = @wrap.ghash_zero_pad_len(aad.length(), 16)
-  let ct_pad = @wrap.ghash_zero_pad_len(ct.length(), 16)
+  let aad_pad = zero_pad_len_wb(aad.length(), 16)
+  let ct_pad = zero_pad_len_wb(ct.length(), 16)
   let total = aad.length() + aad_pad + ct.length() + ct_pad + 8 + 8
   let aad_len_off = aad.length() + aad_pad + ct.length() + ct_pad
   let ct_len_off = aad_len_off + 8

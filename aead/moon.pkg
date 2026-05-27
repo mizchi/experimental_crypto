@@ -1,9 +1,13 @@
 import {
-  "mizchi/aead/wrap",
-}
-
-import {
   "moonbitlang/core/debug",
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
+  "moonbitlang/core/json",
 } for "test"
+
+options(
+  targets: {
+    "aead_oracle_js_test.mbt": [ "js" ],
+    "wycheproof_json_js_test.mbt": [ "js" ],
+  },
+)

@@ -176,8 +176,16 @@ fn ghash(
   // Process AAD in 16-byte chunks (zero-pad the final partial block).
   let aad_len = aad.length()
   let mut i = 0
-  while i < aad_len {
-    let take = if aad_len - i >= 16 { 16 } else { aad_len - i }
+  while i + 16 <= aad_len {
+    y_hi = y_hi ^ be_load_u64(aad, i)
+    y_lo = y_lo ^ be_load_u64(aad, i + 8)
+    let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
+    y_hi = nz_hi
+    y_lo = nz_lo
+    i = i + 16
+  }
+  if i < aad_len {
+    let take = aad_len - i
     let buf = FixedArray::make(16, b'\x00')
     for j in 0..<take {
       buf[j] = aad[i + j]
@@ -189,14 +197,21 @@ fn ghash(
     let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
     y_hi = nz_hi
     y_lo = nz_lo
-    i = i + take
   }
 
   // Process ciphertext.
   let ct_len = ct.length()
   i = 0
-  while i < ct_len {
-    let take = if ct_len - i >= 16 { 16 } else { ct_len - i }
+  while i + 16 <= ct_len {
+    y_hi = y_hi ^ be_load_u64(ct, i)
+    y_lo = y_lo ^ be_load_u64(ct, i + 8)
+    let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
+    y_hi = nz_hi
+    y_lo = nz_lo
+    i = i + 16
+  }
+  if i < ct_len {
+    let take = ct_len - i
     let buf = FixedArray::make(16, b'\x00')
     for j in 0..<take {
       buf[j] = ct[i + j]
@@ -208,7 +223,6 @@ fn ghash(
     let (nz_hi, nz_lo) = gf128_mul_table(table, y_hi, y_lo)
     y_hi = nz_hi
     y_lo = nz_lo
-    i = i + take
   }
 
   // Final block: len(AAD)*8 || len(C)*8, each big-endian 64-bit.

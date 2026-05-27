@@ -11,4 +11,9 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
+  "moonbitlang/core/json",
 } for "test"
+
+options(
+  targets: { "wycheproof_json_js_test.mbt": [ "js" ] },
+)

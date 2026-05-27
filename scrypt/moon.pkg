@@ -9,3 +9,7 @@ import {
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
 } for "test"
+
+options(
+  targets: { "scrypt_oracle_js_test.mbt": [ "js" ] },
+)

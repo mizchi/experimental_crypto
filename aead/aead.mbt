@@ -354,6 +354,22 @@ fn poly1305_load_block(
   off : Int,
   take : Int,
 ) -> (UInt64, UInt64, UInt64, UInt64, UInt64) {
+  let mask26 : UInt64 = 0x3ffffffUL
+  if take == 16 {
+    fn le32_msg(o : Int) -> UInt64 {
+      msg[o].to_uint64() |
+      (msg[o + 1].to_uint64() << 8) |
+      (msg[o + 2].to_uint64() << 16) |
+      (msg[o + 3].to_uint64() << 24)
+    }
+
+    let c0 = le32_msg(off) & mask26
+    let c1 = (le32_msg(off + 3) >> 2) & mask26
+    let c2 = (le32_msg(off + 6) >> 4) & mask26
+    let c3 = (le32_msg(off + 9) >> 6) & mask26
+    let c4 = (le32_msg(off + 12) >> 8) | (1UL << 24)
+    return (c0, c1, c2, c3, c4)
+  }
   // Materialize 17 bytes: msg[off..off+take], then 0x01, then zeros.
   let buf = FixedArray::make(17, b'\x00')
   for i in 0..<take {
@@ -369,7 +385,6 @@ fn poly1305_load_block(
     (buf[o + 3].to_uint64() << 24)
   }
 
-  let mask26 : UInt64 = 0x3ffffffUL
   let c0 = le32_buf(0) & mask26
   let c1 = (le32_buf(3) >> 2) & mask26
   let c2 = (le32_buf(6) >> 4) & mask26
@@ -380,10 +395,176 @@ fn poly1305_load_block(
 }
 
 ///|
+fn poly1305_load_full_block_fa(
+  buf : FixedArray[Byte],
+) -> (UInt64, UInt64, UInt64, UInt64, UInt64) {
+  fn le32_buf(o : Int) -> UInt64 {
+    buf[o].to_uint64() |
+    (buf[o + 1].to_uint64() << 8) |
+    (buf[o + 2].to_uint64() << 16) |
+    (buf[o + 3].to_uint64() << 24)
+  }
+
+  let mask26 : UInt64 = 0x3ffffffUL
+  let c0 = le32_buf(0) & mask26
+  let c1 = (le32_buf(3) >> 2) & mask26
+  let c2 = (le32_buf(6) >> 4) & mask26
+  let c3 = (le32_buf(9) >> 6) & mask26
+  let c4 = (le32_buf(12) >> 8) | (1UL << 24)
+  (c0, c1, c2, c3, c4)
+}
+
+///|
+fn poly1305_absorb_limbs(
+  a0_in : UInt64,
+  a1_in : UInt64,
+  a2_in : UInt64,
+  a3_in : UInt64,
+  a4_in : UInt64,
+  r0 : UInt64,
+  r1 : UInt64,
+  r2 : UInt64,
+  r3 : UInt64,
+  r4 : UInt64,
+  s1 : UInt64,
+  s2 : UInt64,
+  s3 : UInt64,
+  s4 : UInt64,
+  c0 : UInt64,
+  c1 : UInt64,
+  c2 : UInt64,
+  c3 : UInt64,
+  c4 : UInt64,
+) -> (UInt64, UInt64, UInt64, UInt64, UInt64) {
+  let mask26 : UInt64 = 0x3ffffffUL
+  let a0 = a0_in + c0
+  let a1 = a1_in + c1
+  let a2 = a2_in + c2
+  let a3 = a3_in + c3
+  let a4 = a4_in + c4
+
+  // a *= r mod p
+  // d_k = Σ_{i+j ≡ k mod 5} a_i * r_j' where r_j' = r_j or 5*r_j for wrap.
+  let d0 = a0 * r0 + a1 * s4 + a2 * s3 + a3 * s2 + a4 * s1
+  let d1 = a0 * r1 + a1 * r0 + a2 * s4 + a3 * s3 + a4 * s2
+  let d2 = a0 * r2 + a1 * r1 + a2 * r0 + a3 * s4 + a4 * s3
+  let d3 = a0 * r3 + a1 * r2 + a2 * r1 + a3 * r0 + a4 * s4
+  let d4 = a0 * r4 + a1 * r3 + a2 * r2 + a3 * r1 + a4 * r0
+
+  // Carry chain.
+  let mut c : UInt64 = d0 >> 26
+  let mut out0 = d0 & mask26
+  let t1 = d1 + c
+  c = t1 >> 26
+  let mut out1 = t1 & mask26
+  let t2 = d2 + c
+  c = t2 >> 26
+  let out2 = t2 & mask26
+  let t3 = d3 + c
+  c = t3 >> 26
+  let out3 = t3 & mask26
+  let t4 = d4 + c
+  c = t4 >> 26
+  let out4 = t4 & mask26
+  // Fold overflow back via *5 once; resulting out0 may exceed 26 bits by ≤ 1.
+  out0 = out0 + c * 5UL
+  let c2 = out0 >> 26
+  out0 = out0 & mask26
+  out1 = out1 + c2
+  (out0, out1, out2, out3, out4)
+}
+
+///|
+fn poly1305_finish(
+  a0_in : UInt64,
+  a1_in : UInt64,
+  a2_in : UInt64,
+  a3_in : UInt64,
+  a4_in : UInt64,
+  k4 : UInt64,
+  k5 : UInt64,
+  k6 : UInt64,
+  k7 : UInt64,
+) -> Bytes {
+  let mask26 : UInt64 = 0x3ffffffUL
+  let mut a0 = a0_in
+  let mut a1 = a1_in
+  let mut a2 = a2_in
+  let mut a3 = a3_in
+  let mut a4 = a4_in
+
+  // Final carry propagation so each limb is < 2^26 except possibly a4 < 2^27.
+  let mut c : UInt64 = a1 >> 26
+  a1 = a1 & mask26
+  a2 = a2 + c
+  c = a2 >> 26
+  a2 = a2 & mask26
+  a3 = a3 + c
+  c = a3 >> 26
+  a3 = a3 & mask26
+  a4 = a4 + c
+  c = a4 >> 26
+  a4 = a4 & mask26
+  a0 = a0 + c * 5UL
+  c = a0 >> 26
+  a0 = a0 & mask26
+  a1 = a1 + c
+
+  // Conditional subtraction of p = 2^130 - 5.
+  let mut g0 = a0 + 5UL
+  let mut g1 = a1 + (g0 >> 26)
+  g0 = g0 & mask26
+  let mut g2 = a2 + (g1 >> 26)
+  g1 = g1 & mask26
+  let mut g3 = a3 + (g2 >> 26)
+  g2 = g2 & mask26
+  let g4 = a4 + (g3 >> 26) - (1UL << 26)
+  g3 = g3 & mask26
+  let mask = (g4 >> 63) - 1UL
+  let inv_mask = mask ^ 0xFFFFFFFFFFFFFFFFUL
+  a0 = (g0 & mask) | (a0 & inv_mask)
+  a1 = (g1 & mask) | (a1 & inv_mask)
+  a2 = (g2 & mask) | (a2 & inv_mask)
+  a3 = (g3 & mask) | (a3 & inv_mask)
+  a4 = (g4 & mask) | (a4 & inv_mask)
+
+  // Reassemble as 128 bits (drop bits ≥ 128 since tag is mod 2^128).
+  let f0 = (a0 | (a1 << 26)) & 0xFFFFFFFFUL
+  let f1 = ((a1 >> 6) | (a2 << 20)) & 0xFFFFFFFFUL
+  let f2 = ((a2 >> 12) | (a3 << 14)) & 0xFFFFFFFFUL
+  let f3 = ((a3 >> 18) | (a4 << 8)) & 0xFFFFFFFFUL
+
+  // Add s (otk[16..32]) and write little-endian 16 bytes.
+  let mut sum0 = f0 + k4
+  let mut sum1 = f1 + k5 + (sum0 >> 32)
+  let mut sum2 = f2 + k6 + (sum1 >> 32)
+  let mut sum3 = f3 + k7 + (sum2 >> 32)
+  sum0 = sum0 & 0xFFFFFFFFUL
+  sum1 = sum1 & 0xFFFFFFFFUL
+  sum2 = sum2 & 0xFFFFFFFFUL
+  sum3 = sum3 & 0xFFFFFFFFUL
+
+  Bytes::makei(16, fn(i) {
+    let word = if i < 4 {
+      sum0
+    } else if i < 8 {
+      sum1
+    } else if i < 12 {
+      sum2
+    } else {
+      sum3
+    }
+    let shift = i % 4 * 8
+    ((word >> shift) & 0xFFUL).to_int().to_byte()
+  })
+}
+
+///|
 /// FixedArray-backed Poly1305 MAC. `otk` is 32 bytes; r is the first 16 bytes
 /// (clamped) and s is the next 16 bytes. The OTK lives in a wipe-able
 /// `FixedArray[Byte]` so the caller can zero it after the tag is computed
 /// (review #2 finding 7).
+#warnings("-unused_value")
 fn poly1305_fa(otk : FixedArray[Byte], msg : Bytes) -> Bytes {
   poly1305_core(
     le32_fa(otk, 0),
@@ -450,117 +631,18 @@ fn poly1305_core(
   while i < n {
     let take = if n - i >= 16 { 16 } else { n - i }
     let (c0, c1, c2, c3, c4) = poly1305_load_block(msg, i, take)
-    // a += c
-    a0 = a0 + c0
-    a1 = a1 + c1
-    a2 = a2 + c2
-    a3 = a3 + c3
-    a4 = a4 + c4
-
-    // a *= r mod p
-    // d_k = Σ_{i+j ≡ k mod 5} a_i * r_j' where r_j' = r_j or 5*r_j for wrap.
-    let d0 = a0 * r0 + a1 * s4 + a2 * s3 + a3 * s2 + a4 * s1
-    let d1 = a0 * r1 + a1 * r0 + a2 * s4 + a3 * s3 + a4 * s2
-    let d2 = a0 * r2 + a1 * r1 + a2 * r0 + a3 * s4 + a4 * s3
-    let d3 = a0 * r3 + a1 * r2 + a2 * r1 + a3 * r0 + a4 * s4
-    let d4 = a0 * r4 + a1 * r3 + a2 * r2 + a3 * r1 + a4 * r0
-
-    // Carry chain.
-    let mut c : UInt64 = d0 >> 26
-    a0 = d0 & mask26
-    let t1 = d1 + c
-    c = t1 >> 26
-    a1 = t1 & mask26
-    let t2 = d2 + c
-    c = t2 >> 26
-    a2 = t2 & mask26
-    let t3 = d3 + c
-    c = t3 >> 26
-    a3 = t3 & mask26
-    let t4 = d4 + c
-    c = t4 >> 26
-    a4 = t4 & mask26
-    // Fold overflow back via *5 once; resulting a0 may exceed 26 bits by ≤ 1.
-    a0 = a0 + c * 5UL
-    let c2 = a0 >> 26
-    a0 = a0 & mask26
-    a1 = a1 + c2
+    let (na0, na1, na2, na3, na4) = poly1305_absorb_limbs(
+      a0, a1, a2, a3, a4, r0, r1, r2, r3, r4, s1, s2, s3, s4, c0, c1, c2, c3, c4,
+    )
+    a0 = na0
+    a1 = na1
+    a2 = na2
+    a3 = na3
+    a4 = na4
     i = i + take
   }
 
-  // Final carry propagation so each limb is < 2^26 except possibly a4 < 2^27.
-  let mut c : UInt64 = a1 >> 26
-  a1 = a1 & mask26
-  a2 = a2 + c
-  c = a2 >> 26
-  a2 = a2 & mask26
-  a3 = a3 + c
-  c = a3 >> 26
-  a3 = a3 & mask26
-  a4 = a4 + c
-  c = a4 >> 26
-  a4 = a4 & mask26
-  a0 = a0 + c * 5UL
-  c = a0 >> 26
-  a0 = a0 & mask26
-  a1 = a1 + c
-
-  // Conditional subtraction of p = 2^130 - 5.
-  // Compute g = a + 5 mod 2^130. If the addition overflows bit 130 (i.e.,
-  // a ≥ p), the carry into g4's "phantom bit 26" makes g4 ≥ 2^26 and the
-  // subtraction below stays non-negative as a UInt64.
-  let mut g0 = a0 + 5UL
-  let mut g1 = a1 + (g0 >> 26)
-  g0 = g0 & mask26
-  let mut g2 = a2 + (g1 >> 26)
-  g1 = g1 & mask26
-  let mut g3 = a3 + (g2 >> 26)
-  g2 = g2 & mask26
-  let g4 = a4 + (g3 >> 26) - (1UL << 26)
-  g3 = g3 & mask26
-  // If g4's top UInt64 bit is 0, a ≥ p (no underflow), use g.
-  // If top bit is 1, the subtraction underflowed, so a < p; keep a.
-  let mask = (g4 >> 63) - 1UL // 0xFFFF... when we should use g
-  let inv_mask = mask ^ 0xFFFFFFFFFFFFFFFFUL
-  a0 = (g0 & mask) | (a0 & inv_mask)
-  a1 = (g1 & mask) | (a1 & inv_mask)
-  a2 = (g2 & mask) | (a2 & inv_mask)
-  a3 = (g3 & mask) | (a3 & inv_mask)
-  a4 = (g4 & mask) | (a4 & inv_mask)
-
-  // Reassemble as 128 bits (drop bits ≥ 128 since tag is mod 2^128).
-  let f0 = (a0 | (a1 << 26)) & 0xFFFFFFFFUL // low 32 bits
-  let f1 = ((a1 >> 6) | (a2 << 20)) & 0xFFFFFFFFUL
-  let f2 = ((a2 >> 12) | (a3 << 14)) & 0xFFFFFFFFUL
-  let f3 = ((a3 >> 18) | (a4 << 8)) & 0xFFFFFFFFUL
-
-  // Add s (otk[16..32]) and write little-endian 16 bytes.
-  let s0 = k4
-  let s_1 = k5
-  let s_2 = k6
-  let s_3 = k7
-  let mut sum0 = f0 + s0
-  let mut sum1 = f1 + s_1 + (sum0 >> 32)
-  let mut sum2 = f2 + s_2 + (sum1 >> 32)
-  let mut sum3 = f3 + s_3 + (sum2 >> 32)
-  sum0 = sum0 & 0xFFFFFFFFUL
-  sum1 = sum1 & 0xFFFFFFFFUL
-  sum2 = sum2 & 0xFFFFFFFFUL
-  sum3 = sum3 & 0xFFFFFFFFUL
-
-  Bytes::makei(16, fn(i) {
-    let word = if i < 4 {
-      sum0
-    } else if i < 8 {
-      sum1
-    } else if i < 12 {
-      sum2
-    } else {
-      sum3
-    }
-    let shift = i % 4 * 8
-    ((word >> shift) & 0xFFUL).to_int().to_byte()
-  })
+  poly1305_finish(a0, a1, a2, a3, a4, k4, k5, k6, k7)
 }
 
 ///|
@@ -574,31 +656,108 @@ fn poly1305_aead_tag_fa(
   aad : Bytes,
   ct : Bytes,
 ) -> Bytes {
-  let aad_pad = @wrap.ghash_zero_pad_len(aad.length(), 16)
-  let ct_pad = @wrap.ghash_zero_pad_len(ct.length(), 16)
-  let total = aad.length() + aad_pad + ct.length() + ct_pad + 8 + 8
-  let aad_len_off = aad.length() + aad_pad + ct.length() + ct_pad
-  let ct_len_off = aad_len_off + 8
-  let aad_len = aad.length().to_int64()
-  let ct_len = ct.length().to_int64()
-  let mac_data = Bytes::makei(total, fn(i) {
-    if i < aad.length() {
-      aad[i]
-    } else if i < aad.length() + aad_pad {
-      b'\x00'
-    } else if i < aad.length() + aad_pad + ct.length() {
-      ct[i - aad.length() - aad_pad]
-    } else if i < aad_len_off {
-      b'\x00'
-    } else if i < ct_len_off {
-      let shift = (i - aad_len_off) * 8
-      ((aad_len >> shift) & 0xFFL).to_int().to_byte()
-    } else {
-      let shift = (i - ct_len_off) * 8
-      ((ct_len >> shift) & 0xFFL).to_int().to_byte()
+  let k0 = le32_fa(otk, 0)
+  let k1 = le32_fa(otk, 4)
+  let k2 = le32_fa(otk, 8)
+  let k3 = le32_fa(otk, 12)
+  let k4 = le32_fa(otk, 16)
+  let k5 = le32_fa(otk, 20)
+  let k6 = le32_fa(otk, 24)
+  let k7 = le32_fa(otk, 28)
+
+  let mask26 : UInt64 = 0x3ffffffUL
+  let r_lo0 = k0 & 0x0fffffffUL
+  let r_lo1 = k1 & 0x0ffffffcUL
+  let r_lo2 = k2 & 0x0ffffffcUL
+  let r_lo3 = k3 & 0x0ffffffcUL
+  let r0 = r_lo0 & mask26
+  let r1 = ((r_lo0 >> 26) | (r_lo1 << 6)) & mask26
+  let r2 = ((r_lo1 >> 20) | (r_lo2 << 12)) & mask26
+  let r3 = ((r_lo2 >> 14) | (r_lo3 << 18)) & mask26
+  let r4 = r_lo3 >> 8
+  let s1 = r1 * 5UL
+  let s2 = r2 * 5UL
+  let s3 = r3 * 5UL
+  let s4 = r4 * 5UL
+
+  let mut a0 : UInt64 = 0UL
+  let mut a1 : UInt64 = 0UL
+  let mut a2 : UInt64 = 0UL
+  let mut a3 : UInt64 = 0UL
+  let mut a4 : UInt64 = 0UL
+
+  let aad_len = aad.length()
+  let mut i = 0
+  while i + 16 <= aad_len {
+    let (c0, c1, c2, c3, c4) = poly1305_load_block(aad, i, 16)
+    let (na0, na1, na2, na3, na4) = poly1305_absorb_limbs(
+      a0, a1, a2, a3, a4, r0, r1, r2, r3, r4, s1, s2, s3, s4, c0, c1, c2, c3, c4,
+    )
+    a0 = na0
+    a1 = na1
+    a2 = na2
+    a3 = na3
+    a4 = na4
+    i = i + 16
+  }
+  if i < aad_len {
+    let buf = FixedArray::make(16, b'\x00')
+    for j in 0..<(aad_len - i) {
+      buf[j] = aad[i + j]
     }
-  })
-  poly1305_fa(otk, mac_data)
+    let (c0, c1, c2, c3, c4) = poly1305_load_full_block_fa(buf)
+    let (na0, na1, na2, na3, na4) = poly1305_absorb_limbs(
+      a0, a1, a2, a3, a4, r0, r1, r2, r3, r4, s1, s2, s3, s4, c0, c1, c2, c3, c4,
+    )
+    a0 = na0
+    a1 = na1
+    a2 = na2
+    a3 = na3
+    a4 = na4
+  }
+
+  let ct_len = ct.length()
+  i = 0
+  while i + 16 <= ct_len {
+    let (c0, c1, c2, c3, c4) = poly1305_load_block(ct, i, 16)
+    let (na0, na1, na2, na3, na4) = poly1305_absorb_limbs(
+      a0, a1, a2, a3, a4, r0, r1, r2, r3, r4, s1, s2, s3, s4, c0, c1, c2, c3, c4,
+    )
+    a0 = na0
+    a1 = na1
+    a2 = na2
+    a3 = na3
+    a4 = na4
+    i = i + 16
+  }
+  if i < ct_len {
+    let buf = FixedArray::make(16, b'\x00')
+    for j in 0..<(ct_len - i) {
+      buf[j] = ct[i + j]
+    }
+    let (c0, c1, c2, c3, c4) = poly1305_load_full_block_fa(buf)
+    let (na0, na1, na2, na3, na4) = poly1305_absorb_limbs(
+      a0, a1, a2, a3, a4, r0, r1, r2, r3, r4, s1, s2, s3, s4, c0, c1, c2, c3, c4,
+    )
+    a0 = na0
+    a1 = na1
+    a2 = na2
+    a3 = na3
+    a4 = na4
+  }
+
+  let len_block = FixedArray::make(16, b'\x00')
+  let aad_len_u = aad_len.to_uint64()
+  let ct_len_u = ct_len.to_uint64()
+  for j in 0..<8 {
+    len_block[j] = ((aad_len_u >> (j * 8)) & 0xFFUL).to_int().to_byte()
+    len_block[j + 8] = ((ct_len_u >> (j * 8)) & 0xFFUL).to_int().to_byte()
+  }
+  let (c0, c1, c2, c3, c4) = poly1305_load_full_block_fa(len_block)
+  let (na0, na1, na2, na3, na4) = poly1305_absorb_limbs(
+    a0, a1, a2, a3, a4, r0, r1, r2, r3, r4, s1, s2, s3, s4, c0, c1, c2, c3, c4,
+  )
+  poly1305_finish(na0, na1, na2, na3, na4, k4, k5, k6, k7)
 }
 
 ///|
