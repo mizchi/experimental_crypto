@@ -102,8 +102,11 @@ let trust_anchor_pk = /* extracted from a trusted root cert */
 file into `Array[AllowedSigner]`. `@ssh.find_signers(signers, principal)`
 honours `*` / `?` glob matching. The `namespaces="git,file"` option restricts
 which SSHSIG namespaces a key is allowed to sign in; if absent the key signs in
-any namespace. `cert-authority`, `valid-after`, and `valid-before` entries are
-rejected until certificate and time-aware verification are implemented.
+any namespace. `cert-authority` entries are rejected until SSH certificate
+verification exists. Entries carrying `valid-after` / `valid-before` are
+accepted only by `@ssh.verify_with_allowed_signers_at`, which evaluates them
+against caller-supplied Unix time; the plain verification API rejects those
+entries fail-closed.
 
 ## CI gating
 

@@ -67,9 +67,10 @@ fails closed before returning authenticated / verified / trusted.
   issuer, audience, nonce/state, token binding (`cnf.jkt`, `ath`,
   `at_hash`/`c_hash`), duplicate JWKS keys, and embedded remote key hints must
   remain strict.
-- **SSH allowed_signers trust policy**: `cert-authority`, `valid-after`, and
-  `valid-before` must stay fail-closed until certificate and time-aware
-  verification APIs exist.
+- **SSH allowed_signers trust policy**: `cert-authority` must stay fail-closed
+  until certificate verification exists. `valid-after` / `valid-before` must
+  be enforced only by explicit time-aware verification APIs; plain verification
+  must keep time-scoped entries fail-closed.
 - **git signed-object canonical bytes**: raw object headers, tag objects,
   multi-line `gpgsig` continuation, duplicate signatures, and body-only
   `gpgsig` text must remain unambiguous.
