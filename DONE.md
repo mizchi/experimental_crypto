@@ -109,6 +109,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   sign-side scalar multiplication and public-key derivation through it, and
   bring P-256 sign benchmarks down to the same millisecond-scale band as
   secp256k1.
+- Add `mizchi/leakage_harness`, a native main package with sparse-vs-dense
+  class workloads for `crypto_bigint::{pow_mod,inv_mod}`, RSA PKCS#1 v1.5
+  sign, JWE RSA-OAEP decrypt, and P-256/P-384/secp256k1 ECDSA sign. This is a
+  measurement entry point, not constant-time proof or CI gating.
 
 ## Parser And Protocol Hardening
 
@@ -145,6 +149,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Reject non-minimal SSH `mpint` encodings.
 - Add structured fuzz / mutation tests for `allowed_signers`, SSHSIG envelopes, inner signature algorithms, and SSH `mpint` canonicality.
 - Add strict SSHSIG armor decoder for trust decisions.
+- Add high-level `verify_with_allowed_signers` regressions proving unsupported
+  `cert-authority`, `valid-after`, and `valid-before` policy lines fail closed
+  instead of authenticating a valid signature under unenforced policy.
 
 ### HPKE / JWK / TOTP / BLAKE3
 
@@ -212,6 +219,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   `issuingDistributionPoint`, and `certificateIssuer` entry extensions.
 - Validate accepted `cRLNumber` extensions as non-critical DER INTEGER values.
 - Add external OpenSSL CRL fixture with `cRLSign` issuer key usage and revoked serial lookup.
+- Add cross-format mutation fuzzing that feeds changed CMS SignedData through
+  `cms -> pkix -> pkix_verify`, and changed OCSP / CRL fixtures through their
+  high-level verification APIs, asserting mutated trust objects never
+  authenticate.
 - Reject PGP detached signature armor with anything other than exactly one Signature packet.
 - Reject non-`SIGNATURE` armor labels and unsupported critical PGP signature subpackets.
 - Fail closed on critical PGP issuer Key ID / issuer fingerprint subpackets until key binding exists.

@@ -296,6 +296,22 @@ test "ATTACK: validity-window allowed_signers entries fail closed" {
     #|time@example.com valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let signers = @ssh.parse_allowed_signers(time_scoped_text)
   @debug.assert_eq(signers.length(), 0)
+  let after_text =
+    #|time@example.com valid-after="19700101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  @debug.assert_eq(@ssh.parse_allowed_signers(after_text).length(), 0)
+}
+
+///|
+test "ATTACK: high-level allowed_signers rejects unsupported time policy" {
+  let time_scoped_text =
+    #|mizchi@misc-test valid-after="19700101Z",valid-before="20990101Z" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let ok = @ssh.verify_with_allowed_signers(
+    time_scoped_text,
+    "mizchi@misc-test",
+    armored_signature,
+    fixture_message(),
+  )
+  assert_false(ok)
 }
 
 ///|
@@ -304,6 +320,19 @@ test "ATTACK: cert-authority allowed_signers entries fail closed" {
     #|*@example.com cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let signers = @ssh.parse_allowed_signers(ca_text)
   @debug.assert_eq(signers.length(), 0)
+}
+
+///|
+test "ATTACK: high-level allowed_signers rejects cert-authority policy" {
+  let ca_text =
+    #|mizchi@misc-test cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
+  let ok = @ssh.verify_with_allowed_signers(
+    ca_text,
+    "mizchi@misc-test",
+    armored_signature,
+    fixture_message(),
+  )
+  assert_false(ok)
 }
 
 // -----------------------------------------------------------------------------

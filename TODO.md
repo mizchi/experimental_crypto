@@ -25,9 +25,12 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Route P-384 and secp256k1 sign-side base-point scalar multiplication
      through fixed-limb fixed-iteration complete-addition field paths. This is
      not external constant-time evidence yet.
-   - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
-     RSA/JWE private operations and ECDSA sign paths. Measurement scope and
-     terminology are in `docs/CONSTANT_TIME.md`.
+   - [x] Add a native `leakage_harness` entry point with sparse-vs-dense class
+     workloads for `crypto_bigint`, RSA sign, JWE RSA-OAEP decrypt, and
+     P-256/P-384/secp256k1 ECDSA sign.
+   - [ ] Calibrate and gate external leakage checks (`dudect` /
+     callgrind-style harness) for RSA/JWE private operations and ECDSA sign
+     paths. Measurement scope and terminology are in `docs/CONSTANT_TIME.md`.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
@@ -40,9 +43,9 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      `cert-authority`.
    - [ ] Add a time-aware allowed_signers API before accepting
      `valid-after` / `valid-before`.
-5. [ ] **Cross-format fuzz breadth**.
-   - [ ] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
-   - [ ] Add OCSP / CRL -> PKIX_VERIFY fuzz.
+5. [x] **Cross-format fuzz breadth**.
+   - [x] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
+   - [x] Add OCSP / CRL -> PKIX_VERIFY fuzz.
 
 ## Authentication False-Positive Policy
 
@@ -86,9 +89,9 @@ fails closed before returning authenticated / verified / trusted.
 - **Interop-only sign output checks**: external `gpg` / `sq` / `rsop`
   validation of signatures we produce mostly causes false negatives with other
   tools rather than false positives in our verifiers.
-- **Coverage expansion after strict behavior exists**: more fuzzing for
-  CMS -> PKIX -> PKIX_VERIFY and OCSP / CRL -> PKIX_VERIFY is valuable, but the
-  immediate false-positive control is fail-closed behavior.
+- **Coverage expansion after strict behavior exists**: remaining JOSE container
+  fuzzing is valuable, but the immediate false-positive control is fail-closed
+  behavior.
 - **Leakage measurement harnesses**: `dudect` / callgrind-style checks are not
   direct authentication false-positive controls, but remain high priority for
   production signing keys.
@@ -144,17 +147,19 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] **JWT remaining coverage holes**: unsupported / fixture-heavy ES512
   branch after P-521 exists.
-- [ ] **Cross-format fuzz breadth**: PEM -> ASN.1 -> PKCS#8 / PKIX integration
-  fuzzing exists; extend to CMS / OCSP / CRL and JOSE containers.
+- [ ] **Cross-format fuzz breadth**: PEM -> ASN.1 -> PKCS#8 / PKIX and
+  CMS / OCSP / CRL -> PKIX_VERIFY fuzzing exists; extend remaining breadth to
+  JOSE containers.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
-  operations, and ECDSA signing. Scope and acceptance criteria are documented
-  in `docs/CONSTANT_TIME.md`.
+  operations, and ECDSA signing. A native `leakage_harness` workload entry
+  point exists; thresholds and CI gating are still open. Scope and acceptance
+  criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
-- [ ] **`crypto_bigint` remaining work**: add external leakage measurement for
-  fixed-limb private operations.
+- [ ] **`crypto_bigint` remaining work**: calibrate external leakage thresholds
+  for fixed-limb private operations.
 - [x] **ECDSA field rewrite**: keep p256/p384/secp256k1 sign-side scalar
   multiplication off affine BigInt point formulas; verify-side multiplication
   remains affine because inputs are public.

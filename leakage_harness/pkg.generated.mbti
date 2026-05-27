@@ -1,0 +1,16 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/leakage_harness"
+
+// Values
+
+// Errors
+
+// Types and methods
+type Sink
+
+type Workload
+
+// Type aliases
+
+// Traits
+

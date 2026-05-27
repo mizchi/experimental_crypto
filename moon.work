@@ -23,6 +23,7 @@ members = [
   "./git_object",
   "./pgp",
   "./pgp/gpg_interop",
+  "./leakage_harness",
   "./cms",
   "./secp256k1",
   "./jwe",

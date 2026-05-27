@@ -1,0 +1,16 @@
+import {
+  "mizchi/crypto_bigint",
+  "mizchi/jwe",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/rsa",
+  "mizchi/secp256k1",
+  "moonbitlang/core/bench",
+  "moonbitlang/core/bigint",
+  "moonbitlang/core/string",
+  "moonbitlang/x/sys",
+}
+
+options(
+  is_main: true,
+)

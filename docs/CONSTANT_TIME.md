@@ -51,6 +51,21 @@ source inspection alone.
 useful for spotting large regressions, but they are not part of the acceptance
 criteria.
 
+`leakage_harness` is the first native measurement entry point:
+
+```sh
+moon run --target native ./leakage_harness -- list
+moon run --target native ./leakage_harness -- compare 8 1
+moon run --target native ./leakage_harness -- run p256-sign sparse 100
+moon run --target native ./leakage_harness -- run p256-sign dense 100
+```
+
+Use `compare` as a local dudect-style timing smoke test. Use `run` under an
+external profiler such as `valgrind --tool=callgrind` on Linux, or a platform
+equivalent, to compare fixed class workloads without including test harness
+branching in the measured operation. The current thresholds are intentionally
+not CI-gated; they need backend-specific calibration first.
+
 ## Acceptance Criteria
 
 Before upgrading any path from "branchless / fixed-iteration intended" to
