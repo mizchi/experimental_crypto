@@ -22,9 +22,9 @@ pub fn ghash_zero_pad_len(
 ) -> Int where {
   proof_require: len >= 0,
   proof_require: block_size > 0,
-  proof_ensure: result => 0 <= result,
+  proof_ensure: result => result == ghash_zero_pad_len_logic(len, block_size),
+  proof_ensure: result => aead_block_aligned(len, block_size, result),
   proof_ensure: result => result < block_size,
-  proof_ensure: result => (len + result) % block_size == 0,
 } {
   (block_size - len % block_size) % block_size
 }
@@ -45,9 +45,10 @@ pub fn pkcs7_pad_len(
   proof_require: plaintext_len >= 0,
   proof_require: block_size > 0,
   proof_require: block_size <= 255,
+  proof_ensure: result => result == pkcs7_pad_len_logic(plaintext_len, block_size),
+  proof_ensure: result => aead_block_aligned(plaintext_len, block_size, result),
   proof_ensure: result => 1 <= result,
   proof_ensure: result => result <= block_size,
-  proof_ensure: result => (plaintext_len + result) % block_size == 0,
 } {
   block_size - plaintext_len % block_size
 }
@@ -61,12 +62,8 @@ pub fn pkcs7_pad_len(
 pub fn aes_round_count(
   key_bits : Int,
 ) -> Int where {
-  proof_require: key_bits == 128 || key_bits == 192 || key_bits == 256,
-  proof_ensure: result => 10 <= result,
-  proof_ensure: result => result <= 14,
-  proof_ensure: result => key_bits != 128 || result == 10,
-  proof_ensure: result => key_bits != 192 || result == 12,
-  proof_ensure: result => key_bits != 256 || result == 14,
+  proof_require: aes_keysize_valid(key_bits),
+  proof_ensure: result => result == aes_round_count_logic(key_bits),
 } {
   if key_bits == 128 {
     10
@@ -86,12 +83,8 @@ pub fn aes_round_count(
 pub fn aes_key_word_count(
   key_bits : Int,
 ) -> Int where {
-  proof_require: key_bits == 128 || key_bits == 192 || key_bits == 256,
-  proof_ensure: result => 4 <= result,
-  proof_ensure: result => result <= 8,
-  proof_ensure: result => key_bits != 128 || result == 4,
-  proof_ensure: result => key_bits != 192 || result == 6,
-  proof_ensure: result => key_bits != 256 || result == 8,
+  proof_require: aes_keysize_valid(key_bits),
+  proof_ensure: result => result == aes_key_word_count_logic(key_bits),
 } {
   if key_bits == 128 {
     4
