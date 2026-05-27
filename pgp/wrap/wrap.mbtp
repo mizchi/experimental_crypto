@@ -1,0 +1,33 @@
+// Logic-side spec for `mizchi/pgp/wrap`. The 3-step OpenPGP new-format
+// packet length encoding (RFC 9580 §4.2.1) lives here so the entry-point
+// contract and the monotonicity lemma can both reference the same closed
+// form.
+
+fn pgp_packet_length_octets_logic(body_len : Int) -> Int {
+  if body_len < 192 {
+    1
+  } else {
+    if body_len < 8384 {
+      2
+    } else {
+      5
+    }
+  }
+}
+
+// Domain predicate: legal body length range (non-negative, fits in 32-bit Int).
+predicate pgp_packet_length_valid(body_len : Int) {
+  body_len >= 0 && body_len <= 2147483647
+}
+
+// Lemma: the packet-length byte count is monotone in body_len. Anchors
+// the encoder-side invariant that a worst-case allocation sized by the
+// maximum body length never under-shoots.
+lemma pgp_packet_length_octets_monotone(a : Int, b : Int) where {
+  proof_require: 0 <= a,
+  proof_require: a <= b,
+  proof_require: b <= 2147483647,
+  proof_ensure: pgp_packet_length_octets_logic(a) <= pgp_packet_length_octets_logic(b),
+} {
+
+}

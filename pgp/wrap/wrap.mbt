@@ -21,12 +21,8 @@
 pub fn pgp_packet_length_octets(
   body_len : Int,
 ) -> Int where {
-  proof_require: body_len >= 0,
-  proof_require: body_len <= 2147483647,
-  proof_ensure: result => result == 1 || result == 2 || result == 5,
-  proof_ensure: result => body_len >= 192 || result == 1,
-  proof_ensure: result => body_len < 192 || body_len >= 8384 || result == 2,
-  proof_ensure: result => body_len < 8384 || result == 5,
+  proof_require: pgp_packet_length_valid(body_len),
+  proof_ensure: result => result == pgp_packet_length_octets_logic(body_len),
 } {
   if body_len < 192 {
     1
