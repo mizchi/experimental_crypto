@@ -74,9 +74,11 @@ CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
 
 - a tiny timing smoke test (`compare 2 1 1000000`), which only prevents the
   timing harness from rotting;
-- a callgrind instruction-count smoke test with
+- a representative callgrind instruction-count smoke test
+  (`crypto_bigint-pow_mod`, `p256-sign`) with
   `LEAKAGE_CALLGRIND_MAX_DELTA_PCT=25.0`, which catches gross
-  secret-dependent control-flow or allocation regressions.
+  secret-dependent control-flow or allocation regressions in the profiler
+  path without making every CI push run the full slow workload set.
 
 Neither CI smoke threshold is calibrated leakage evidence yet. Tight,
 backend-specific thresholds need repeated Linux measurements before the checks

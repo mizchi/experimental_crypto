@@ -117,8 +117,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   workloads, and runs a tiny sparse-vs-dense comparison. This only prevents
   harness rot; calibrated thresholds remain open.
 - Add `leakage_harness/callgrind_check.sh` and run it in the Linux CI smoke
-  job's dedicated `.#leakage` devShell with a loose instruction-count delta
-  threshold. This catches gross secret-dependent control-flow regressions;
+  job's dedicated `.#leakage` devShell with a representative workload subset
+  and a loose instruction-count delta threshold. This catches profiler-path
+  regressions without making every push run the full slow workload set;
   calibrated thresholds remain open.
 
 ## Parser And Protocol Hardening
