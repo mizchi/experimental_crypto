@@ -319,7 +319,7 @@ pub fn pbkdf2(
   if iterations < 1 {
     raise InvalidIterations
   }
-  if dk_len < 0 {
+  if dk_len < 1 {
     raise InvalidLength
   }
   // Cap dk_len well below the RFC 8018 bound of (2^32 - 1) * h_len to

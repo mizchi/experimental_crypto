@@ -96,6 +96,39 @@ test "git_object: parse raw commit object header before signed content" {
 }
 
 ///|
+test "ATTACK: parse_signed_object rejects raw object kind/content confusion" {
+  let commit_body = commit_object_bytes()
+  let tag_body = signed_tag_object_bytes()
+  let raw_tag_with_commit_body = with_raw_object_header("tag", commit_body)
+  try @git_object.parse_signed_object(raw_tag_with_commit_body) catch {
+    Malformed(_) => ()
+    other =>
+      abort("expected Malformed for tag/commit confusion, got " + repr(other))
+  } noraise {
+    _ => abort("accepted commit content under raw tag header")
+  }
+  let raw_commit_with_tag_body = with_raw_object_header("commit", tag_body)
+  try @git_object.parse_signed_object(raw_commit_with_tag_body) catch {
+    Malformed(_) => ()
+    other =>
+      abort("expected Malformed for commit/tag confusion, got " + repr(other))
+  } noraise {
+    _ => abort("accepted tag content under raw commit header")
+  }
+}
+
+///|
+test "ATTACK: parse_signed_object rejects signed-looking non-object content" {
+  let fake : Bytes = b"x y\ngpgsig -----BEGIN SSH SIGNATURE-----\n line\n -----END SSH SIGNATURE-----\n\nbody\n"
+  try @git_object.parse_signed_object(fake) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed for fake object, got " + repr(other))
+  } noraise {
+    _ => abort("accepted signed-looking non-object content")
+  }
+}
+
+///|
 test "git_object: split signed tag object" {
   let parsed = @git_object.parse_signed_object(signed_tag_object_bytes())
   @debug.assert_eq(

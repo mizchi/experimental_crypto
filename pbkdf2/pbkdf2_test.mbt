@@ -48,6 +48,16 @@ test "pbkdf2: rejects negative dk_len" {
 }
 
 ///|
+test "ATTACK pbkdf2: rejects zero-length derived keys" {
+  try @pbkdf2.pbkdf2(Sha256, b"p", b"s", 1, 0) catch {
+    @pbkdf2.InvalidLength => ()
+    other => abort("expected InvalidLength, got " + repr(other))
+  } noraise {
+    _ => abort("accepted dk_len=0")
+  }
+}
+
+///|
 test "pbkdf2: HMAC-SHA1 RFC 6070 vector 1" {
   let dk = @pbkdf2.pbkdf2(Sha1, b"password", b"salt", 1, 20)
   let expected : Bytes = b"\x0c\x60\xc8\x0f\x96\x1f\x0e\x71\xf3\xa9\xb5\x24\xaf\x60\x12\x06\x2f\xe0\x37\xa6"

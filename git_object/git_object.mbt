@@ -37,7 +37,12 @@ priv enum RawObjectKind {
 pub fn parse_signed_object(
   object_bytes : Bytes,
 ) -> SignedCommit raise GitObjectError {
-  let (content, _) = strip_raw_object_header(object_bytes)
+  let (content, kind) = strip_raw_object_header(object_bytes)
+  match kind {
+    RawCommit => require_commit_content(content)
+    RawTag => require_tag_content(content)
+    NoRawHeader => require_git_object_content(content)
+  }
   parse_signed_content(content)
 }
 
@@ -229,6 +234,77 @@ fn require_commit_content(content : Bytes) -> Unit raise GitObjectError {
   if !saw_tree || !saw_author || !saw_committer {
     raise Malformed("not a commit object")
   }
+}
+
+///|
+fn require_git_object_content(content : Bytes) -> Unit raise GitObjectError {
+  let text = bytes_to_string(content)
+  let lines = split_lines_with_newlines(text)
+  if lines.length() == 0 {
+    raise Malformed("empty git object")
+  }
+  if header_name_matches(lines[0], "tree") {
+    require_commit_content(content)
+  } else if header_name_matches(lines[0], "object") {
+    require_tag_content(content)
+  } else {
+    raise Malformed("not a commit or tag object")
+  }
+}
+
+///|
+fn require_tag_content(content : Bytes) -> Unit raise GitObjectError {
+  let text = bytes_to_string(content)
+  let header_end = find_header_end(text)
+  if header_end == text.length() {
+    raise Malformed("missing header/body separator")
+  }
+  let lines = split_lines_with_newlines(text)
+  if lines.length() < 5 {
+    raise Malformed("not a tag object")
+  }
+  if !header_name_matches(lines[0], "object") ||
+    !is_hex_object_id(header_value(lines[0])) {
+    raise Malformed("not a tag object")
+  }
+  if !header_name_matches(lines[1], "type") ||
+    !is_git_object_type(header_value(lines[1])) {
+    raise Malformed("not a tag object")
+  }
+  if !header_name_matches(lines[2], "tag") ||
+    header_value(lines[2]).length() == 0 {
+    raise Malformed("not a tag object")
+  }
+  // Be deliberately conservative: signed tag objects produced by git carry a
+  // tagger line before gpgsig. Rejecting tagger-less tags is preferable to
+  // accepting a malformed signed object under a trusted tag path.
+  if !header_name_matches(lines[3], "tagger") ||
+    header_value(lines[3]).length() == 0 {
+    raise Malformed("not a tag object")
+  }
+}
+
+///|
+fn header_value(line : String) -> String {
+  trim_trailing_newline(skip_header_name(line))
+}
+
+///|
+fn is_hex_object_id(s : String) -> Bool {
+  if s.length() != 40 && s.length() != 64 {
+    return false
+  }
+  for c in s {
+    if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn is_git_object_type(s : String) -> Bool {
+  s == "commit" || s == "tree" || s == "blob" || s == "tag"
 }
 
 ///|
