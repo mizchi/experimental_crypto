@@ -48,4 +48,5 @@ members = [
   "./getrandom/wrap",
   "./argon2/wrap",
   "./jwt/wrap",
+  "./pgp/wrap",
 ]

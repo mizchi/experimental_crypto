@@ -65,6 +65,7 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `getrandom/wrap` | `getrandom_chunk_len(remaining, cap)` | OS CSPRNG syscall chunking — `min(remaining, cap)` with caller-cap honored (Linux 256B, macOS 4096B, …) |
 | `argon2/wrap` | `argon2_segment_length(m_cost, lanes)` | RFC 9106 §3.2: `floor(m_cost / (4·lanes)) ≥ 2` with `4·lanes·segment_length ≤ m_cost < 4·lanes·(segment_length+1)` |
 | `jwt/wrap` | `base64url_unpadded_len(input_bytes)` | RFC 4648 §5 / RFC 7515: no-padding base64url char count = `ceil(4·input_bytes / 3)` |
+| `pgp/wrap` | `pgp_packet_length_octets(body_len)` | RFC 9580 §4.2.1 new-format packet length encoding ∈ {1, 2, 5} octets |
 | `asn1/wrap` | `der_length_prefix_size(n)` | X.690 §8.1.3 DER length-prefix octet count ∈ [1, 5] — spec for `asn1.write_length` |
 | `asn1/wrap` | `der_oid_arc_byte_count(arc)` | X.690 §8.19 base-128 varint byte count ∈ [1, 5] — spec for OID encoder scratch sizing |
 
