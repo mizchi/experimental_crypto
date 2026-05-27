@@ -29,3 +29,29 @@ pub fn pbkdf2_block_count(
 } {
   (dk_len + h_len - 1) / h_len
 }
+
+///|
+/// Total scratch-buffer size (bytes) PBKDF2's inner loop must allocate
+/// to hold the full block-aligned output before the final truncation
+/// step crops it back to `dk_len`. By construction this equals
+/// `pbkdf2_block_count(dk_len, h_len) * h_len` — the proof anchors that
+/// equivalence inline since `moon prove`'s logic body cannot call the
+/// sister helper directly.
+///
+/// Anchors the caller-side allocation contract: `pbkdf2.derive` would
+/// silently overflow or under-allocate if these two helpers ever drifted
+/// out of sync.
+pub fn pbkdf2_total_output_bytes(
+  dk_len : Int,
+  h_len : Int,
+) -> Int where {
+  proof_require: dk_len > 0,
+  proof_require: h_len > 0,
+  proof_require: dk_len <= 2147483647 - h_len,
+  proof_ensure: result => dk_len <= result,
+  proof_ensure: result => result < dk_len + h_len,
+  proof_ensure: result => result % h_len == 0,
+  proof_ensure: result => result == ((dk_len + h_len - 1) / h_len) * h_len,
+} {
+  ((dk_len + h_len - 1) / h_len) * h_len
+}

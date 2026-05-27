@@ -56,6 +56,7 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `aead/wrap` | `aes_key_word_count(key_bits)` | FIPS 197 §5.2: `Nk ∈ {4,6,8}` for `key_bits ∈ {128,192,256}` |
 | `hkdf/wrap` | `hkdf_block_count(L, hash_len)` | RFC 5869 §2.3 block count ∈ [1, 255] given L ≤ 255·HashLen — wired into `hkdf.expand` |
 | `pbkdf2/wrap` | `pbkdf2_block_count(dk_len, h_len)` | RFC 8018 §5.2 block count ∈ [1, ⌈dk_len/h_len⌉] with `(N-1)·h_len < dk_len ≤ N·h_len` — spec for `pbkdf2.derive` |
+| `pbkdf2/wrap` | `pbkdf2_total_output_bytes(dk_len, h_len)` | Block-aligned scratch size = `block_count × h_len`. Anchors consistency with `pbkdf2_block_count` |
 | `bip32/wrap` | `is_hardened_from_msb(msb)` | BIP-32 §3 hardened-bit dispatch: `ser32(i)[0] >= 0x80` ⇔ hardened. Returns `{0,1}` |
 | `bip39/wrap` | `mnemonic_word_count(ent_bits)` | BIP-39 §3 mnemonic length ∈ {12,15,18,21,24} for entropy ∈ {128,160,192,224,256} bits |
 | `hash/wrap` | `sha256_pad_len(msg_bytes)` | FIPS 180-4 §5.1.1 SHA-256 padding length ∈ [9, 72] AND `(msg_bytes + result) % 64 == 0` |

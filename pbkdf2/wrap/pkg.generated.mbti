@@ -4,6 +4,8 @@ package "mizchi/pbkdf2/wrap"
 // Values
 pub fn pbkdf2_block_count(Int, Int) -> Int
 
+pub fn pbkdf2_total_output_bytes(Int, Int) -> Int
+
 // Errors
 
 // Types and methods
