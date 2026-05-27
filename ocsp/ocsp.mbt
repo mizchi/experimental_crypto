@@ -10,7 +10,7 @@
 //   3. CertID (issuerNameHash, issuerKeyHash, serialNumber) matches the cert
 //      under inspection, given the issuer cert. SHA-1 and SHA-256 hashAlgorithm
 //      are supported; anything else is rejected.
-//   4. thisUpdate <= now < nextUpdate (when nextUpdate is present).
+//   4. thisUpdate <= now < nextUpdate.
 //   5. BasicOCSPResponse.signature verifies against either:
 //        - responderID byName/byKey matching the issuer cert directly, OR
 //        - an embedded delegated responder cert in `certs[0]`, itself signed
@@ -1112,7 +1112,7 @@ pub fn verify(
         raise StaleResponse("nextUpdate <= now")
       }
     }
-    None => () // No nextUpdate → no upper bound (RFC 6960 §4.2.2.1)
+    None => raise StaleResponse("missing nextUpdate")
   }
 
   // 6. Return the status.

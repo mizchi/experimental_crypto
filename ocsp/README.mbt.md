@@ -14,6 +14,7 @@ OCSP (RFC 6960) response parsing + verification.
 ```
 
 Supports direct-signed and delegated-responder OCSP signing paths and
-SHA-1 / SHA-256 CertIDs. OCSP request construction, nonce extension,
-HTTP transport, `id-pkix-ocsp-nocheck` on delegated responders, and
-archive cutoff are out of scope.
+SHA-1 / SHA-256 CertIDs. Verified `SingleResponse` entries must carry a
+freshness upper bound (`thisUpdate <= now < nextUpdate`). OCSP request
+construction, nonce extension, HTTP transport, `id-pkix-ocsp-nocheck` on
+delegated responders, and archive cutoff are out of scope.

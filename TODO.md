@@ -267,8 +267,15 @@ Current fail-closed fixes applied in this sweep:
 - [x] OCSP verification rejects unsupported `ResponseData.version` values and
   responses whose `producedAt` is in the future.
 - [x] CRL verification rejects unsupported `TBSCertList.version` values.
+- [x] OCSP and CRL high-level verification reject responses without
+  `nextUpdate`, so revocation freshness never becomes unbounded.
 - [x] CMS SignerInfo rejects unexpected trailing fields; only the standard
   unsignedAttrs slot may appear after `signature`.
+- [x] CMS SignedData verification now enforces the supported v1 field order,
+  requires `digestAlgorithms` to match the single SignerInfo digest, and
+  rejects embedded CRLs until revocation semantics are implemented.
+- [x] CMS signer-certificate selection rejects duplicate certificates matching
+  the same `SignerInfo.sid` instead of picking the first match.
 - [x] JWT/JWE/JWK reject duplicate JSON object members at trust boundaries
   before Map-collapsing can change interpretation.
 - [x] JWT/JWE/JWK have attack regression tests for non-canonical base64url

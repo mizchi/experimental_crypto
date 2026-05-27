@@ -1248,6 +1248,49 @@ test "ocsp: stale response (now >= nextUpdate) rejected" {
 }
 
 ///|
+test "ATTACK ocsp: verify rejects SingleResponse without nextUpdate freshness bound" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let cert = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    cert.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    None,
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, cert, issuer, "20250601000000Z") catch {
+    StaleResponse(_) => ()
+    other => abort("expected StaleResponse, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP response without nextUpdate freshness bound")
+  }
+}
+
+///|
 test "ocsp: wrong issuer (BadSignature)" {
   // Build OCSP signed by a key NOT matching the issuer cert we'll pass to
   // verify(). We do this by signing the BasicOCSPResponse with a different

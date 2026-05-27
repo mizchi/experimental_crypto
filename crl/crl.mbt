@@ -6,7 +6,7 @@
 //
 // What we verify (`verify(...)`):
 //   1. CertificateList signature against the issuer cert's public key.
-//   2. thisUpdate <= now (and now < nextUpdate, if present).
+//   2. thisUpdate <= now < nextUpdate.
 //
 // What we do NOT do:
 //   - Authority Key Identifier matching beyond the issuer parameter.
@@ -557,7 +557,7 @@ pub fn verify(
         raise StaleCrl("now >= nextUpdate")
       }
     }
-    None => ()
+    None => raise StaleCrl("missing nextUpdate")
   }
   {
     issuer: p.tbs.issuer,

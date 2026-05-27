@@ -4,6 +4,7 @@
 //   - Detached CMS SignedData (eContent omitted; message provided by caller)
 //   - One signer per SignedData (the only case openssl/gpgsm produce in
 //     practice for `gpg --detach-sign` and `openssl cms -sign`)
+//   - SignedData version 1 with issuerAndSerialNumber SignerInfo version 1
 //   - RSA-PKCS#1 v1.5 with SHA-256/384/512
 //   - ECDSA P-256/P-384 with SHA-256/384
 //   - signed_attrs MUST be present (modern signers always emit them) and
@@ -14,6 +15,7 @@
 //   - Encrypted CMS (EnvelopedData)
 //   - Multiple signers / signer hierarchy
 //   - certificateOnly / degenerate CMS
+//   - Embedded CRLs (rejected until revocation semantics are enforced)
 //   - Attribute certificate handling
 
 ///|
@@ -154,6 +156,28 @@ fn parse_algorithm_identifier(
 }
 
 ///|
+fn expect_integer_small(
+  elem : @asn1.Element,
+  ctx : String,
+) -> Int raise CmsError {
+  let bs = match elem.value {
+    Integer(b) => b
+    _ => raise Malformed(ctx + ": expected INTEGER")
+  }
+  if bs.length() == 0 || bs.length() > 4 {
+    raise Malformed(ctx + ": INTEGER out of range")
+  }
+  if (bs[0].to_int() & 0x80) != 0 {
+    raise Malformed(ctx + ": INTEGER must be non-negative")
+  }
+  let mut v = 0
+  for i in 0..<bs.length() {
+    v = (v << 8) | bs[i].to_int()
+  }
+  v
+}
+
+///|
 fn require_params_absent(
   params : @asn1.Element?,
   name : String,
@@ -207,6 +231,58 @@ fn validate_signature_algorithm_identifier(
   }
 }
 
+///|
+fn parse_digest_algorithms(
+  elem : @asn1.Element,
+) -> Array[@asn1.ObjectIdentifier] raise CmsError {
+  let items = expect_set(elem, "SignedData.digestAlgorithms")
+  if items.length() == 0 {
+    raise Malformed("SignedData.digestAlgorithms empty")
+  }
+  let out : Array[@asn1.ObjectIdentifier] = []
+  for item in items {
+    let (oid, params) = parse_algorithm_identifier(
+      item, "SignedData.digestAlgorithms",
+    )
+    validate_digest_algorithm_identifier(oid, params)
+    for prev in out {
+      if prev == oid {
+        raise Malformed("SignedData.digestAlgorithms duplicate")
+      }
+    }
+    out.push(oid)
+  }
+  out
+}
+
+///|
+fn is_context_tag(elem : @asn1.Element, number : UInt) -> Bool {
+  elem.tag.class_ == @asn1.TagClass::ContextSpecific &&
+  elem.tag.number == number
+}
+
+///|
+fn parse_certificates_field(
+  elem : @asn1.Element,
+) -> Array[@pkix.Certificate] raise CmsError {
+  if !is_context_tag(elem, 0U) {
+    raise Malformed("SignedData.certificates: expected [0]")
+  }
+  if !elem.tag.constructed {
+    raise Malformed("SignedData.certificates: expected constructed tag")
+  }
+  let certs : Array[@pkix.Certificate] = []
+  let bytes = extract_context_implicit(elem)
+  let inner_dec = @asn1.Decoder::new(bytes)
+  while !inner_dec.is_empty() {
+    let cert_elem = inner_dec.read_element() catch { e => raise Asn1(e) }
+    let cert_bytes = @asn1.encode_der(cert_elem)
+    let cert = @pkix.parse_certificate(cert_bytes) catch { e => raise Pkix(e) }
+    certs.push(cert)
+  }
+  certs
+}
+
 // ─── parse CMS ContentInfo + SignedData ──────────────────────────────────
 
 ///|
@@ -228,54 +304,48 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
   // items[1] is [0] EXPLICIT SignedData. Its content is the inner DER.
   let inner_bytes = extract_context_explicit(items[1], 0U)
   let sd_elem = @asn1.decode_der(inner_bytes) catch { e => raise Asn1(e) }
-  // SignedData ::= SEQUENCE { version, digestAlgorithms SET, encap, certs[0]?, crls[1]?, signerInfos SET }
+  // SignedData ::= SEQUENCE {
+  //   version, digestAlgorithms SET, encap,
+  //   certs [0]?, crls [1]?, signerInfos SET
+  // }
   let sd_items = expect_sequence(sd_elem, "SignedData")
-  if sd_items.length() < 4 {
+  if sd_items.length() < 4 || sd_items.length() > 6 {
     raise Malformed("SignedData arity")
   }
-  let _version = sd_items[0]
-  let _digest_algs = sd_items[1]
+  let version = expect_integer_small(sd_items[0], "SignedData.version")
+  if version != 1 {
+    raise Malformed("SignedData: unsupported version")
+  }
+  let digest_algs = parse_digest_algorithms(sd_items[1])
   let encap_content_type = parse_encap_content_info(sd_items[2])
   if encap_content_type != id_data() {
     raise ContentTypeMismatch(encap_content_type)
   }
-  // certificates and crls are optional; signerInfos is mandatory and is
-  // the LAST element. Walk to find them.
-  let certs : Array[@pkix.Certificate] = []
-  let mut signer_infos : Array[@asn1.Element]? = None
-  for i = 3; i < sd_items.length(); i = i + 1 {
-    let item = sd_items[i]
-    if item.tag.class_ == @asn1.TagClass::ContextSpecific &&
-      item.tag.number == 0U {
-      // certificates [0] IMPLICIT SET — content is a sequence of cert DERs
-      let bytes = extract_context_implicit(item)
-      let inner_dec = @asn1.Decoder::new(bytes)
-      while !inner_dec.is_empty() {
-        let cert_elem = inner_dec.read_element() catch { e => raise Asn1(e) }
-        let cert_bytes = @asn1.encode_der(cert_elem)
-        let cert = @pkix.parse_certificate(cert_bytes) catch {
-          e => raise Pkix(e)
-        }
-        certs.push(cert)
-      }
-    } else if item.tag.class_ == @asn1.TagClass::ContextSpecific &&
-      item.tag.number == 1U {
-      // crls [1] IMPLICIT — ignore
-      ()
-    } else {
-      // The mandatory signerInfos SET (universal tag 17).
-      match item.value {
-        Set(xs) => signer_infos = Some(xs)
-        _ => raise Malformed("expected signerInfos SET")
-      }
-    }
+  // This verifier implements only the strict field order above. Accepting
+  // later duplicate signerInfos/certificates would make signer selection
+  // ambiguous, so unsupported structure fails before authentication.
+  let mut idx = 3
+  let certs : Array[@pkix.Certificate] = if idx < sd_items.length() &&
+    is_context_tag(sd_items[idx], 0U) {
+    let parsed = parse_certificates_field(sd_items[idx])
+    idx = idx + 1
+    parsed
+  } else {
+    []
+  }
+  if idx < sd_items.length() && is_context_tag(sd_items[idx], 1U) {
+    raise Malformed("SignedData.crls not supported")
+  }
+  if idx >= sd_items.length() {
+    raise Malformed("missing signerInfos")
+  }
+  let si_list = expect_set(sd_items[idx], "signerInfos")
+  idx = idx + 1
+  if idx != sd_items.length() {
+    raise Malformed("SignedData trailing fields")
   }
   if certs.length() == 0 {
     raise NoSignerCertificate
-  }
-  let si_list = match signer_infos {
-    Some(xs) => xs
-    None => raise Malformed("missing signerInfos")
   }
   if si_list.length() == 0 {
     raise NoSignerInfo
@@ -284,18 +354,27 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
     raise Malformed("multi-signer SignedData not supported")
   }
   let signer = parse_signer_info(si_list[0])
+  if digest_algs.length() != 1 || digest_algs[0] != signer.digest_alg {
+    raise Malformed("SignedData.digestAlgorithms mismatch")
+  }
   // Locate the signer's cert by IssuerAndSerialNumber match. The bundle
   // may carry intermediate certs in any order; the previous "always
   // certs[0]" assumption broke multi-cert bundles.
   let mut signer_idx = -1
+  let mut signer_matches = 0
   for i = 0; i < certs.length(); i = i + 1 {
     if cert_matches_sid(certs[i], signer.sid_issuer, signer.sid_serial) {
-      signer_idx = i
-      break
+      if signer_idx < 0 {
+        signer_idx = i
+      }
+      signer_matches = signer_matches + 1
     }
   }
   if signer_idx < 0 {
     raise SignerCertificateNotFound
+  }
+  if signer_matches > 1 {
+    raise Malformed("multiple certificates match SignerInfo.sid")
   }
   let signer_cert = certs[signer_idx]
   let extra_certs : Array[@pkix.Certificate] = []
@@ -341,6 +420,10 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
   // 2: digestAlgorithm
   // 3 (optional): [0] IMPLICIT signedAttrs
   // -3 .. -1: signatureAlgorithm, signature, [optional [1] unsignedAttrs]
+  let version = expect_integer_small(items[0], "SignerInfo.version")
+  if version != 1 {
+    raise Malformed("SignerInfo: unsupported version")
+  }
   let (sid_issuer, sid_serial) = parse_signer_identifier(items[1])
   let (digest_alg, digest_params) = parse_algorithm_identifier(
     items[2],
@@ -464,6 +547,17 @@ fn expect_sequence(
   match elem.value {
     Sequence(xs) => xs
     _ => raise Malformed(ctx + ": expected SEQUENCE")
+  }
+}
+
+///|
+fn expect_set(
+  elem : @asn1.Element,
+  ctx : String,
+) -> Array[@asn1.Element] raise CmsError {
+  match elem.value {
+    Set(xs) => xs
+    _ => raise Malformed(ctx + ": expected SET")
   }
 }
 

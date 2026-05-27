@@ -69,6 +69,147 @@ fn replace_last_bytes(
 }
 
 ///|
+fn concat_bytes_test(a : Bytes, b : Bytes) -> Bytes {
+  Bytes::makei(a.length() + b.length(), fn(i) {
+    if i < a.length() {
+      a[i]
+    } else {
+      b[i - a.length()]
+    }
+  })
+}
+
+///|
+fn expect_sequence_test(
+  elem : @asn1.Element,
+  ctx : String,
+) -> Array[@asn1.Element] {
+  match elem.value {
+    Sequence(xs) => xs
+    _ => abort(ctx + ": expected SEQUENCE")
+  }
+}
+
+///|
+fn extract_explicit_test(elem : @asn1.Element, tag_no : UInt) -> Bytes {
+  if elem.tag.class_ != @asn1.TagClass::ContextSpecific ||
+    elem.tag.number != tag_no {
+    abort("wrong explicit tag")
+  }
+  match elem.value {
+    Unknown(b) => b
+    _ => abort("explicit wrapper did not carry raw bytes")
+  }
+}
+
+///|
+fn cms_signed_data_items_from_fixture() -> Array[@asn1.Element] {
+  let outer = @asn1.decode_der(cms_signature_der()) catch {
+    e => abort("fixture ContentInfo decode failed: " + repr(e))
+  }
+  let ci = expect_sequence_test(outer, "ContentInfo")
+  let sd_der = extract_explicit_test(ci[1], 0U)
+  let sd = @asn1.decode_der(sd_der) catch {
+    e => abort("fixture SignedData decode failed: " + repr(e))
+  }
+  expect_sequence_test(sd, "SignedData")
+}
+
+///|
+fn cms_rebuild_with_signed_data_items(items : Array[@asn1.Element]) -> Bytes {
+  let outer = @asn1.decode_der(cms_signature_der()) catch {
+    e => abort("fixture ContentInfo decode failed: " + repr(e))
+  }
+  let ci = expect_sequence_test(outer, "ContentInfo")
+  let sd = @asn1.Element::new(@asn1.tag_sequence, Sequence(items))
+  let content = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    Unknown(@asn1.encode_der(sd)),
+  )
+  @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence([ci[0], content])),
+  )
+}
+
+///|
+fn cms_with_signed_data_version(version : Bytes) -> Bytes {
+  let src = cms_signed_data_items_from_fixture()
+  let out : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_integer, Integer(version)),
+  ]
+  for i = 1; i < src.length(); i = i + 1 {
+    out.push(src[i])
+  }
+  cms_rebuild_with_signed_data_items(out)
+}
+
+///|
+fn cms_with_empty_digest_algorithms() -> Bytes {
+  let src = cms_signed_data_items_from_fixture()
+  let out : Array[@asn1.Element] = []
+  for i = 0; i < src.length(); i = i + 1 {
+    if i == 1 {
+      out.push(@asn1.Element::new(@asn1.tag_set, Set([])))
+    } else {
+      out.push(src[i])
+    }
+  }
+  cms_rebuild_with_signed_data_items(out)
+}
+
+///|
+fn cms_with_signer_infos_before_certificates() -> Bytes {
+  let src = cms_signed_data_items_from_fixture()
+  let signer_infos = src[src.length() - 1]
+  let out : Array[@asn1.Element] = []
+  out.push(src[0])
+  out.push(src[1])
+  out.push(src[2])
+  out.push(signer_infos)
+  for i = 3; i < src.length(); i = i + 1 {
+    out.push(src[i])
+  }
+  cms_rebuild_with_signed_data_items(out)
+}
+
+///|
+fn cms_with_empty_crls() -> Bytes {
+  let src = cms_signed_data_items_from_fixture()
+  let out : Array[@asn1.Element] = []
+  for i = 0; i < src.length() - 1; i = i + 1 {
+    out.push(src[i])
+  }
+  out.push(
+    @asn1.Element::new(@asn1.Tag::context(1U, constructed=true), Unknown(b"")),
+  )
+  out.push(src[src.length() - 1])
+  cms_rebuild_with_signed_data_items(out)
+}
+
+///|
+fn cms_with_duplicate_signer_certificate() -> Bytes {
+  let src = cms_signed_data_items_from_fixture()
+  let out : Array[@asn1.Element] = []
+  for i = 0; i < src.length(); i = i + 1 {
+    if i == 3 {
+      let doubled = match src[i].value {
+        Unknown(b) => concat_bytes_test(b, b)
+        _ => abort("certificates wrapper missing raw bytes")
+      }
+      out.push(
+        @asn1.Element::new(
+          @asn1.Tag::context(0U, constructed=true),
+          Unknown(doubled),
+        ),
+      )
+    } else {
+      out.push(src[i])
+    }
+  }
+  cms_rebuild_with_signed_data_items(out)
+}
+
+///|
 // Real CMS detached signature. Generated with:
 //   openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
 //     -subj "/CN=mizchi-cms-test/emailAddress=mizchi@cms.test" \
@@ -117,6 +258,58 @@ test "ATTACK cms: SignerInfo RSA signatureAlgorithm rejects non-NULL params" {
     _ => abort("unexpected error")
   } noraise {
     _ => abort("accepted malformed SignerInfo.signatureAlgorithm")
+  }
+}
+
+///|
+test "ATTACK cms: unsupported SignedData version is rejected" {
+  try @cms.parse_signed_data(cms_with_signed_data_version(b"\x03")) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other))
+  } noraise {
+    _ => abort("accepted unsupported SignedData version")
+  }
+}
+
+///|
+test "ATTACK cms: empty digestAlgorithms set is rejected" {
+  try @cms.parse_signed_data(cms_with_empty_digest_algorithms()) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other))
+  } noraise {
+    _ => abort("accepted SignedData with empty digestAlgorithms")
+  }
+}
+
+///|
+test "ATTACK cms: signerInfos must be the final SignedData field" {
+  try
+    @cms.parse_signed_data(cms_with_signer_infos_before_certificates())
+  catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other))
+  } noraise {
+    _ => abort("accepted SignedData with signerInfos before certificates")
+  }
+}
+
+///|
+test "ATTACK cms: embedded CRLs are rejected until revocation is enforced" {
+  try @cms.parse_signed_data(cms_with_empty_crls()) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other))
+  } noraise {
+    _ => abort("accepted CMS crls field without enforcing revocation semantics")
+  }
+}
+
+///|
+test "ATTACK cms: duplicate matching signer certificates are ambiguous" {
+  try @cms.parse_signed_data(cms_with_duplicate_signer_certificate()) catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other))
+  } noraise {
+    _ => abort("accepted duplicate signer certificates with the same SID")
   }
 }
 

@@ -740,7 +740,7 @@ test "crl: stale CRL (now >= nextUpdate) rejected" {
 }
 
 ///|
-test "crl: CRL without nextUpdate parses and verifies" {
+test "crl: CRL without nextUpdate parses" {
   let issuer = build_ed25519_cert(
     issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
   )
@@ -751,8 +751,28 @@ test "crl: CRL without nextUpdate parses and verifies" {
     [{ serial: b"\x10", date: "240501000000Z" }],
     issuer_seed_hex,
   )
-  let crl = @crl.verify(der, issuer, "250601000000Z")
+  let crl = @crl.parse(der)
   @debug.assert_eq(crl.next_update, None)
+}
+
+///|
+test "ATTACK crl: verify rejects CRL without nextUpdate freshness bound" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der(
+    issuer,
+    "240101000000Z",
+    None,
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    StaleCrl(_) => ()
+    other => abort("expected StaleCrl, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL without nextUpdate freshness bound")
+  }
 }
 
 ///|
