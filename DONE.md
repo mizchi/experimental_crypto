@@ -94,6 +94,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add P-384 crypto_bigint-backed homogeneous-projective complete addition and
   affine-oracle tests; leave scalar/sign wiring disconnected until the
   384-bit scalar loop has a faster reducer for JS.
+- Add secp256k1 crypto_bigint-backed Montgomery-field complete addition,
+  affine-oracle tests, and a minimal fixed-scalar oracle; leave sign wiring
+  disconnected until the 256-bit scalar path is fast enough for JS.
 
 ## Parser And Protocol Hardening
 

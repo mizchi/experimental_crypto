@@ -32,6 +32,7 @@ pub fn Uint::add_mod(Self, Self, Self) -> Self
 pub fn Uint::bit_len(Self) -> Int
 pub fn Uint::ct_eq(Self, Self) -> Bool
 pub fn Uint::ct_lt(Self, Self) -> Bool
+pub fn Uint::ct_select(Self, Self, UInt64) -> Self
 pub fn Uint::from_be_bytes(Bytes, Int) -> Self raise CryptoBigintError
 pub fn Uint::from_le_bytes(Bytes, Int) -> Self raise CryptoBigintError
 pub fn Uint::inv_mod(Self, Self) -> Self raise CryptoBigintError

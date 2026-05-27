@@ -175,8 +175,12 @@ fails closed before returning authenticated / verified / trusted.
     scalar loop made JS tests too slow without a dedicated reducer.
   - [ ] Add a performant P-384 fixed scalar path, then wire private scalar
     multiplication away from affine `@bigint`.
-  - [ ] Port the fixed-iteration complete-addition private scalar path to
-    secp256k1.
+  - [x] Add secp256k1 crypto_bigint-backed complete-addition formulas and
+    oracle tests, plus a minimal fixed-scalar oracle. Keep sign wiring
+    disconnected for now because full sign-side use still needs a faster
+    reducer / scalar path for JS.
+  - [ ] Add a performant secp256k1 fixed scalar path, then wire private scalar
+    multiplication away from affine `@bigint`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
 - [ ] **`ed25519`** 10-limb field arithmetic, matching the speedup already
