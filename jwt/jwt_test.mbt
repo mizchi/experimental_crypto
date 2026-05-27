@@ -139,6 +139,32 @@ test "HS256: tampered payload fails signature check" {
   }
 }
 
+///|
+test "ATTACK jwt: non-canonical signature base64url is rejected" {
+  // RFC 7515 A.1 token, but the final signature character is changed from
+  // canonical "k" to "l". A lenient decoder produces the same signature
+  // bytes because only pad bits changed; the verifier must reject the
+  // alternate spelling before returning authenticated claims.
+  let secret = b64u_to_bytes(
+    "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow",
+  )
+  let token = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXl"
+  let opts : @jwt.VerifyOptions = {
+    now: 1300819300L,
+    clock_skew_sec: 0L,
+    require_exp: false,
+    issuer: None,
+    audience: None,
+    typ_allowed: None,
+  }
+  try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    @jwt.InvalidToken(_) => ()
+    e => abort("expected InvalidToken, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted non-canonical signature base64url")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // HS256: sign + verify roundtrip
 // -----------------------------------------------------------------------------

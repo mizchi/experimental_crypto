@@ -160,6 +160,7 @@ fn build_crl_der_with_options(
   inner_sig_alg_elem : @asn1.Element,
   outer_sig_alg_elem : @asn1.Element,
   extra_tbs_fields : Array[@asn1.Element],
+  version_bytes? : Bytes = b"\x01",
 ) -> Bytes raise {
   let signer_sk = @ed25519.PrivateKey::from_seed(hex_to_bytes(signer_seed_hex))
   // tbsCertList ::= SEQUENCE {
@@ -172,7 +173,7 @@ fn build_crl_der_with_options(
   //   crlExtensions [0] EXPLICIT Extensions OPTIONAL }
   let items : Array[@asn1.Element] = []
   // version = 1 (v2)
-  items.push(@asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")))
+  items.push(@asn1.Element::new(@asn1.tag_integer, Integer(version_bytes)))
   // signature algorithm: ed25519
   items.push(inner_sig_alg_elem)
   // issuer: re-decode the serialized subject of issuer_cert to get an Element.
@@ -525,6 +526,30 @@ test "ATTACK crl: inner and outer signature AlgorithmIdentifier must match exact
     other => abort("expected AlgorithmMismatch, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted CRL with mismatched AlgorithmIdentifier parameters")
+  }
+}
+
+///|
+test "ATTACK crl: unsupported TBSCertList version is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex, "Test Issuer", "Test Issuer", issuer_seed_hex,
+  )
+  let der = build_crl_der_with_options(
+    issuer,
+    "240101000000Z",
+    Some("300101000000Z"),
+    [{ serial: b"\x10", date: "240501000000Z" }],
+    issuer_seed_hex,
+    ed25519_alg_elem(false),
+    ed25519_alg_elem(false),
+    [],
+    version_bytes=b"\x02",
+  )
+  try @crl.verify(der, issuer, "250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted CRL with unsupported TBSCertList version")
   }
 }
 

@@ -138,6 +138,49 @@ fn replace_compact_segment(
 }
 
 ///|
+fn b64u_char_index(c : Char) -> Int {
+  let code = c.to_int()
+  if code >= 'A'.to_int() && code <= 'Z'.to_int() {
+    code - 'A'.to_int()
+  } else if code >= 'a'.to_int() && code <= 'z'.to_int() {
+    code - 'a'.to_int() + 26
+  } else if code >= '0'.to_int() && code <= '9'.to_int() {
+    code - '0'.to_int() + 52
+  } else if c == '-' {
+    62
+  } else if c == '_' {
+    63
+  } else {
+    abort("bad base64url char")
+  }
+}
+
+///|
+fn b64u_char_from_index(i : Int) -> Char {
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+  .get_char(i)
+  .unwrap()
+}
+
+///|
+fn noncanonical_last_pad_bits(s : String) -> String {
+  if s.length() == 0 {
+    abort("empty base64url segment")
+  }
+  let last = s.get_char(s.length() - 1).unwrap()
+  let idx = b64u_char_index(last)
+  if idx % 4 != 0 {
+    abort("test helper expected canonical low pad bits")
+  }
+  let buf = StringBuilder::new()
+  for i in 0..<(s.length() - 1) {
+    buf.write_char(s.get_char(i).unwrap())
+  }
+  buf.write_char(b64u_char_from_index(idx + 1))
+  buf.to_string()
+}
+
+///|
 fn bytes_slice(b : Bytes, start : Int, end : Int) -> Bytes {
   Bytes::makei(end - start, fn(i) { b[start + i] })
 }
@@ -179,6 +222,29 @@ test "jwe: dir + A128GCM roundtrip" {
   )
   let decoded = @jwe.decrypt(token, @jwe.DecryptionKey::DecDir(cek~))
   @debug.assert_eq(decoded, plaintext)
+}
+
+///|
+test "ATTACK jwe: non-canonical tag base64url is rejected" {
+  let cek = fixed_cek16()
+  let iv = fixed_iv12()
+  let plaintext : Bytes = b"canonical jwe"
+  let token = @jwe.encrypt(
+    plaintext,
+    @jwe.JweAlg::Dir,
+    @jwe.JweEnc::A128gcm,
+    @jwe.EncryptionKey::EncDir(cek~),
+    iv~,
+  )
+  let parts = token.split(".").to_array()
+  let bad_tag = noncanonical_last_pad_bits(parts[4].to_owned())
+  let bad = replace_compact_segment(token, 4, bad_tag)
+  try @jwe.decrypt(bad, @jwe.DecryptionKey::DecDir(cek~)) catch {
+    @jwe.InvalidToken(_) => ()
+    e => abort("expected InvalidToken, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted non-canonical JWE tag base64url")
+  }
 }
 
 // ─── Roundtrip: A256KW + A256GCM ──────────────────────────────────────────

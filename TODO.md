@@ -261,8 +261,18 @@ Current fail-closed fixes applied in this sweep:
 - [x] CMS detached verification now requires signedAttrs
   `contentType=id-data` as well as a unique `messageDigest`.
 - [x] COSE_Key `alg` metadata, when present, must match the parsed key type.
+- [x] COSE_Sign1 rejects unsupported `crit` headers in both protected and
+  unprotected maps instead of verifying a signature while ignoring extension
+  semantics.
+- [x] OCSP verification rejects unsupported `ResponseData.version` values and
+  responses whose `producedAt` is in the future.
+- [x] CRL verification rejects unsupported `TBSCertList.version` values.
+- [x] CMS SignerInfo rejects unexpected trailing fields; only the standard
+  unsignedAttrs slot may appear after `signature`.
 - [x] JWT/JWE/JWK reject duplicate JSON object members at trust boundaries
   before Map-collapsing can change interpretation.
+- [x] JWT/JWE/JWK have attack regression tests for non-canonical base64url
+  pad-bit spellings at trust boundaries.
 - [x] PGP detached signature armor must contain exactly one Signature packet.
 - [x] `git_object.parse_signed_commit` rejects signed tag objects instead of
   delegating to the generic signed-object parser.

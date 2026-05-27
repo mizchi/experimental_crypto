@@ -204,6 +204,30 @@ fn expect_integer(elem : @asn1.Element) -> Bytes raise OcspError {
 }
 
 ///|
+fn expect_integer_small(elem : @asn1.Element) -> Int raise OcspError {
+  let bytes = expect_integer(elem)
+  if bytes.length() == 0 || bytes.length() > 4 {
+    raise Malformed("INTEGER out of small range")
+  }
+  if (bytes[0].to_int() & 0x80) != 0 {
+    raise Malformed("INTEGER must be non-negative")
+  }
+  let mut v = 0
+  for i in 0..<bytes.length() {
+    v = (v << 8) | bytes[i].to_int()
+  }
+  v
+}
+
+///|
+fn expect_response_data_version(elem : @asn1.Element) -> Unit raise OcspError {
+  let version = expect_integer_small(elem)
+  if version != 0 {
+    raise Malformed("ResponseData: unsupported version")
+  }
+}
+
+///|
 fn expect_generalized_time(elem : @asn1.Element) -> String raise OcspError {
   match elem.value {
     GeneralizedTime(s) => s
@@ -561,9 +585,12 @@ fn parse_response_data(
   // Optional [0] EXPLICIT Version
   if idx < items.length() {
     match match_context_explicit(items[idx], 0U) {
-      Some(_) =>
-        // Don't care about version content; only v1 is defined.
+      Some(inner) => {
+        // Version DEFAULT v1 is encoded as INTEGER 0 when present. Future
+        // versions may alter semantics, so fail closed.
+        expect_response_data_version(inner)
         idx = idx + 1
+      }
       None => ()
     }
   }
@@ -1038,15 +1065,21 @@ pub fn verify(
   // be rejected before we trust any thisUpdate / nextUpdate field.
   verify_basic_signature(basic, issuer_cert, now)
 
-  // 3. Locate the SingleResponse that matches (cert, issuer_cert).
+  // 3. Freshness for ResponseData itself.
+  let now_n = normalize_time(now)
+  let produced_n = normalize_time(basic.response_data.produced_at)
+  if now_n < produced_n {
+    raise StaleResponse("producedAt > now")
+  }
+
+  // 4. Locate the SingleResponse that matches (cert, issuer_cert).
   let single = find_matching_single(
     basic.response_data.responses,
     cert,
     issuer_cert,
   )
 
-  // 4. Freshness window.
-  let now_n = normalize_time(now)
+  // 5. Freshness window.
   let this_n = normalize_time(single.this_update)
   if now_n < this_n {
     raise StaleResponse("thisUpdate > now")
@@ -1061,6 +1094,6 @@ pub fn verify(
     None => () // No nextUpdate → no upper bound (RFC 6960 §4.2.2.1)
   }
 
-  // 5. Return the status.
+  // 6. Return the status.
   single.status
 }

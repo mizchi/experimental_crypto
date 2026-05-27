@@ -354,6 +354,23 @@ fn append_sequence_field(
 }
 
 ///|
+fn prepend_sequence_field(
+  elem : @asn1.Element,
+  extra : @asn1.Element,
+) -> @asn1.Element {
+  match elem.value {
+    Sequence(items) => {
+      let out : Array[@asn1.Element] = [extra]
+      for item in items {
+        out.push(item)
+      }
+      @asn1.Element::new(elem.tag, Sequence(out))
+    }
+    _ => abort("prepend_sequence_field expects SEQUENCE")
+  }
+}
+
+///|
 fn ocsp_extension_elem(
   oid : @asn1.ObjectIdentifier,
   critical : Bool,
@@ -1423,6 +1440,99 @@ test "ocsp: delegated responder cert path" {
   let ocsp = build_ocsp_response_der(basic)
   let status = @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z")
   @debug.assert_eq(status, Good)
+}
+
+///|
+test "ATTACK ocsp: unsupported ResponseData version is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd0 = build_response_data_elem(
+    issuer.tbs.subject,
+    "20240101000000Z",
+    single,
+  )
+  let bad_version = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    Unknown(
+      @asn1.encode_der(@asn1.Element::new(@asn1.tag_integer, Integer(b"\x01"))),
+    ),
+  )
+  let rd = prepend_sequence_field(rd0, bad_version)
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    Malformed(_) => ()
+    other => abort("expected Malformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP ResponseData with unsupported version")
+  }
+}
+
+///|
+test "ATTACK ocsp: producedAt in the future is rejected" {
+  let issuer = build_ed25519_cert(
+    issuer_seed_hex,
+    "Test Issuer",
+    "Test Issuer",
+    "200101000000Z",
+    "300101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let leaf = build_ed25519_cert(
+    cert_seed_hex,
+    "Test Leaf",
+    "Test Issuer",
+    "230101000000Z",
+    "330101000000Z",
+    [],
+    issuer_seed_hex,
+  )
+  let single = build_single_response_elem(
+    issuer,
+    leaf.tbs.serial_number,
+    BGood,
+    "20240101000000Z",
+    Some("20300101000000Z"),
+    true,
+  )
+  let rd = build_response_data_elem(
+    issuer.tbs.subject,
+    "20260101000000Z",
+    single,
+  )
+  let basic = build_basic_ocsp_der(rd, issuer_seed_hex, None)
+  let ocsp = build_ocsp_response_der(basic)
+  try @ocsp.verify(ocsp, leaf, issuer, "20250601000000Z") catch {
+    StaleResponse(_) => ()
+    other => abort("expected StaleResponse, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted OCSP response produced in the future")
+  }
 }
 
 ///|

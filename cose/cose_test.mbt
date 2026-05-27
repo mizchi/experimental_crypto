@@ -323,6 +323,52 @@ test "ATTACK verify_sign1: protected header must use preferred CBOR encoding" {
 }
 
 ///|
+test "ATTACK verify_sign1: unsupported protected crit header is rejected" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  let protected_bytes = @cbor.encode(
+    Map([
+      (Uint(1UL), Nint(7UL)), // alg = EdDSA
+      (Uint(2UL), Array([Uint(42UL)])), // crit = [42]
+      (Uint(42UL), Bool(true)),
+    ]),
+  )
+  let payload = b"critical protected header"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([]),
+    Bytes(payload),
+    payload,
+  )
+  try @cose.verify_sign1(cose_sign1, payload, key) catch {
+    InvalidStructure(_) => ()
+    other => abort("expected crit rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported protected crit header")
+  }
+}
+
+///|
+test "ATTACK verify_sign1: unprotected crit header is rejected" {
+  let sk = ed25519_test_private_key()
+  let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())
+  let protected_bytes = @cbor.encode(Map([(Uint(1UL), Nint(7UL))]))
+  let payload = b"critical unprotected header"
+  let cose_sign1 = build_ed25519_sign1(
+    protected_bytes,
+    Map([(Uint(2UL), Array([Uint(42UL)])), (Uint(42UL), Bool(true))]),
+    Bytes(payload),
+    payload,
+  )
+  try @cose.verify_sign1(cose_sign1, payload, key) catch {
+    InvalidStructure(_) => ()
+    other => abort("expected crit rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted unsupported unprotected crit header")
+  }
+}
+
+///|
 test "ATTACK verify_sign1: embedded payload must match supplied payload" {
   let sk = ed25519_test_private_key()
   let key : @cose.CoseKey = OkpEd25519(pubkey=sk.public_key())

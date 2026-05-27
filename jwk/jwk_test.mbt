@@ -358,3 +358,18 @@ test "ATTACK jwk: impossible base64url length is rejected" {
     _ => abort("expected InvalidBase64Url, got Ok")
   }
 }
+
+///|
+test "ATTACK jwk: non-canonical base64url pad bits are rejected" {
+  // "_w" is the canonical base64url for the single byte 0xff. "_x" has the
+  // same data bits but non-zero pad bits; a lenient decoder maps it to the
+  // same byte and creates multiple spellings for one key.
+  let json =
+    #|{"kty":"oct","k":"_x"}
+  try @jwk.parse_private(json) catch {
+    @jwk.InvalidBase64Url(_) => ()
+    e => abort("expected InvalidBase64Url, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted non-canonical base64url key material")
+  }
+}

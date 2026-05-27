@@ -118,6 +118,14 @@ fn expect_integer_small(elem : @asn1.Element) -> Int raise CrlError {
 }
 
 ///|
+fn expect_crl_version(elem : @asn1.Element) -> Unit raise CrlError {
+  let version = expect_integer_small(elem)
+  if version != 1 {
+    raise Malformed("TBSCertList: unsupported version")
+  }
+}
+
+///|
 fn expect_bit_string(elem : @asn1.Element) -> @asn1.BitString raise CrlError {
   match elem.value {
     BitString(b) => b
@@ -278,7 +286,7 @@ fn parse_tbs_cert_list(
   // Optional version
   match items[idx].value {
     Integer(_) => {
-      let _ = expect_integer_small(items[idx])
+      expect_crl_version(items[idx])
       idx = idx + 1
     }
     _ => () // no version → v1 (DEFAULT)

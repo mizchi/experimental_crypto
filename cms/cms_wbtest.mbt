@@ -37,6 +37,11 @@ fn concat_wb(a : Bytes, b : Bytes) -> Bytes {
 }
 
 ///|
+fn elem_from_der_wb(der : Bytes) -> @asn1.Element raise {
+  @asn1.decode_der(der)
+}
+
+///|
 fn message_digest_attr_wb(digest_hex : String) -> Bytes {
   hex_wb("302f06092a864886f70d01090431220420" + digest_hex)
 }
@@ -114,5 +119,38 @@ test "ATTACK cms: messageDigest attribute with multiple values is malformed" {
     _ => abort("unexpected error")
   } noraise {
     _ => abort("accepted multi-valued messageDigest attribute")
+  }
+}
+
+///|
+test "ATTACK cms: unexpected SignerInfo trailing field is malformed" {
+  let sid = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_sequence, Sequence([])),
+      @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+    ]),
+  )
+  let signed_attrs = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    Unknown(b""),
+  )
+  let si = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+      sid,
+      elem_from_der_wb(hex_wb("300b0609608648016503040201")),
+      signed_attrs,
+      elem_from_der_wb(hex_wb("300d06092a864886f70d0101010500")),
+      @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+      @asn1.Element::new(@asn1.tag_null, Null),
+    ]),
+  )
+  try parse_signer_info(si) catch {
+    Malformed(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted SignerInfo with unexpected trailing field")
   }
 }

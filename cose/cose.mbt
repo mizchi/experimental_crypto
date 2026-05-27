@@ -283,8 +283,12 @@ fn resolve_alg(
   protected_bytes : Bytes,
   unprotected : @cbor.CborValue,
 ) -> CoseAlg raise CoseError {
+  require_unique_header_int_labels(unprotected, "unprotected header")
   if count_int_label(unprotected, 1L) > 0 {
     raise InvalidStructure("alg must be protected, not unprotected")
+  }
+  if count_int_label(unprotected, 2L) > 0 {
+    raise InvalidStructure("crit header is not supported")
   }
   if protected_bytes.length() > 0 {
     let m = @cbor.decode(protected_bytes) catch { e => raise CborDecode(e) }
@@ -293,6 +297,7 @@ fn resolve_alg(
         "protected header must use preferred CBOR encoding",
       )
     }
+    require_unique_header_int_labels(m, "protected header")
     alg_from_protected_map(m)
   } else {
     raise InvalidStructure("protected alg required")
@@ -303,6 +308,9 @@ fn resolve_alg(
 fn alg_from_protected_map(m : @cbor.CborValue) -> CoseAlg raise CoseError {
   match m {
     Map(_) => {
+      if count_int_label(m, 2L) > 0 {
+        raise InvalidStructure("crit header is not supported")
+      }
       let count = count_int_label(m, 1L)
       if count == 0 {
         raise InvalidStructure("protected alg required")
@@ -323,6 +331,37 @@ fn alg_from_protected_map(m : @cbor.CborValue) -> CoseAlg raise CoseError {
       alg_from_id(id)
     }
     _ => raise InvalidStructure("protected header must be a map")
+  }
+}
+
+///|
+fn require_unique_header_int_labels(
+  m : @cbor.CborValue,
+  context : String,
+) -> Unit raise CoseError {
+  match m {
+    Map(pairs) =>
+      for i in 0..<pairs.length() {
+        let (ki, _) = pairs[i]
+        match int_label_of_key(ki) {
+          None => ()
+          Some(label) => {
+            let mut j = i + 1
+            while j < pairs.length() {
+              let (kj, _) = pairs[j]
+              match int_label_of_key(kj) {
+                Some(other) =>
+                  if other == label {
+                    raise InvalidStructure(context + " duplicate integer label")
+                  }
+                None => ()
+              }
+              j = j + 1
+            }
+          }
+        }
+      }
+    _ => raise InvalidStructure(context + " must be a map")
   }
 }
 

@@ -364,6 +364,22 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
     OctetString(b) => b
     _ => raise Malformed("SignerInfo.signature")
   }
+  idx = idx + 1
+  if idx < items.length() {
+    let item = items[idx]
+    if item.tag.class_ == @asn1.TagClass::ContextSpecific &&
+      item.tag.number == 1U {
+      // unsignedAttrs are explicitly outside the signature. We do not
+      // interpret them, but accepting the standard optional field is fine as
+      // long as nothing follows it.
+      idx = idx + 1
+    } else {
+      raise Malformed("SignerInfo unexpected trailing field")
+    }
+  }
+  if idx != items.length() {
+    raise Malformed("SignerInfo trailing fields")
+  }
   let attrs = match signed_attrs {
     Some(b) => b
     None =>
