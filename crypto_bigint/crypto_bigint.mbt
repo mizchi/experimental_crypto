@@ -669,6 +669,24 @@ pub fn Uint::ct_eq(self : Uint, other : Uint) -> Bool {
 }
 
 ///|
+pub fn Uint::ct_select(a : Uint, b : Uint, bit : UInt64) -> Uint {
+  let a_limbs = a.limbs
+  let b_limbs = b.limbs
+  let n = if a_limbs.length() > b_limbs.length() {
+    a_limbs.length()
+  } else {
+    b_limbs.length()
+  }
+  let out = FixedArray::make(n, 0UL)
+  for i in 0..<n {
+    let av = if i < a_limbs.length() { a_limbs[i] } else { 0UL }
+    let bv = if i < b_limbs.length() { b_limbs[i] } else { 0UL }
+    out[i] = ct_select_u64(av, bv, bit)
+  }
+  { limbs: out }
+}
+
+///|
 pub fn Uint::ct_lt(self : Uint, other : Uint) -> Bool {
   let a = self.limbs
   let b = other.limbs

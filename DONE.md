@@ -89,6 +89,11 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add P-256 homogeneous-projective complete addition, verify it against the
   affine oracle, and route sign-side base-point scalar multiplication away
   from affine `@bigint`.
+- Add `crypto_bigint.Uint::ct_select` for cross-package branchless-intended
+  field / point selection.
+- Add P-384 crypto_bigint-backed homogeneous-projective complete addition and
+  affine-oracle tests; leave scalar/sign wiring disconnected until the
+  384-bit scalar loop has a faster reducer for JS.
 
 ## Parser And Protocol Hardening
 

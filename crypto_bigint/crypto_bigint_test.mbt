@@ -191,6 +191,20 @@ test "ct_eq treats different limb widths as zero-extended" {
 }
 
 ///|
+test "ct_select chooses operands with zero-extension" {
+  let short = make_uint(1, [0x11UL])
+  let long = make_uint(3, [0x22UL, 0x33UL, 0x44UL])
+  let pick_short = @crypto_bigint.Uint::ct_select(short, long, 0UL)
+  let pick_long = @crypto_bigint.Uint::ct_select(short, long, 1UL)
+  let pick_long_masked = @crypto_bigint.Uint::ct_select(short, long, 3UL)
+  @debug.assert_eq(pick_short.limbs.length(), 3)
+  @debug.assert_eq(pick_long.limbs.length(), 3)
+  assert_true(@crypto_bigint.Uint::ct_eq(pick_short, short))
+  assert_true(@crypto_bigint.Uint::ct_eq(pick_long, long))
+  assert_true(@crypto_bigint.Uint::ct_eq(pick_long_masked, long))
+}
+
+///|
 test "ct_lt handles borrow across limbs and zero-extension" {
   let low_high = make_uint(2, [0UL, 1UL])
   let high_low = make_uint(2, [0xffff_ffff_ffff_ffffUL, 0UL])
