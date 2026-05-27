@@ -47,4 +47,5 @@ members = [
   "./scrypt/wrap",
   "./getrandom/wrap",
   "./argon2/wrap",
+  "./jwt/wrap",
 ]
