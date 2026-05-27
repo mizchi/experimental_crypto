@@ -83,6 +83,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   multiplication correctness baseline against the existing affine oracle.
 - Add P-256 field and projective point conditional-select helpers as the
   groundwork for a fixed-iteration scalar multiplication path.
+- Add a P-256 fixed-256-iteration scalar multiplication skeleton; keep it
+  disconnected from signing because projective addition still branches on
+  exceptional cases.
 
 ## Parser And Protocol Hardening
 

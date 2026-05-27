@@ -304,6 +304,23 @@ test "fe projective scalar multiplication matches affine oracle" {
 }
 
 ///|
+test "fe fixed-iteration scalar skeleton matches affine oracle" {
+  let g = generator()
+  let scalars : Array[String] = [
+    "0", "1", "2", "3", "5", "ff", "0100000000000000000000000000000000000000000000000000000000000000",
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550",
+  ]
+  for s in scalars {
+    let k = BigInt::from_string(s, radix=16)
+    let got = fe_point_to_affine(
+      fe_scalar_mult_fixed_branchy(k, fe_point_from_affine(g)),
+    )
+    let expected = scalar_mult(k, g)
+    assert_point_eq(got, expected, "k=0x" + s)
+  }
+}
+
+///|
 test "fe projective point conditional select chooses operands" {
   let g = fe_point_from_affine(generator())
   let inf = fe_point_from_affine(point_infinity())

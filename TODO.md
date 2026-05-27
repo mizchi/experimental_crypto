@@ -161,6 +161,9 @@ fails closed before returning authenticated / verified / trusted.
   - [x] Add P-256 projective point conversion, double/add, and branchy scalar
     multiplication baseline against the existing affine oracle.
   - [x] Add P-256 field / projective point conditional-select helpers.
+  - [x] Add a P-256 fixed-256-iteration scalar multiplication skeleton. It is
+    not wired into signing because point addition still has exceptional-case
+    branches.
   - [ ] Add complete / exceptional-case-free P-256 formulas, then wire private
     scalar multiplication away from affine `@bigint`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.

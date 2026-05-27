@@ -2,7 +2,8 @@
 //
 // This is a correctness milestone for the field rewrite. The formulas are
 // still branchy and are not wired into signing yet; constant-time scalar
-// multiplication needs a complete / branchless selection layer on top.
+// multiplication needs complete addition formulas before private scalars use
+// this path.
 
 ///|
 priv struct FePoint {
@@ -185,6 +186,28 @@ fn fe_scalar_mult_variable(k : BigInt, p : FePoint) -> FePoint {
         }
       }
     }
+  }
+  r
+}
+
+///|
+fn fe_scalar_bit_be32(bytes : Bytes, bit_index : Int) -> UInt64 {
+  let byte_index = bit_index / 8
+  let bit_in_byte = 7 - bit_index % 8
+  ((bytes[byte_index].to_int() >> bit_in_byte) & 1).to_uint64()
+}
+
+///|
+#warnings("-unused_value")
+fn fe_scalar_mult_fixed_branchy(k : BigInt, p : FePoint) -> FePoint {
+  // Fixed 256-iteration skeleton, but not constant-time: `fe_point_add` still
+  // has exceptional-case branches depending on the secret accumulator state.
+  let bytes = k.to_octets(length=32)
+  let mut r = fe_point_infinity()
+  for bit_index = 0; bit_index < 256; bit_index = bit_index + 1 {
+    let doubled = fe_point_double(r)
+    let added = fe_point_add(doubled, p)
+    r = fe_point_select(doubled, added, fe_scalar_bit_be32(bytes, bit_index))
   }
   r
 }
