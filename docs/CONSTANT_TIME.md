@@ -66,6 +66,11 @@ equivalent, to compare fixed class workloads without including test harness
 branching in the measured operation. The current thresholds are intentionally
 not CI-gated; they need backend-specific calibration first.
 
+CI runs a tiny native leakage-harness smoke job (`compare 2 1 1000000`) so the
+measurement entry point cannot silently rot. That job is not leakage evidence;
+it deliberately uses a loose threshold until backend-specific calibration
+exists.
+
 ## Acceptance Criteria
 
 Before upgrading any path from "branchless / fixed-iteration intended" to

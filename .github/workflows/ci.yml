@@ -50,6 +50,31 @@ jobs:
             moon test --target "${{ matrix.target }}"
           '
 
+  leakage-smoke:
+    name: leakage harness smoke (native, ubuntu-latest, nix devShell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: leakage harness smoke
+        run: |
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            moon update >/dev/null
+            moon run --target native ./leakage_harness -- list
+            moon run --target native ./leakage_harness -- compare 2 1 1000000
+          '
+
   prove:
     name: prove (ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest

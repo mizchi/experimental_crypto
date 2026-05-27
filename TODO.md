@@ -28,6 +28,7 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Add a native `leakage_harness` entry point with sparse-vs-dense class
      workloads for `crypto_bigint`, RSA sign, JWE RSA-OAEP decrypt, and
      P-256/P-384/secp256k1 ECDSA sign.
+   - [x] Add a CI smoke gate that builds and runs the native leakage harness.
    - [ ] Calibrate and gate external leakage checks (`dudect` /
      callgrind-style harness) for RSA/JWE private operations and ECDSA sign
      paths. Measurement scope and terminology are in `docs/CONSTANT_TIME.md`.
@@ -147,8 +148,9 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
   operations, and ECDSA signing. A native `leakage_harness` workload entry
-  point exists; thresholds and CI gating are still open. Scope and acceptance
-  criteria are documented in `docs/CONSTANT_TIME.md`.
+  point and CI smoke gate exist; calibrated thresholds and hard leakage gating
+  are still open. Scope and acceptance criteria are documented in
+  `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 

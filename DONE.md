@@ -113,6 +113,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   class workloads for `crypto_bigint::{pow_mod,inv_mod}`, RSA PKCS#1 v1.5
   sign, JWE RSA-OAEP decrypt, and P-256/P-384/secp256k1 ECDSA sign. This is a
   measurement entry point, not constant-time proof or CI gating.
+- Add a CI leakage-harness smoke job that builds the native harness, lists
+  workloads, and runs a tiny sparse-vs-dense comparison. This only prevents
+  harness rot; calibrated thresholds remain open.
 
 ## Parser And Protocol Hardening
 
