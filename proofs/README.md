@@ -61,6 +61,7 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `hash/wrap` | `sha256_pad_len(msg_bytes)` | FIPS 180-4 §5.1.1 SHA-256 padding length ∈ [9, 72] AND `(msg_bytes + result) % 64 == 0` |
 | `hash/wrap` | `sha512_pad_len(msg_bytes)` | FIPS 180-4 §5.1.2 SHA-512 padding length ∈ [17, 144] AND `(msg_bytes + result) % 128 == 0` |
 | `asn1/wrap` | `der_length_prefix_size(n)` | X.690 §8.1.3 DER length-prefix octet count ∈ [1, 5] — spec for `asn1.write_length` |
+| `asn1/wrap` | `der_oid_arc_byte_count(arc)` | X.690 §8.19 base-128 varint byte count ∈ [1, 5] — spec for OID encoder scratch sizing |
 
 The "spec" entries (`pkcs7_pad_len`, `der_length_prefix_size`,
 `is_hardened_from_msb`, `mnemonic_word_count`) are helpers the host
