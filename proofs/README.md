@@ -62,6 +62,7 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `hash/wrap` | `sha512_pad_len(msg_bytes)` | FIPS 180-4 §5.1.2 SHA-512 padding length ∈ [17, 144] AND `(msg_bytes + result) % 128 == 0` |
 | `totp/wrap` | `totp_digit_modulus(digits)` | RFC 4226 §5.3 / RFC 6238 HOTP-truncation modulus ∈ {10^6, 10^7, 10^8} for digits ∈ {6, 7, 8} |
 | `scrypt/wrap` | `scrypt_pbkdf_blocks(dk_len, h_len)` | RFC 7914 §2 step-4 PBKDF2 block count for the final dkLen-byte derivation |
+| `getrandom/wrap` | `getrandom_chunk_len(remaining, cap)` | OS CSPRNG syscall chunking — `min(remaining, cap)` with caller-cap honored (Linux 256B, macOS 4096B, …) |
 | `asn1/wrap` | `der_length_prefix_size(n)` | X.690 §8.1.3 DER length-prefix octet count ∈ [1, 5] — spec for `asn1.write_length` |
 | `asn1/wrap` | `der_oid_arc_byte_count(arc)` | X.690 §8.19 base-128 varint byte count ∈ [1, 5] — spec for OID encoder scratch sizing |
 

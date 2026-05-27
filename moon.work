@@ -45,4 +45,5 @@ members = [
   "./hash/wrap",
   "./totp/wrap",
   "./scrypt/wrap",
+  "./getrandom/wrap",
 ]
