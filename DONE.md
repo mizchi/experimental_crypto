@@ -97,6 +97,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add secp256k1 crypto_bigint-backed Montgomery-field complete addition,
   affine-oracle tests, and a minimal fixed-scalar oracle; leave sign wiring
   disconnected until the 256-bit scalar path is fast enough for JS.
+- Add a reduced-input Montgomery multiplication path plus secp256k1
+  fixed-limb add/sub helpers, then route secp256k1 sign-side base-point scalar
+  multiplication and public-key derivation away from affine `@bigint`.
 
 ## Parser And Protocol Hardening
 

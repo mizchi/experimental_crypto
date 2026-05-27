@@ -69,9 +69,9 @@ solving one RFC-level concern. Modules depend only on `moonbitlang/core`,
 |---|---|---|
 | `ed25519` | RFC 8032 | Ed25519 sign + verify (with `verify_strict`). SHA-512 self-impl in module. Edwards curve via @bigint (TODO: 10-limb). |
 | `x25519` | RFC 7748 | X25519 ECDH. 10-limb radix-2^25.5 Montgomery ladder; ~90µs/operation. Small-subgroup defence. |
-| `p256` | NIST FIPS 186-5, SEC 1 | ECDSA-SHA-256 verify + sign (RFC 6979 deterministic). Affine Weierstrass via @bigint; final nonce inverse routes through `crypto_bigint`. PKCS#8 loader (curve-OID checked). |
-| `p384` | NIST FIPS 186-5 | ECDSA-SHA-384, same shape as p256. |
-| `secp256k1` | SEC 2 §2.4.1 | Bitcoin / Ethereum curve. ECDSA + RFC 6979 + BIP-62 low-s by default; final nonce inverse routes through `crypto_bigint`. `sign_no_low_s` for pre-BIP-62 callers. `PublicKey::to_compressed` for BIP-32. |
+| `p256` | NIST FIPS 186-5, SEC 1 | ECDSA-SHA-256 verify + sign (RFC 6979 deterministic). Sign-side base-point multiplication and final nonce inverse route through fixed-limb paths; public verify remains affine `@bigint`. PKCS#8 loader (curve-OID checked). |
+| `p384` | NIST FIPS 186-5 | ECDSA-SHA-384. Sign-side nonce inverse routes through `crypto_bigint`; scalar multiplication still uses affine `@bigint` pending a faster fixed-limb path. |
+| `secp256k1` | SEC 2 §2.4.1 | Bitcoin / Ethereum curve. ECDSA + RFC 6979 + BIP-62 low-s by default; sign-side base-point multiplication and final nonce inverse route through fixed-limb paths; public verify remains affine `@bigint`. `sign_no_low_s` for pre-BIP-62 callers. `PublicKey::to_compressed` for BIP-32. |
 | `rsa` | RFC 8017 | RSA PKCS#1 v1.5 + RSA-PSS (MGF1-SHA-2{56,384,512}). Sign + verify. Sign-side private modexp routes through `crypto_bigint`; public verify remains `@bigint.pow`. PKCS#1 / SPKI / PKCS#8 loaders. |
 
 ### Layer 4 — composers / verifiers

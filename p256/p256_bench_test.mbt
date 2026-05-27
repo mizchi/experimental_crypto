@@ -1,7 +1,6 @@
-// Benchmarks for P-256 ECDSA. Field arithmetic still goes through @bigint
-// affine point ops; only the final nonce inverse is routed through
-// crypto_bigint. These numbers are the baseline before a planned 10-limb
-// radix-2^26 field rewrite.
+// Benchmarks for P-256 ECDSA. Sign-side base-point multiplication and the
+// final nonce inverse are routed through fixed-limb paths; public verify
+// remains affine @bigint.
 
 ///|
 let bench_priv_scalar : Bytes = b"\xc9\xaf\xa9\xd8\x45\xba\x75\x16\x6b\x5c\x21\x57\x67\xb1\xd6\x93\x4e\x50\xc3\xdb\x36\xe8\x9b\x12\x7b\x8a\x62\x2b\x12\x0f\x67\x21"

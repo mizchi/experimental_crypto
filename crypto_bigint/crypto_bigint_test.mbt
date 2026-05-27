@@ -410,6 +410,21 @@ test "Montgomery round-trip and mul" {
 }
 
 ///|
+test "Montgomery mul_reduced matches mul for Montgomery-domain operands" {
+  let m = make_uint(4, [
+    0xfffffffefffffc2fUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL,
+  ])
+  let mont = @crypto_bigint.Montgomery::new(m)
+  let a = make_uint(4, [12345UL, 67890UL, 111UL, 222UL])
+  let b = make_uint(4, [98765UL, 43210UL, 333UL, 444UL])
+  let mont_a = mont.to_mont(a)
+  let mont_b = mont.to_mont(b)
+  let prod = mont.from_mont(mont.mul(mont_a, mont_b))
+  let prod_reduced = mont.from_mont(mont.mul_reduced(mont_a, mont_b))
+  assert_true(@crypto_bigint.Uint::ct_eq(prod_reduced, prod))
+}
+
+///|
 test "Montgomery r2 matches BigInt oracle" {
   let m = make_uint(4, [
     0xffff_ffff_ffff_ffc5UL, 0xffff_ffff_ffff_ffffUL, 0xffff_ffff_ffff_ffffUL, 0x8000_0000_0000_0001UL,

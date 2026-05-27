@@ -53,6 +53,71 @@ fn fe_k1_b3() -> FeK1 {
 }
 
 ///|
+fn fe_k1_u64_lt_01(a : UInt64, b : UInt64) -> UInt64 {
+  let diff = a - b
+  (((a.lnot() & b) | ((a ^ b).lnot() & diff)) >> 63) & 1UL
+}
+
+///|
+fn fe_k1_select_u64(a : UInt64, b : UInt64, bit : UInt64) -> UInt64 {
+  let mask = 0UL - (bit & 1UL)
+  (a & mask.lnot()) | (b & mask)
+}
+
+///|
+fn fe_k1_add_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+) -> (FixedArray[UInt64], UInt64) {
+  let out = FixedArray::make(4, 0UL)
+  let mut carry = 0UL
+  for i = 0; i < 4; i = i + 1 {
+    let av = a[i]
+    let bv = b[i]
+    let s1 = av + bv
+    let c1 = fe_k1_u64_lt_01(s1, av)
+    let s2 = s1 + carry
+    let c2 = fe_k1_u64_lt_01(s2, s1)
+    out[i] = s2
+    carry = c1 | c2
+  }
+  (out, carry)
+}
+
+///|
+fn fe_k1_sub_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+) -> (FixedArray[UInt64], UInt64) {
+  let out = FixedArray::make(4, 0UL)
+  let mut borrow = 0UL
+  for i = 0; i < 4; i = i + 1 {
+    let av = a[i]
+    let bv = b[i]
+    let d1 = av - bv
+    let b1 = fe_k1_u64_lt_01(av, bv)
+    let d2 = d1 - borrow
+    let b2 = fe_k1_u64_lt_01(d1, borrow)
+    out[i] = d2
+    borrow = b1 | b2
+  }
+  (out, borrow)
+}
+
+///|
+fn fe_k1_select_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  bit : UInt64,
+) -> FixedArray[UInt64] {
+  let out = FixedArray::make(4, 0UL)
+  for i = 0; i < 4; i = i + 1 {
+    out[i] = fe_k1_select_u64(a[i], b[i], bit)
+  }
+  out
+}
+
+///|
 fn fe_k1_from_bigint(v : BigInt) -> FeK1 {
   let x = @crypto_bigint.Uint::from_be_bytes(v.to_octets(length=32), 4) catch {
     _ => abort("secp256k1 field element must fit 32 bytes")
@@ -72,22 +137,26 @@ fn fe_k1_is_zero(v : FeK1) -> Bool {
 
 ///|
 fn fe_k1_select(a : FeK1, b : FeK1, bit : UInt64) -> FeK1 {
-  @crypto_bigint.Uint::ct_select(a, b, bit)
+  { limbs: fe_k1_select_limbs(a.limbs, b.limbs, bit) }
 }
 
 ///|
 fn fe_k1_add(a : FeK1, b : FeK1) -> FeK1 {
-  a.add_mod(b, fe_k1_p_uint())
+  let (sum, carry) = fe_k1_add_limbs(a.limbs, b.limbs)
+  let (reduced, borrow) = fe_k1_sub_limbs(sum, fe_k1_p_uint().limbs)
+  { limbs: fe_k1_select_limbs(sum, reduced, carry | (borrow ^ 1UL)) }
 }
 
 ///|
 fn fe_k1_sub(a : FeK1, b : FeK1) -> FeK1 {
-  a.sub_mod(b, fe_k1_p_uint())
+  let (diff, borrow) = fe_k1_sub_limbs(a.limbs, b.limbs)
+  let (wrapped, _) = fe_k1_add_limbs(diff, fe_k1_p_uint().limbs)
+  { limbs: fe_k1_select_limbs(diff, wrapped, borrow) }
 }
 
 ///|
 fn fe_k1_mul(a : FeK1, b : FeK1) -> FeK1 {
-  fe_k1_mont().mul(a, b)
+  fe_k1_mont().mul_reduced(a, b)
 }
 
 ///|

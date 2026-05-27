@@ -82,14 +82,13 @@ worth noting:
 
 ### Side channels (sign-side only)
 
-- **ECDSA `scalar_mult`** (p256/p384/secp256k1) walks the bit pattern
-  of the secret nonce `k` via variable-time double-and-add. RFC 6979
-  produces a deterministic `k` from (privkey, message) so the **value**
-  of `k` is fixed for a given message, but the **execution time** of
-  scalar_mult leaks `k`'s bit pattern. Each `PrivateKey::sign` doc
-  comment marks this. The final ECDSA nonce inverse no longer uses
-  `@bigint.pow`, but affine point operations still do variable-time field
-  inversions.
+- **ECDSA P-384 `scalar_mult`** still walks the bit pattern of the secret
+  nonce `k` via variable-time double-and-add. RFC 6979 produces a
+  deterministic `k` from (privkey, message), but scalar_mult execution time
+  leaks that bit pattern. P-256 and secp256k1 sign-side base-point
+  multiplication now use fixed-iteration complete-addition paths, and final
+  ECDSA nonce inverses no longer use `@bigint.pow`; none of these paths have
+  external constant-clock evidence yet.
 - **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
   modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
   branchless in source structure, but not yet proven constant-time across
@@ -97,9 +96,9 @@ worth noting:
 - **Verify-side timing**: variable-time too, but only on public inputs;
   no key material leaks.
 
-Closing these requires fixed-limb ECDSA scalar multiplication and an external
-leakage harness (for example dudect or callgrind-style class comparisons) for
-the RSA/JWE/ECDSA sign paths.
+Closing the remaining P-384 gap requires fixed-limb ECDSA scalar
+multiplication and an external leakage harness (for example dudect or
+callgrind-style class comparisons) for the RSA/JWE/ECDSA sign paths.
 
 ### Caller responsibilities
 

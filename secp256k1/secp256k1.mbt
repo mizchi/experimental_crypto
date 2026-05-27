@@ -102,9 +102,8 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 
 ///|
 // Modular inverse via Fermat's little theorem. This remains for public verify
-// and the affine point formulas. It is still variable-time when reached from
-// secret scalar multiplication; replacing affine scalar_mult is the remaining
-// ECDSA side-channel task.
+// and the affine point formulas. Sign-side base-point multiplication is routed
+// through the fixed-iteration complete-addition field path in `point_fe.mbt`.
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)
@@ -184,8 +183,9 @@ fn point_add(p1 : Point, p2 : Point) -> Point {
 
 ///|
 // Variable-time double-and-add. Same caveats as the p256 version — the
-// public verify path is fine with variable time; sign uses it too, so the
-// nonce `k` is exposed via ladder timing. Treat sign as trusted-host-only.
+// public verify path is fine with variable time. Sign-side base-point
+// multiplication is routed through the fixed-iteration complete-addition
+// field path in `point_fe.mbt` instead.
 fn scalar_mult(k : BigInt, pt : Point) -> Point {
   if pt.inf {
     return pt
@@ -521,7 +521,7 @@ pub fn PrivateKey::from_bytes(b : Bytes) -> PrivateKey raise Secp256k1Error {
 
 ///|
 pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
-  let point = scalar_mult(self.d, generator())
+  let point = fe_k1_scalar_mult_base_fixed(self.d)
   { point, }
 }
 
@@ -542,7 +542,7 @@ fn sign_core(d : BigInt, message : Bytes, low_s : Bool) -> (BigInt, BigInt) {
   while !found && k_ctr < max_iter {
     let (k, next_state) = rfc6979_next(nonce_state, 32, n)
     nonce_state = next_state
-    let r_point = scalar_mult(k, generator())
+    let r_point = fe_k1_scalar_mult_base_fixed(k)
     if !r_point.inf {
       r = r_point.x % n
       if r.compare_int(0) > 0 {

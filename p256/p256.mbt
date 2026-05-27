@@ -100,9 +100,8 @@ fn mod_pos(a : BigInt, m : BigInt) -> BigInt {
 
 ///|
 // Modular inverse via Fermat's little theorem. This remains for public verify
-// and the affine point formulas. It is still variable-time when reached from
-// secret scalar multiplication; replacing affine scalar_mult is the remaining
-// ECDSA side-channel task.
+// and the affine point formulas. Sign-side base-point multiplication is routed
+// through the fixed-iteration complete-addition field path in `point_fe.mbt`.
 fn mod_inverse(a : BigInt, m : BigInt) -> BigInt {
   let exp = m - BigInt::from_int(2)
   a.pow(exp, modulus=m)

@@ -22,8 +22,8 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Route P-256 sign-side base-point scalar multiplication through the
      fixed-iteration complete-addition field path. This is not external
      constant-time evidence yet.
-   - [ ] Replace ECDSA scalar multiplication with fixed-limb constant-time
-     implementations for the remaining curves and verify them externally.
+   - [ ] Replace P-384 ECDSA scalar multiplication with a fixed-limb
+     fixed-iteration implementation and verify ECDSA sign paths externally.
    - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
      RSA/JWE private operations and ECDSA sign paths. Measurement scope and
      terminology are in `docs/CONSTANT_TIME.md`.
@@ -120,12 +120,12 @@ fails closed before returning authenticated / verified / trusted.
 ## Security Gaps
 
 - [ ] **ECDSA / private-operation side-channel**: ECDSA `scalar_mult` remains
-  variable-time on secrets for P-384 and secp256k1. RSA sign and JWE RSA-OAEP
-  private modexp now use `crypto_bigint`'s fixed-limb path, ECDSA final nonce
-  inverses no longer use `@bigint.pow`, and P-256 sign-side base-point scalar
-  multiplication uses fixed-iteration complete addition. The remaining ECDSA
-  risk is unmeasured leakage plus the affine, branch-dependent scalar
-  multiplication still used by P-384 and secp256k1.
+  variable-time on secrets for P-384. RSA sign and JWE RSA-OAEP private
+  modexp now use `crypto_bigint`'s fixed-limb path, ECDSA final nonce
+  inverses no longer use `@bigint.pow`, and P-256 / secp256k1 sign-side
+  base-point scalar multiplication uses fixed-iteration complete addition.
+  The remaining ECDSA risk is unmeasured leakage plus the affine,
+  branch-dependent scalar multiplication still used by P-384.
 - [ ] **PSS RNG-backed sign in JWT**: PS256/384/512 currently uses
   deterministic PSS (`sLen = 0`) because the workspace has no vetted RNG at the
   JWT layer. RFC 7518 mandates `sLen = hLen`; callers needing full interop call
@@ -149,7 +149,8 @@ fails closed before returning authenticated / verified / trusted.
   fuzzing exists; extend to CMS / OCSP / CRL and JOSE containers.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
-  operations, and ECDSA signing once scalar multiplication is fixed. Scope and
+  operations, and ECDSA signing. P-384 scalar multiplication still needs a
+  fixed-limb rewrite before its sign path is worth measuring. Scope and
   acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
@@ -176,10 +177,8 @@ fails closed before returning authenticated / verified / trusted.
   - [ ] Add a performant P-384 fixed scalar path, then wire private scalar
     multiplication away from affine `@bigint`.
   - [x] Add secp256k1 crypto_bigint-backed complete-addition formulas and
-    oracle tests, plus a minimal fixed-scalar oracle. Keep sign wiring
-    disconnected for now because full sign-side use still needs a faster
-    reducer / scalar path for JS.
-  - [ ] Add a performant secp256k1 fixed scalar path, then wire private scalar
+    oracle tests, plus a minimal fixed-scalar oracle.
+  - [x] Add a performant secp256k1 fixed scalar path, then wire private scalar
     multiplication away from affine `@bigint`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.

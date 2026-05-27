@@ -21,6 +21,7 @@ pub(all) struct Montgomery {
 }
 pub fn Montgomery::from_mont(Self, Uint) -> Uint
 pub fn Montgomery::mul(Self, Uint, Uint) -> Uint
+pub fn Montgomery::mul_reduced(Self, Uint, Uint) -> Uint
 pub fn Montgomery::new(Uint) -> Self
 pub fn Montgomery::pow(Self, Uint, Uint) -> Uint
 pub fn Montgomery::to_mont(Self, Uint) -> Uint

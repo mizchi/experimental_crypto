@@ -513,6 +513,30 @@ fn montgomery_mul_odd_limbs(
   )
 }
 
+///|
+fn montgomery_mul_odd_reduced_limbs(
+  a : FixedArray[UInt64],
+  b : FixedArray[UInt64],
+  modulus : FixedArray[UInt64],
+  inv : UInt64,
+) -> FixedArray[UInt64] {
+  let limb_count = modulus.length()
+  let word_count = limb_count * 2
+  let modulus_words = limbs_to_words32(modulus, word_count)
+  let a_words = limbs_to_words32(a, word_count)
+  let b_words = limbs_to_words32(b, word_count)
+  words32_to_limbs(
+    montgomery_mul_words32(
+      a_words,
+      b_words,
+      modulus_words,
+      inv & word32_mask,
+      word_count,
+    ),
+    limb_count,
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
@@ -940,6 +964,30 @@ pub fn Montgomery::mul(self : Montgomery, a : Uint, b : Uint) -> Uint {
   }
   {
     limbs: montgomery_mul_odd_limbs(
+      a.limbs,
+      b.limbs,
+      self.modulus.limbs,
+      self.inv,
+    ),
+  }
+}
+
+///|
+// Multiplication for callers that already hold reduced Montgomery-domain
+// operands. This skips the generic input reduction in `mul`; do not pass
+// arbitrary unreduced integers here.
+pub fn Montgomery::mul_reduced(self : Montgomery, a : Uint, b : Uint) -> Uint {
+  if limbs_is_zero(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_one(self.modulus.limbs) {
+    return { limbs: FixedArray::make(self.modulus.limbs.length(), 0UL) }
+  }
+  if limbs_is_even(self.modulus.limbs) {
+    return a.mul_mod(b, self.modulus)
+  }
+  {
+    limbs: montgomery_mul_odd_reduced_limbs(
       a.limbs,
       b.limbs,
       self.modulus.limbs,
