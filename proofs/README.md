@@ -60,6 +60,7 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `bip39/wrap` | `mnemonic_word_count(ent_bits)` | BIP-39 §3 mnemonic length ∈ {12,15,18,21,24} for entropy ∈ {128,160,192,224,256} bits |
 | `hash/wrap` | `sha256_pad_len(msg_bytes)` | FIPS 180-4 §5.1.1 SHA-256 padding length ∈ [9, 72] AND `(msg_bytes + result) % 64 == 0` |
 | `hash/wrap` | `sha512_pad_len(msg_bytes)` | FIPS 180-4 §5.1.2 SHA-512 padding length ∈ [17, 144] AND `(msg_bytes + result) % 128 == 0` |
+| `totp/wrap` | `totp_digit_modulus(digits)` | RFC 4226 §5.3 / RFC 6238 HOTP-truncation modulus ∈ {10^6, 10^7, 10^8} for digits ∈ {6, 7, 8} |
 | `asn1/wrap` | `der_length_prefix_size(n)` | X.690 §8.1.3 DER length-prefix octet count ∈ [1, 5] — spec for `asn1.write_length` |
 | `asn1/wrap` | `der_oid_arc_byte_count(arc)` | X.690 §8.19 base-128 varint byte count ∈ [1, 5] — spec for OID encoder scratch sizing |
 
