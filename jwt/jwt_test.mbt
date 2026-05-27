@@ -1796,6 +1796,30 @@ test "oidc: nonce mismatch raises NonceMismatch" {
 }
 
 ///|
+test "oidc: strict options require and verify nonce" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-strict-nonce"
+  let extra : Map[String, Json] = Map([])
+  extra["nonce"] = Json::string("fresh-nonce")
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    extra,
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts = @jwt.OidcIdTokenVerifyOptions::strict(
+    now, "https://accounts.example.com/", "client-abc", "fresh-nonce",
+  )
+  let id = @jwt.verify_oidc_id_token(
+    token,
+    @jwt.VerifyKey::Hs256(secret~),
+    opts,
+  )
+  @debug.assert_eq(id.nonce, Some("fresh-nonce"))
+}
+
+///|
 test "oidc: at_hash binding accepts matching access_token" {
   let now = 1_700_000_000L
   let secret : Bytes = b"oidc-at-hash"
@@ -2863,6 +2887,39 @@ test "logout-token: events object without logout member rejected" {
 }
 
 ///|
+test "ATTACK logout-token: logout event member must be an object" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-event-shape"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::string("j")
+  m["sub"] = Json::string("u")
+  let events : Map[String, Json] = Map([])
+  events["http://schemas.openid.net/event/backchannel-logout"] = Json::string(
+    "not-an-object",
+  )
+  m["events"] = Json::object(events)
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_logout_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    MissingLogoutEvent => ()
+    e => abort("expected MissingLogoutEvent, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected MissingLogoutEvent, got Ok")
+  }
+}
+
+///|
 test "ATTACK logout-token: generic security event typ cannot be replayed as logout" {
   let now = 1_700_000_000L
   let secret : Bytes = b"logout-secevent"
@@ -3063,19 +3120,17 @@ test "JAR: request object verifies and exposes params" {
   let m : Map[String, Json] = Map([])
   m["iss"] = Json::string("client-abc")
   m["aud"] = Json::string("https://as.example.com/")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["iat"] = Json::number(now.to_double())
   m["response_type"] = Json::string("code")
   m["client_id"] = Json::string("client-abc")
   m["redirect_uri"] = Json::string("https://rp.example.com/cb")
   m["scope"] = Json::string("openid profile")
   m["state"] = Json::string("state-xyz")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
-  let opts : @jwt.RequestObjectVerifyOptions = {
-    now,
-    clock_skew_sec: 0L,
-    expected_client_id: "client-abc",
-    expected_aud: "https://as.example.com/",
-    allowed_algorithms: None,
-  }
+  let opts = @jwt.RequestObjectVerifyOptions::default(
+    now, "client-abc", "https://as.example.com/",
+  )
   let r = @jwt.verify_request_object(
     token,
     @jwt.VerifyKey::Hs256(secret~),
@@ -3095,13 +3150,14 @@ test "JAR: missing client_id claim is allowed but alg policy is enforced" {
   let m : Map[String, Json] = Map([])
   m["iss"] = Json::string("client-abc")
   m["aud"] = Json::string("https://as.example.com/")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["iat"] = Json::number(now.to_double())
   m["response_type"] = Json::string("code")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
   let opts : @jwt.RequestObjectVerifyOptions = {
-    now,
-    clock_skew_sec: 0L,
-    expected_client_id: "client-abc",
-    expected_aud: "https://as.example.com/",
+    ..@jwt.RequestObjectVerifyOptions::default(
+      now, "client-abc", "https://as.example.com/",
+    ),
     allowed_algorithms: Some([@jwt.Algorithm::HS256]),
   }
   let r = @jwt.verify_request_object(
@@ -3131,17 +3187,15 @@ test "ATTACK JAR: embedded client_id substitution rejected" {
   let m : Map[String, Json] = Map([])
   m["iss"] = Json::string("client-abc")
   m["aud"] = Json::string("https://as.example.com/")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["iat"] = Json::number(now.to_double())
   m["response_type"] = Json::string("code")
   m["client_id"] = Json::string("attacker-client")
   m["redirect_uri"] = Json::string("https://attacker.example/cb")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
-  let opts : @jwt.RequestObjectVerifyOptions = {
-    now,
-    clock_skew_sec: 0L,
-    expected_client_id: "client-abc",
-    expected_aud: "https://as.example.com/",
-    allowed_algorithms: None,
-  }
+  let opts = @jwt.RequestObjectVerifyOptions::default(
+    now, "client-abc", "https://as.example.com/",
+  )
   try
     @jwt.verify_request_object(token, @jwt.VerifyKey::Hs256(secret~), opts)
   catch {
@@ -3149,6 +3203,53 @@ test "ATTACK JAR: embedded client_id substitution rejected" {
     e => abort("expected ClientIdMismatch, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected ClientIdMismatch, got Ok")
+  }
+}
+
+///|
+test "ATTACK JAR: missing exp and stale iat rejected by default options" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jar-replay-window"
+  let opts = @jwt.RequestObjectVerifyOptions::default(
+    now, "client-abc", "https://as.example.com/",
+  )
+  let no_exp : Map[String, Json] = Map([])
+  no_exp["iss"] = Json::string("client-abc")
+  no_exp["aud"] = Json::string("https://as.example.com/")
+  no_exp["iat"] = Json::number(now.to_double())
+  no_exp["response_type"] = Json::string("code")
+  let no_exp_token = @jwt.sign(Json::object(no_exp), @jwt.Key::Hs256(secret~))
+  try
+    @jwt.verify_request_object(
+      no_exp_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected ClaimsParseError, got Ok")
+  }
+
+  let stale : Map[String, Json] = Map([])
+  stale["iss"] = Json::string("client-abc")
+  stale["aud"] = Json::string("https://as.example.com/")
+  stale["exp"] = Json::number((now + 300L).to_double())
+  stale["iat"] = Json::number((now - 600L).to_double())
+  stale["response_type"] = Json::string("code")
+  let stale_token = @jwt.sign(Json::object(stale), @jwt.Key::Hs256(secret~))
+  try
+    @jwt.verify_request_object(
+      stale_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+  catch {
+    IssuedInFuture => ()
+    e => abort("expected stale iat rejection, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected stale iat rejection, got Ok")
   }
 }
 
@@ -3167,14 +3268,9 @@ test "JARM: authorization response verifies + state round-trip" {
   m["code"] = Json::string("auth-code-xyz")
   m["state"] = Json::string("rp-state-xyz")
   let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
-  let opts : @jwt.JarmVerifyOptions = {
-    now,
-    clock_skew_sec: 0L,
-    expected_issuer: "https://as.example.com/",
-    client_id: "client-abc",
-    expected_state: Some("rp-state-xyz"),
-    allowed_algorithms: None,
-  }
+  let opts = @jwt.JarmVerifyOptions::strict(
+    now, "https://as.example.com/", "client-abc", "rp-state-xyz",
+  )
   let r = @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), opts)
   match r.params.get("code") {
     Some(String(c)) => @debug.assert_eq(c, "auth-code-xyz")
@@ -4357,6 +4453,35 @@ test "ATTACK typ-confusion: dpop+jwt rejected by generic verify default" {
     e => abort("expected InvalidType, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected InvalidType (cross-class confusion), got Ok")
+  }
+}
+
+///|
+test "ATTACK typ-confusion: mixed-case specialised typ rejected by default" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"mixed-case-typ"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://accounts.example.com/")
+  m["sub"] = Json::string("u")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 600L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="Application/AT+JWT",
+  )
+  try
+    @jwt.verify(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      @jwt.VerifyOptions::default(now),
+    )
+  catch {
+    InvalidType(_) => ()
+    e => abort("expected InvalidType, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("expected InvalidType for mixed-case specialised typ, got Ok")
   }
 }
 

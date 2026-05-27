@@ -269,6 +269,8 @@ test "fuzz oidc profiles: high-level verifiers never panic on random compact str
     clock_skew_sec: 0L,
     expected_client_id: "client-abc",
     expected_aud: "https://issuer.example/",
+    require_exp: false,
+    max_iat_age_sec: None,
     allowed_algorithms: None,
   }
   let jarm_opts : @jwt.JarmVerifyOptions = {
@@ -503,17 +505,15 @@ test "fuzz oidc userinfo request and jarm bindings reject substitution" {
     let jar_claims : Map[String, Json] = Map([])
     jar_claims["iss"] = Json::string("client-abc")
     jar_claims["aud"] = Json::string("https://issuer.example/")
+    jar_claims["exp"] = Json::number((now + 600L).to_double())
+    jar_claims["iat"] = Json::number(now.to_double())
     jar_claims["client_id"] = Json::string("client-abc")
     jar_claims["response_type"] = Json::string("code")
     jar_claims["redirect_uri"] = Json::string("https://rp.example/cb")
     let jar = @jwt.sign(Json::object(jar_claims), @jwt.Key::Hs256(secret~))
-    let request_opts : @jwt.RequestObjectVerifyOptions = {
-      now,
-      clock_skew_sec: 0L,
-      expected_client_id: "client-abc",
-      expected_aud: "https://issuer.example/",
-      allowed_algorithms: None,
-    }
+    let request_opts = @jwt.RequestObjectVerifyOptions::default(
+      now, "client-abc", "https://issuer.example/",
+    )
     let req = @jwt.verify_request_object(
       jar,
       @jwt.VerifyKey::Hs256(secret~),

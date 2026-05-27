@@ -2166,8 +2166,30 @@ pub(all) struct RequestObjectVerifyOptions {
   expected_client_id : String
   // The AS's own issuer URL (also its `aud` in client-issued JARs).
   expected_aud : String
+  // Strict callers should require exp and a fresh iat. The default
+  // constructor below enables both so long-lived signed request objects
+  // cannot be replayed indefinitely.
+  require_exp : Bool
+  max_iat_age_sec : Int64?
   allowed_algorithms : Array[Algorithm]?
 } derive(Eq, Debug)
+
+///|
+pub fn RequestObjectVerifyOptions::default(
+  now : Int64,
+  expected_client_id : String,
+  expected_aud : String,
+) -> RequestObjectVerifyOptions {
+  {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id,
+    expected_aud,
+    require_exp: true,
+    max_iat_age_sec: Some(300L),
+    allowed_algorithms: None,
+  }
+}
 
 ///|
 pub(all) struct RequestObject {
@@ -2190,7 +2212,7 @@ pub fn verify_request_object(
   let base : VerifyOptions = {
     now: opts.now,
     clock_skew_sec: opts.clock_skew_sec,
-    require_exp: false,
+    require_exp: opts.require_exp,
     issuer: Some(opts.expected_client_id),
     audience: Some(opts.expected_aud),
     typ_allowed: None,
@@ -2207,6 +2229,15 @@ pub fn verify_request_object(
       }
       if !ok {
         raise AlgorithmNotAllowed(alg_to_str(v.alg))
+      }
+    }
+    None => ()
+  }
+  match opts.max_iat_age_sec {
+    Some(max) => {
+      let iat = require_numeric_claim(v.claims, "iat")
+      if iat + max + opts.clock_skew_sec < opts.now {
+        raise IssuedInFuture
       }
     }
     None => ()
@@ -2247,6 +2278,23 @@ pub(all) struct JarmVerifyOptions {
   expected_state : String?
   allowed_algorithms : Array[Algorithm]?
 } derive(Eq, Debug)
+
+///|
+pub fn JarmVerifyOptions::strict(
+  now : Int64,
+  expected_issuer : String,
+  client_id : String,
+  expected_state : String,
+) -> JarmVerifyOptions {
+  {
+    now,
+    clock_skew_sec: 0L,
+    expected_issuer,
+    client_id,
+    expected_state: Some(expected_state),
+    allowed_algorithms: None,
+  }
+}
 
 ///|
 pub(all) struct JarmResponse {

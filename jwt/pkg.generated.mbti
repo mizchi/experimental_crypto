@@ -17,6 +17,14 @@ pub fn compute_x_hash(Algorithm, String) -> String
 
 pub fn extract_aggregated_distributed_claims(Map[String, Json]) -> AggregatedDistributedClaims?
 
+pub fn fapi_check_alg(VerifiedJwt) -> Unit raise JwtError
+
+pub fn fapi_oidc_options(Int64, String, String, String) -> OidcIdTokenVerifyOptions
+
+pub fn fapi_rfc9068_options(Int64, String, String, String) -> Rfc9068VerifyOptions
+
+pub fn parse_provider_metadata(String) -> ProviderMetadata raise JwtError
+
 pub fn peek_header(String) -> Map[String, Json] raise JwtError
 
 pub fn select_verify_key(Array[@jwk.JwkSetEntry], Map[String, Json]) -> VerifyKey raise JwtError
@@ -25,11 +33,15 @@ pub fn sign(Json, Key, kid? : String, typ? : String) -> String raise JwtError
 
 pub fn verify(String, VerifyKey, VerifyOptions) -> VerifiedJwt raise JwtError
 
+pub fn verify_ciba_id_token(String, VerifyKey, CibaVerifyOptions) -> CibaIdToken raise JwtError
+
 pub fn verify_client_assertion(String, VerifyKey, ClientAssertionVerifyOptions) -> ClientAssertion raise JwtError
 
 pub fn verify_client_assertion_jwks(String, Array[@jwk.JwkSetEntry], ClientAssertionVerifyOptions) -> ClientAssertion raise JwtError
 
 pub fn verify_dpop_proof(String, DpopVerifyOptions) -> VerifiedDpop raise JwtError
+
+pub fn verify_entity_statement(String, VerifyKey, EntityStatementVerifyOptions) -> EntityStatement raise JwtError
 
 pub fn verify_jarm(String, VerifyKey, JarmVerifyOptions) -> JarmResponse raise JwtError
 
@@ -88,6 +100,10 @@ pub suberror JwtError {
   LogoutSubAndSidMissing
   UserInfoSubMismatch
   SelfIssuedSubMismatch
+  InvalidEntityStatement(String)
+  AuthReqIdMismatch
+  RtHashMismatch
+  FapiPolicyViolation(String)
 } derive(@debug.Debug)
 
 // Types and methods
@@ -112,6 +128,18 @@ pub(all) enum Algorithm {
   PS512
   EdDSA
 } derive(Eq, @debug.Debug)
+
+pub(all) struct CibaIdToken {
+  id_token : OidcIdToken
+  auth_req_id : String?
+  rt_hash : String?
+}
+
+pub(all) struct CibaVerifyOptions {
+  oidc : OidcIdTokenVerifyOptions
+  expected_auth_req_id : String?
+  refresh_token : String?
+}
 
 pub(all) enum ClaimSource {
   Aggregated(jwt~ : String)
@@ -151,6 +179,36 @@ pub(all) struct DpopVerifyOptions {
   bound_access_token : String?
   expected_jkt : String?
   expected_nonce : String?
+  allowed_algorithms : Array[Algorithm]?
+} derive(Eq, @debug.Debug)
+
+pub(all) struct EntityStatement {
+  iss : String
+  sub : String
+  exp : Int64
+  iat : Int64
+  kind : EntityStatementKind
+  jwks : Map[String, Json]
+  metadata : Map[String, Json]?
+  authority_hints : Array[String]?
+  source_endpoint : String?
+  trust_marks : Array[Json]?
+  constraints : Map[String, Json]?
+  policy : Map[String, Json]?
+  jwt : VerifiedJwt
+}
+
+pub(all) enum EntityStatementKind {
+  Configuration
+  Subordinate
+} derive(Eq, @debug.Debug)
+
+pub(all) struct EntityStatementVerifyOptions {
+  now : Int64
+  clock_skew_sec : Int64
+  subject : String
+  expected_issuer : String?
+  expected_kind : EntityStatementKind?
   allowed_algorithms : Array[Algorithm]?
 } derive(Eq, @debug.Debug)
 
@@ -241,6 +299,29 @@ pub(all) struct OidcIdTokenVerifyOptions {
   allowed_algorithms : Array[Algorithm]?
 }
 pub fn OidcIdTokenVerifyOptions::default(Int64, String, String) -> Self
+pub fn OidcIdTokenVerifyOptions::strict(Int64, String, String, String) -> Self
+
+pub(all) struct ProviderMetadata {
+  issuer : String
+  authorization_endpoint : String?
+  token_endpoint : String?
+  userinfo_endpoint : String?
+  jwks_uri : String?
+  registration_endpoint : String?
+  end_session_endpoint : String?
+  introspection_endpoint : String?
+  revocation_endpoint : String?
+  device_authorization_endpoint : String?
+  backchannel_authentication_endpoint : String?
+  pushed_authorization_request_endpoint : String?
+  response_types_supported : Array[String]
+  subject_types_supported : Array[String]
+  id_token_signing_alg_values_supported : Array[String]
+  token_endpoint_auth_methods_supported : Array[String]?
+  scopes_supported : Array[String]?
+  claims_supported : Array[String]?
+  raw : Map[String, Json]
+}
 
 pub(all) struct RequestObject {
   client_id : String
