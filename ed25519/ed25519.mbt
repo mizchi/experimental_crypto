@@ -1039,17 +1039,6 @@ fn ed_point_cmov(a : EdPoint, b : EdPoint, bit : UInt64) -> EdPoint {
 // limbs; see the regression comment on ed_point_double.
 
 ///|
-// Thin shim kept for the whitebox test suite that exercised the old
-// generic scalar mult directly. Internally routes through the windowed
-// fast path so behaviour stays identical.
-fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
-  let s = (scalar % ed_l + ed_l) % ed_l
-  let s_bytes = scalar_to_le_bytes(s)
-  let table = ed_make_window_table(base)
-  ed_scalar_mult_table(s_bytes, table)
-}
-
-///|
 // Precomputed table of small positive multiples of the base point:
 //   ed_base_table[i] = i * B   for i in 0 ..= 15.
 // Used by the 4-bit-windowed `ed25519_scalar_base_mult` to skip 192 of
@@ -1148,9 +1137,8 @@ fn ed_madd_niels(p : EdPoint, q : NielsPoint) -> EdPoint {
 }
 
 ///|
-// Build a 16-entry table of {0, 1, 2, …, 15} * base for the windowed
-// scalar-mult below. Caller side: 15 ed_point_add — paid once per
-// verify call.
+// Build a 16-entry table of {0, 1, 2, ... , 15} * base. The static
+// base-table and whitebox scalar-mult tests share this helper.
 fn ed_make_window_table(base : EdPoint) -> FixedArray[EdPoint] {
   let t = FixedArray::make(16, ed_identity())
   t[1] = base
@@ -1158,50 +1146,6 @@ fn ed_make_window_table(base : EdPoint) -> FixedArray[EdPoint] {
     t[i] = ed_point_add(t[i - 1], base)
   }
   t
-}
-
-///|
-// Constant-time table mux: returns table[idx] for idx ∈ 0..15 without
-// branching on the secret idx. The for-loop iterates over a constant
-// range, so the only data-dependent operations are the cmov bit
-// computation (`i == idx` is i-known) and the cmov merge itself.
-fn ed_window_table_lookup(table : FixedArray[EdPoint], idx : Int) -> EdPoint {
-  let mut result = ed_identity()
-  for i = 0; i < 16; i = i + 1 {
-    let eq = if i == idx { 1UL } else { 0UL }
-    result = ed_point_cmov(result, table[i], eq)
-  }
-  result
-}
-
-///|
-// 4-bit windowed scalar mult over a precomputed table. Caller supplies
-// `s_bytes` (the scalar reduced mod L, little-endian 32 bytes) and
-// `table[i] = i * base`. Cost: 256 doublings + 64 lookup-adds.
-fn ed_scalar_mult_table(
-  s_bytes : FixedArray[Byte],
-  table : FixedArray[EdPoint],
-) -> EdPoint {
-  let mut q = ed_identity()
-  // High-to-low byte-by-byte, two 4-bit windows per byte.
-  for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
-    let byte = s_bytes[byte_idx].to_int()
-    // High nibble
-    q = ed_point_double(q)
-    q = ed_point_double(q)
-    q = ed_point_double(q)
-    q = ed_point_double(q)
-    let high = (byte >> 4) & 0xF
-    q = ed_point_add(q, ed_window_table_lookup(table, high))
-    // Low nibble
-    q = ed_point_double(q)
-    q = ed_point_double(q)
-    q = ed_point_double(q)
-    q = ed_point_double(q)
-    let low = byte & 0xF
-    q = ed_point_add(q, ed_window_table_lookup(table, low))
-  }
-  q
 }
 
 ///|
@@ -1228,18 +1172,6 @@ fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
     q = ed_madd_niels(q, ed_niels_base_lookup(low))
   }
   q
-}
-
-///|
-// Variable-base scalar mult — builds a per-call 16-entry table (15
-// extra Edwards adds, ~135 fe_mul) and then runs the same windowed
-// loop. Net win vs naïve double-and-add: ~177 saved adds × 9 fe_mul
-// per add ≈ 1.6k fe_mul saved per scalar mult.
-fn ed25519_scalar_mult(scalar : BigInt, p : EdPoint) -> EdPoint {
-  let s = (scalar % ed_l + ed_l) % ed_l
-  let s_bytes = scalar_to_le_bytes(s)
-  let table = ed_make_window_table(p)
-  ed_scalar_mult_table(s_bytes, table)
 }
 
 ///|
@@ -1274,8 +1206,8 @@ fn ed_point_neg(p : EdPoint) -> EdPoint {
 // Cost vs running two windowed scalar mults separately:
 //   * 128 iterations (2 bits of each scalar per iteration) instead of
 //     256 → 128 fewer ed_point_double operations
-//   * 11 ed_point_add to build the 4×4 table (vs 15 in the per-call
-//     window-table path used by ed25519_scalar_mult on its own)
+//   * 11 ed_point_add to build the 4×4 table (vs 15 in a separate
+//     per-call variable-base window table)
 //   * 128 table lookups vs the 64+64 = 128 separate lookups before,
 //     but with a 16-entry mux instead of two 16-entry muxes
 //

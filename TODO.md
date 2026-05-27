@@ -108,6 +108,17 @@ CI + experimental-status sweep (HEAD `6fccbf7`).
 - [x] Fail closed on invalid TOTP digits / step / skew.
 - [x] UTF-8 encode BLAKE3 derive-key contexts (non-ASCII reference vector pinned).
 
+### JWT / OIDC security review follow-up
+
+- [x] Compare JOSE `typ` values case-insensitively for both allow-list and
+  specialised-token deny-list checks.
+- [x] Require the Back-Channel Logout event marker to be object-valued, not
+  merely present.
+- [x] Add strict OIDC ID Token / JARM option constructors that bind nonce /
+  state by construction.
+- [x] Add strict JAR defaults: `exp` is required and `iat` must be fresh by
+  default, while fuzz callers can still opt into legacy laxness explicitly.
+
 ## Still open
 
 ### Algorithm gaps — Tier 1

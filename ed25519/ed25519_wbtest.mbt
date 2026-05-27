@@ -22,6 +22,51 @@ fn sha512_bytes_for_test(data : Bytes) -> FixedArray[Byte] {
 }
 
 ///|
+fn ed_window_table_lookup_for_test(
+  table : FixedArray[EdPoint],
+  idx : Int,
+) -> EdPoint {
+  let mut result = ed_identity()
+  for i = 0; i < 16; i = i + 1 {
+    let eq = if i == idx { 1UL } else { 0UL }
+    result = ed_point_cmov(result, table[i], eq)
+  }
+  result
+}
+
+///|
+fn ed_scalar_mult_table_for_test(
+  s_bytes : FixedArray[Byte],
+  table : FixedArray[EdPoint],
+) -> EdPoint {
+  let mut q = ed_identity()
+  for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
+    let byte = s_bytes[byte_idx].to_int()
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    let high = (byte >> 4) & 0xF
+    q = ed_point_add(q, ed_window_table_lookup_for_test(table, high))
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    q = ed_point_double(q)
+    let low = byte & 0xF
+    q = ed_point_add(q, ed_window_table_lookup_for_test(table, low))
+  }
+  q
+}
+
+///|
+fn ed_scalar_mult_point(scalar : BigInt, base : EdPoint) -> EdPoint {
+  let s = (scalar % ed_l + ed_l) % ed_l
+  let s_bytes = scalar_to_le_bytes(s)
+  let table = ed_make_window_table(base)
+  ed_scalar_mult_table_for_test(s_bytes, table)
+}
+
+///|
 test "sha512 empty" {
   let out = sha512_bytes_for_test(b"")
   inspect(
