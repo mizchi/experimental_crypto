@@ -86,6 +86,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add a P-256 fixed-256-iteration scalar multiplication skeleton; keep it
   disconnected from signing because projective addition still branches on
   exceptional cases.
+- Add P-256 homogeneous-projective complete addition, verify it against the
+  affine oracle, and route sign-side base-point scalar multiplication away
+  from affine `@bigint`.
 
 ## Parser And Protocol Hardening
 

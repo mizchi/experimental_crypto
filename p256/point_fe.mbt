@@ -13,6 +13,13 @@ priv struct FePoint {
 }
 
 ///|
+priv struct FeProjPoint {
+  x : Fe
+  y : Fe
+  z : Fe
+}
+
+///|
 fn fe_zero() -> Fe {
   FixedArray::make(10, 0UL)
 }
@@ -53,6 +60,16 @@ fn fe_mul_small(a : Fe, n : Int) -> Fe {
     r = fe_add(r, a)
   }
   r
+}
+
+///|
+fn fe_mul_minus3(a : Fe) -> Fe {
+  fe_neg(fe_mul_small(a, 3))
+}
+
+///|
+fn fe_p256_b3() -> Fe {
+  fe_mul_small(fe_from_bigint(p256_b()), 3)
 }
 
 ///|
@@ -99,6 +116,106 @@ fn fe_point_to_affine(p : FePoint) -> Point {
     y: fe_to_bigint(fe_mul(p.y, z3)),
     inf: false,
   }
+}
+
+///|
+fn fe_proj_point_infinity() -> FeProjPoint {
+  { x: fe_zero(), y: fe_one(), z: fe_zero() }
+}
+
+///|
+fn fe_proj_point_is_infinity(p : FeProjPoint) -> Bool {
+  fe_is_zero(p.z)
+}
+
+///|
+#warnings("-unused_value")
+fn fe_proj_point_select(
+  a : FeProjPoint,
+  b : FeProjPoint,
+  bit : UInt64,
+) -> FeProjPoint {
+  {
+    x: fe_select(a.x, b.x, bit),
+    y: fe_select(a.y, b.y, bit),
+    z: fe_select(a.z, b.z, bit),
+  }
+}
+
+///|
+#warnings("-unused_value")
+fn fe_proj_point_from_affine(p : Point) -> FeProjPoint {
+  if p.inf {
+    fe_proj_point_infinity()
+  } else {
+    { x: fe_from_bigint(p.x), y: fe_from_bigint(p.y), z: fe_one() }
+  }
+}
+
+///|
+#warnings("-unused_value")
+fn fe_proj_point_to_affine(p : FeProjPoint) -> Point {
+  if fe_proj_point_is_infinity(p) {
+    return point_infinity()
+  }
+  let z_inv = fe_inv(p.z)
+  {
+    x: fe_to_bigint(fe_mul(p.x, z_inv)),
+    y: fe_to_bigint(fe_mul(p.y, z_inv)),
+    inf: false,
+  }
+}
+
+///|
+#warnings("-unused_value")
+fn fe_proj_point_add_complete(p : FeProjPoint, q : FeProjPoint) -> FeProjPoint {
+  // Renes-Costello-Batina 2015 complete addition formula for prime-order
+  // short Weierstrass curves in homogeneous projective coordinates.
+  //
+  // Coordinates are x = X/Z, y = Y/Z. P-256 has a = -3, and the EFD formula
+  // uses b3 = 3*b.
+  let b3 = fe_p256_b3()
+  let mut t0 = fe_mul(p.x, q.x)
+  let mut t1 = fe_mul(p.y, q.y)
+  let mut t2 = fe_mul(p.z, q.z)
+  let mut t3 = fe_add(p.x, p.y)
+  let mut t4 = fe_add(q.x, q.y)
+  t3 = fe_mul(t3, t4)
+  t4 = fe_add(t0, t1)
+  t3 = fe_sub(t3, t4)
+  t4 = fe_add(p.x, p.z)
+  let mut t5 = fe_add(q.x, q.z)
+  t4 = fe_mul(t4, t5)
+  t5 = fe_add(t0, t2)
+  t4 = fe_sub(t4, t5)
+  t5 = fe_add(p.y, p.z)
+  let mut x3 = fe_add(q.y, q.z)
+  t5 = fe_mul(t5, x3)
+  x3 = fe_add(t1, t2)
+  t5 = fe_sub(t5, x3)
+  let mut z3 = fe_mul_minus3(t4)
+  x3 = fe_mul(b3, t2)
+  z3 = fe_add(x3, z3)
+  x3 = fe_sub(t1, z3)
+  z3 = fe_add(t1, z3)
+  let mut y3 = fe_mul(x3, z3)
+  t1 = fe_add(t0, t0)
+  t1 = fe_add(t1, t0)
+  t2 = fe_mul_minus3(t2)
+  t4 = fe_mul(b3, t4)
+  t1 = fe_add(t1, t2)
+  t2 = fe_sub(t0, t2)
+  t2 = fe_mul_minus3(t2)
+  t4 = fe_add(t4, t2)
+  t0 = fe_mul(t1, t4)
+  y3 = fe_add(y3, t0)
+  t0 = fe_mul(t5, t4)
+  x3 = fe_mul(t3, x3)
+  x3 = fe_sub(x3, t0)
+  t0 = fe_mul(t3, t1)
+  z3 = fe_mul(t5, z3)
+  z3 = fe_add(z3, t0)
+  { x: x3, y: y3, z: z3 }
 }
 
 ///|
@@ -210,4 +327,29 @@ fn fe_scalar_mult_fixed_branchy(k : BigInt, p : FePoint) -> FePoint {
     r = fe_point_select(doubled, added, fe_scalar_bit_be32(bytes, bit_index))
   }
   r
+}
+
+///|
+#warnings("-unused_value")
+fn fe_scalar_mult_fixed_complete(k : BigInt, p : FeProjPoint) -> FeProjPoint {
+  let bytes = k.to_octets(length=32)
+  let mut r = fe_proj_point_infinity()
+  for bit_index = 0; bit_index < 256; bit_index = bit_index + 1 {
+    let doubled = fe_proj_point_add_complete(r, r)
+    let added = fe_proj_point_add_complete(doubled, p)
+    r = fe_proj_point_select(
+      doubled,
+      added,
+      fe_scalar_bit_be32(bytes, bit_index),
+    )
+  }
+  r
+}
+
+///|
+#warnings("-unused_value")
+fn fe_scalar_mult_base_fixed(k : BigInt) -> Point {
+  fe_proj_point_to_affine(
+    fe_scalar_mult_fixed_complete(k, fe_proj_point_from_affine(generator())),
+  )
 }

@@ -321,6 +321,56 @@ test "fe fixed-iteration scalar skeleton matches affine oracle" {
 }
 
 ///|
+test "fe complete projective addition matches affine oracle" {
+  let g = generator()
+  let scalars : Array[Int] = [0, 1, 2, 3, 5, 17, 255]
+  for a_int in scalars {
+    for b_int in scalars {
+      let a = scalar_mult(BigInt::from_int(a_int), g)
+      let b = scalar_mult(BigInt::from_int(b_int), g)
+      let got = fe_proj_point_to_affine(
+        fe_proj_point_add_complete(
+          fe_proj_point_from_affine(a),
+          fe_proj_point_from_affine(b),
+        ),
+      )
+      let expected = point_add(a, b)
+      assert_point_eq(
+        got,
+        expected,
+        "complete add " + a_int.to_string() + "G + " + b_int.to_string() + "G",
+      )
+    }
+  }
+  let neg_g : Point = { x: g.x, y: p256_p() - g.y, inf: false }
+  assert_point_eq(
+    fe_proj_point_to_affine(
+      fe_proj_point_add_complete(
+        fe_proj_point_from_affine(g),
+        fe_proj_point_from_affine(neg_g),
+      ),
+    ),
+    point_infinity(),
+    "complete add G + (-G)",
+  )
+}
+
+///|
+test "fe complete fixed scalar multiplication matches affine oracle" {
+  let g = generator()
+  let scalars : Array[String] = [
+    "0", "1", "2", "3", "5", "ff", "0100000000000000000000000000000000000000000000000000000000000000",
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550", "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+  ]
+  for s in scalars {
+    let k = BigInt::from_string(s, radix=16)
+    let got = fe_scalar_mult_base_fixed(k)
+    let expected = scalar_mult(k, g)
+    assert_point_eq(got, expected, "complete scalar k=0x" + s)
+  }
+}
+
+///|
 test "fe projective point conditional select chooses operands" {
   let g = fe_point_from_affine(generator())
   let inf = fe_point_from_affine(point_infinity())

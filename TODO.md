@@ -19,8 +19,11 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      exponentiation.
    - [x] Route ECDSA nonce inverses away from `@bigint.pow` and through
      `crypto_bigint.inv_mod`.
+   - [x] Route P-256 sign-side base-point scalar multiplication through the
+     fixed-iteration complete-addition field path. This is not external
+     constant-time evidence yet.
    - [ ] Replace ECDSA scalar multiplication with fixed-limb constant-time
-     implementations.
+     implementations for the remaining curves and verify them externally.
    - [ ] Add external leakage checks (`dudect` / callgrind-style harness) for
      RSA/JWE private operations and ECDSA sign paths. Measurement scope and
      terminology are in `docs/CONSTANT_TIME.md`.
@@ -117,11 +120,12 @@ fails closed before returning authenticated / verified / trusted.
 ## Security Gaps
 
 - [ ] **ECDSA / private-operation side-channel**: ECDSA `scalar_mult` remains
-  variable-time on secrets. RSA sign and JWE RSA-OAEP private modexp now use
-  `crypto_bigint`'s fixed-limb path, and ECDSA final nonce inverses no longer
-  use `@bigint.pow`. The remaining ECDSA risk is the affine, branch-dependent
-  scalar multiplication, including field inversions inside point operations.
-  `crypto_bigint` still needs external leakage measurement.
+  variable-time on secrets for P-384 and secp256k1. RSA sign and JWE RSA-OAEP
+  private modexp now use `crypto_bigint`'s fixed-limb path, ECDSA final nonce
+  inverses no longer use `@bigint.pow`, and P-256 sign-side base-point scalar
+  multiplication uses fixed-iteration complete addition. The remaining ECDSA
+  risk is unmeasured leakage plus the affine, branch-dependent scalar
+  multiplication still used by P-384 and secp256k1.
 - [ ] **PSS RNG-backed sign in JWT**: PS256/384/512 currently uses
   deterministic PSS (`sLen = 0`) because the workspace has no vetted RNG at the
   JWT layer. RFC 7518 mandates `sLen = hLen`; callers needing full interop call
@@ -164,8 +168,10 @@ fails closed before returning authenticated / verified / trusted.
   - [x] Add a P-256 fixed-256-iteration scalar multiplication skeleton. It is
     not wired into signing because point addition still has exceptional-case
     branches.
-  - [ ] Add complete / exceptional-case-free P-256 formulas, then wire private
+  - [x] Add complete / exceptional-case-free P-256 formulas, then wire private
     scalar multiplication away from affine `@bigint`.
+  - [ ] Port the same fixed-iteration complete-addition private scalar path to
+    P-384 and secp256k1.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
 - [ ] **`ed25519`** 10-limb field arithmetic, matching the speedup already

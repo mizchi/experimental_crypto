@@ -14,10 +14,10 @@
 //   - Affine Weierstrass points with a separate "point at infinity" flag.
 //     For verify the input is public, so variable-time scalar mult is fine
 //     and the simpler representation pays for itself.
-//   - Affine field arithmetic still goes through @bigint with explicit `% p`.
-//     The final ECDSA nonce inverse `k^-1 mod n` is routed through
-//     `crypto_bigint.inv_mod`, but scalar multiplication still contains
-//     variable-time field inversions.
+//   - Sign-side base-point scalar multiplication routes through the fixed
+//     256-iteration complete-addition field path in `point_fe.mbt`. It is
+//     fixed-iteration / branchless-intended, not externally measured
+//     constant-clock. The affine scalar path remains for public verification.
 
 // ─── curve constants (NIST FIPS 186-5 §D.1.2.3) ──────────────────────────
 
@@ -552,7 +552,7 @@ pub fn PrivateKey::from_bytes(b : Bytes) -> PrivateKey raise P256Error {
 
 ///|
 pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
-  let point = scalar_mult(self.d, generator())
+  let point = fe_scalar_mult_base_fixed(self.d)
   { point, }
 }
 
@@ -564,11 +564,9 @@ pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
 /// (and so we sidestep the most common ECDSA footgun: nonce reuse / bias).
 ///
 /// Side-channel caveat: RFC 6979 prevents nonce-bias attacks but does
-/// NOT make the implementation constant-time. The underlying `scalar_mult`
-/// is variable-time on the secret nonce `k` due to the affine,
-/// branch-dependent double-and-add ladder. Treat this as a
-/// sign-only-on-trusted-hosts primitive until we add a fixed-limb,
-/// fixed-time scalar mult.
+/// NOT, by itself, make signing constant-time. The sign-side `k*G` path now
+/// uses a fixed-iteration complete-addition field implementation, but this is
+/// not yet backed by external leakage measurement.
 pub fn PrivateKey::sign(
   self : PrivateKey,
   message : Bytes,
@@ -587,8 +585,9 @@ pub fn PrivateKey::sign(
   while !found && k_ctr < max_iter {
     let (k, next_state) = rfc6979_next(nonce_state, 32, n)
     nonce_state = next_state
-    // R = k * G, r = R.x mod n
-    let r_point = scalar_mult(k, generator())
+    // R = k * G, r = R.x mod n. This is the secret nonce path, so keep it on
+    // the fixed-iteration complete-addition base-point implementation.
+    let r_point = fe_scalar_mult_base_fixed(k)
     if !r_point.inf {
       r = r_point.x % n
       if r.compare_int(0) > 0 {
