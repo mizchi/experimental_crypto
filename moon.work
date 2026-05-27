@@ -39,4 +39,7 @@ members = [
   "./aead/wrap",
   "./hkdf/wrap",
   "./asn1/wrap",
+  "./pbkdf2/wrap",
+  "./bip32/wrap",
+  "./bip39/wrap",
 ]
