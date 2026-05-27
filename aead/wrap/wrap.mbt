@@ -1,4 +1,4 @@
-// Proof-carrying block-alignment helpers for `mizchi/aead`.
+// Proof-carrying primitives for `mizchi/aead`.
 //
 // AES-GCM (NIST SP 800-38D §6.5) feeds GHASH zero-padded AAD || zero-padded
 // ciphertext || length-block. AES-CBC under PKCS#7 (RFC 5652 §6.3) appends a
@@ -6,6 +6,10 @@
 // arithmetic step that we can verify in isolation, anchoring "the ciphertext
 // passed to AES is block-aligned" without having to lower the full `aead`
 // package to Why3.
+//
+// FIPS 197 §5.1 fixes the AES round count and key-expansion word count as a
+// function of the key length; getting either wrong silently produces a
+// different cipher, so the table is pinned down here too.
 
 ///|
 /// GHASH zero-pad length. Given the byte length of an AAD or ciphertext
@@ -46,4 +50,54 @@ pub fn pkcs7_pad_len(
   proof_ensure: result => (plaintext_len + result) % block_size == 0,
 } {
   block_size - plaintext_len % block_size
+}
+
+///|
+/// AES round count `Nr` (FIPS 197 §5.1 Table 4):
+///   AES-128 → Nr = 10, AES-192 → Nr = 12, AES-256 → Nr = 14.
+/// Anchors the key-schedule loop bound `for i in 0..<(Nr+1)` and the
+/// round-key array size `(Nr+1) * 4` 32-bit words. Getting `Nr` wrong by
+/// one would silently produce a different cipher, so the table is pinned.
+pub fn aes_round_count(
+  key_bits : Int,
+) -> Int where {
+  proof_require: key_bits == 128 || key_bits == 192 || key_bits == 256,
+  proof_ensure: result => 10 <= result,
+  proof_ensure: result => result <= 14,
+  proof_ensure: result => key_bits != 128 || result == 10,
+  proof_ensure: result => key_bits != 192 || result == 12,
+  proof_ensure: result => key_bits != 256 || result == 14,
+} {
+  if key_bits == 128 {
+    10
+  } else if key_bits == 192 {
+    12
+  } else {
+    14
+  }
+}
+
+///|
+/// AES key-schedule word count `Nk` (FIPS 197 §5.2):
+///   AES-128 → Nk = 4, AES-192 → Nk = 6, AES-256 → Nk = 8.
+/// `Nk` is the number of 32-bit words in the cipher key and the first
+/// `Nk` indices the key-expansion loop copies verbatim before deriving
+/// the rest of the round keys.
+pub fn aes_key_word_count(
+  key_bits : Int,
+) -> Int where {
+  proof_require: key_bits == 128 || key_bits == 192 || key_bits == 256,
+  proof_ensure: result => 4 <= result,
+  proof_ensure: result => result <= 8,
+  proof_ensure: result => key_bits != 128 || result == 4,
+  proof_ensure: result => key_bits != 192 || result == 6,
+  proof_ensure: result => key_bits != 256 || result == 8,
+} {
+  if key_bits == 128 {
+    4
+  } else if key_bits == 192 {
+    6
+  } else {
+    8
+  }
 }

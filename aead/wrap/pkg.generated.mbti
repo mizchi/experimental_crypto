@@ -2,6 +2,10 @@
 package "mizchi/aead/wrap"
 
 // Values
+pub fn aes_key_word_count(Int) -> Int
+
+pub fn aes_round_count(Int) -> Int
+
 pub fn ghash_zero_pad_len(Int, Int) -> Int
 
 pub fn pkcs7_pad_len(Int, Int) -> Int

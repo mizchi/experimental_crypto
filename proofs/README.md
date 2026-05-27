@@ -52,6 +52,8 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `pem/wrap` | `pem_next_chunk_len(remaining, cap)` | RFC 7468 §3 strict line cap; `encode`'s wrap loop never emits a line longer than 64 chars, and terminates as long as `cap > 0` |
 | `aead/wrap` | `ghash_zero_pad_len(len, block_size)` | NIST SP 800-38D §6.5 GHASH zero-pad length ∈ [0, block_size) AND `(len + result) % block_size == 0` — wired into `aead.poly1305_aead_tag` |
 | `aead/wrap` | `pkcs7_pad_len(plaintext_len, block_size)` | RFC 5652 §6.3 PKCS#7 padding length ∈ [1, block_size] AND `(plaintext_len + result) % block_size == 0` — spec for future encrypt-side wiring |
+| `aead/wrap` | `aes_round_count(key_bits)` | FIPS 197 §5.1 Table 4: `Nr ∈ {10,12,14}` for `key_bits ∈ {128,192,256}` |
+| `aead/wrap` | `aes_key_word_count(key_bits)` | FIPS 197 §5.2: `Nk ∈ {4,6,8}` for `key_bits ∈ {128,192,256}` |
 | `hkdf/wrap` | `hkdf_block_count(L, hash_len)` | RFC 5869 §2.3 block count ∈ [1, 255] given L ≤ 255·HashLen — wired into `hkdf.expand` |
 | `pbkdf2/wrap` | `pbkdf2_block_count(dk_len, h_len)` | RFC 8018 §5.2 block count ∈ [1, ⌈dk_len/h_len⌉] with `(N-1)·h_len < dk_len ≤ N·h_len` — spec for `pbkdf2.derive` |
 | `bip32/wrap` | `is_hardened_from_msb(msb)` | BIP-32 §3 hardened-bit dispatch: `ser32(i)[0] >= 0x80` ⇔ hardened. Returns `{0,1}` |
