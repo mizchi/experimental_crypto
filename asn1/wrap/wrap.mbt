@@ -27,13 +27,7 @@ pub fn der_length_prefix_size(
 ) -> Int where {
   proof_require: n >= 0,
   proof_require: n <= 2147483647,
-  proof_ensure: result => 1 <= result,
-  proof_ensure: result => result <= 5,
-  proof_ensure: result => n >= 128 || result == 1,
-  proof_ensure: result => n < 128 || n >= 256 || result == 2,
-  proof_ensure: result => n < 256 || n >= 65536 || result == 3,
-  proof_ensure: result => n < 65536 || n >= 16777216 || result == 4,
-  proof_ensure: result => n < 16777216 || result == 5,
+  proof_ensure: result => result == der_length_size_logic(n),
 } {
   if n < 128 {
     1
@@ -62,13 +56,7 @@ pub fn der_oid_arc_byte_count(
 ) -> Int where {
   proof_require: arc >= 0,
   proof_require: arc <= 2147483647,
-  proof_ensure: result => 1 <= result,
-  proof_ensure: result => result <= 5,
-  proof_ensure: result => arc >= 128 || result == 1,
-  proof_ensure: result => arc < 128 || arc >= 16384 || result == 2,
-  proof_ensure: result => arc < 16384 || arc >= 2097152 || result == 3,
-  proof_ensure: result => arc < 2097152 || arc >= 268435456 || result == 4,
-  proof_ensure: result => arc < 268435456 || result == 5,
+  proof_ensure: result => result == der_oid_arc_byte_count_logic(arc),
 } {
   if arc < 128 {
     1
@@ -103,7 +91,7 @@ pub fn der_length_prefix_size_monotone(
   proof_require: a <= b,
   proof_require: b <= 2147483647,
   proof_ensure: result => result == 0,
-  proof_ensure: result => a < 128 || (128 <= a && a < 256 && 128 <= b) || (256 <= a && a < 65536 && 256 <= b) || (65536 <= a && a < 16777216 && 65536 <= b) || (16777216 <= a && 16777216 <= b),
+  proof_ensure: result => der_length_size_logic(a) <= der_length_size_logic(b),
 } {
   0
 }
@@ -120,7 +108,7 @@ pub fn der_oid_arc_byte_count_monotone(
   proof_require: a <= b,
   proof_require: b <= 2147483647,
   proof_ensure: result => result == 0,
-  proof_ensure: result => a < 128 || (128 <= a && a < 16384 && 128 <= b) || (16384 <= a && a < 2097152 && 16384 <= b) || (2097152 <= a && a < 268435456 && 2097152 <= b) || (268435456 <= a && 268435456 <= b),
+  proof_ensure: result => der_oid_arc_byte_count_logic(a) <= der_oid_arc_byte_count_logic(b),
 } {
   0
 }
@@ -144,10 +132,7 @@ pub fn der_length_payload_bytes_after_indicator(
 ) -> Int where {
   proof_require: 0 <= indicator,
   proof_require: indicator < 128 || (129 <= indicator && indicator <= 132),
-  proof_ensure: result => 0 <= result,
-  proof_ensure: result => result <= 4,
-  proof_ensure: result => indicator >= 128 || result == 0,
-  proof_ensure: result => indicator < 128 || result == indicator - 128,
+  proof_ensure: result => result == der_length_payload_bytes_after_indicator_logic(indicator),
 } {
   if indicator < 128 {
     0
@@ -174,7 +159,7 @@ pub fn der_length_round_trip(
   proof_require: 0 <= n,
   proof_require: n <= 2147483647,
   proof_ensure: result => result == 0,
-  proof_ensure: result => (n < 128) || (128 <= n && n < 256) || (256 <= n && n < 65536) || (65536 <= n && n < 16777216) || (16777216 <= n && n <= 2147483647),
+  proof_ensure: result => der_length_size_logic(n) == 1 + der_length_payload_bytes_after_indicator_logic(der_length_indicator_logic(n)),
 } {
   0
 }
