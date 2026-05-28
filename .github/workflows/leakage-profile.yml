@@ -121,3 +121,6 @@ jobs:
             LEAKAGE_CALLGRIND_REPORT=leakage-callgrind-profile.tsv \
             nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/callgrind_check.sh
           cat leakage-callgrind-profile.tsv
+          nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_summary.sh \
+            leakage-timing-profile.tsv \
+            leakage-callgrind-profile.tsv

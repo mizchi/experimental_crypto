@@ -108,6 +108,7 @@ jobs:
             bash scripts/ci_retry.sh moon update >/dev/null
             bash leakage_harness/callgrind_check_selftest.sh
             bash leakage_harness/timing_check_selftest.sh
+            bash leakage_harness/profile_summary_selftest.sh
             moon run --target native ./leakage_harness -- list
             LEAKAGE_TIMING_SAMPLES=8 \
               LEAKAGE_TIMING_INNER=1 \
@@ -141,6 +142,10 @@ jobs:
               LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
               bash leakage_harness/callgrind_check.sh
             cat leakage-callgrind.tsv
+            bash leakage_harness/profile_summary.sh \
+              leakage-timing.tsv \
+              leakage-timing-backends.tsv \
+              leakage-callgrind.tsv
           '
 
   prove:

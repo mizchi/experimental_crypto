@@ -187,6 +187,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   workloads to `leakage_harness`, then include them in native timing,
   backend timing smoke, callgrind thresholds, and the manual leakage profile
   default workload set.
+- Add `leakage_harness/profile_summary.sh` plus a self-test to aggregate
+  timing and callgrind TSV reports by target/workload. CI and the manual
+  leakage profile workflow now print this summary so repeated profile runs are
+  easier to compare before threshold tightening.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets

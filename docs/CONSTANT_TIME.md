@@ -74,6 +74,7 @@ nix develop --impure .#leakage --command bash leakage_harness/callgrind_check.sh
 LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
   LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
   bash leakage_harness/callgrind_check.sh
+bash leakage_harness/profile_summary.sh leakage-timing.tsv leakage-callgrind.tsv
 gh workflow run "Leakage Profile" --ref main
 ```
 
@@ -98,7 +99,9 @@ tab-separated report with sparse/dense instruction totals, percentage delta,
 selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
 runs timing checks against caller-selected backend targets, then runs the
 Linux-native callgrind checker, and prints TSV reports without making normal
-push CI pay for full profiling.
+push CI pay for full profiling. `profile_summary.sh` can aggregate one or more
+timing / callgrind TSV reports by target and workload, making repeated profile
+runs easier to compare before tightening thresholds.
 
 The JWE RSA-OAEP decrypt workload deliberately uses ciphertext `1` and expects
 OAEP authentication failure. Because `1^d mod n` is `1` for both sparse and
