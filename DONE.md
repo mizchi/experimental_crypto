@@ -138,6 +138,13 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Change the JWE RSA-OAEP decrypt leakage workload to use ciphertext `1`,
   making the post-modexp OAEP failure path identical for sparse and dense
   private-exponent classes while still exercising private modexp.
+- Run the first full Linux callgrind profile over every current
+  private-operation workload; all sparse/dense instruction-count deltas were
+  below 0.04%.
+- Expand the Linux CI callgrind gate from a representative subset to every
+  current private-operation workload (`crypto_bigint` pow/inv, RSA sign, JWE
+  RSA-OAEP decrypt, and P-256/P-384/secp256k1 sign) with per-workload 1.0%
+  thresholds.
 
 ## Parser And Protocol Hardening
 

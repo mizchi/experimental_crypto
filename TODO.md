@@ -35,10 +35,11 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      smoke measurements can be tightened without changing the harness code.
    - [x] Add callgrind checker self-tests and a manual Linux profile workflow
      for all private-operation workloads.
-   - [ ] Calibrate and gate external leakage checks (`dudect` /
-     callgrind-style harness) with backend-specific thresholds for RSA/JWE
-     private operations and ECDSA sign paths. Measurement scope and
-     terminology are in `docs/CONSTANT_TIME.md`.
+   - [x] Calibrate and gate Linux-native callgrind checks with per-workload
+     thresholds for RSA/JWE private operations and ECDSA sign paths.
+     Measurement scope and terminology are in `docs/CONSTANT_TIME.md`.
+   - [ ] Add stronger dudect-style statistical gates and backend-breadth
+     evidence before making constant-time / constant-clock claims.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
@@ -135,8 +136,9 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **ECDSA / private-operation side-channel measurement**: P-256, P-384,
   and secp256k1 sign-side base-point scalar multiplication now use
   fixed-iteration complete-addition field paths, and final nonce inverses no
-  longer use `@bigint.pow`. The remaining ECDSA risk is unmeasured
-  backend/allocation leakage, not the old affine secret-scalar ladder.
+  longer use `@bigint.pow`. Linux-native callgrind now gates the sign paths;
+  the remaining risk is statistical timing, microarchitectural leakage, and
+  wasm / JS backend breadth.
 
 ## Formal Methods
 
@@ -155,16 +157,17 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
   operations, and ECDSA signing. A native `leakage_harness` workload entry
-  point plus timing and callgrind CI smoke gates exist. Callgrind smoke now
-  writes TSV measurements and supports per-workload thresholds; representative
-  CI thresholds have been tightened to 1.0%, but calibrated thresholds and hard
-  leakage gating are still open. Scope and acceptance criteria are documented
-  in `docs/CONSTANT_TIME.md`.
+  point plus timing and callgrind CI gates exist. Callgrind smoke now writes
+  TSV measurements, supports per-workload thresholds, and gates every current
+  private-operation workload at 1.0% on Linux native; stronger dudect-style
+  statistical gates and backend-breadth evidence are still open. Scope and
+  acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
-- [ ] **`crypto_bigint` remaining work**: calibrate external leakage thresholds
-  for fixed-limb private operations.
+- [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
+  after repeated Linux profile runs, and add stronger statistical leakage
+  checks for fixed-limb private operations.
 - [x] **ECDSA field rewrite**: keep p256/p384/secp256k1 sign-side scalar
   multiplication off affine BigInt point formulas; verify-side multiplication
   remains affine because inputs are public.
@@ -208,5 +211,8 @@ fails closed before returning authenticated / verified / trusted.
   `warning: unhandled Platform key FamilyDisplayName`.
 - [ ] Resolve the FlakeHub auth warning emitted by
   `DeterminateSystems/nix-installer-action`.
+- [ ] Resolve GitHub's Node.js 20 deprecation warning for
+  `DeterminateSystems/magic-nix-cache-action@v13` before Node.js 20 actions are
+  removed on 2026-09-16.
 - [ ] Cache `~/.moon/registry` between CI runs so `moon update` does not
   re-fetch `moonbitlang/x` each time.

@@ -84,21 +84,24 @@ worth noting:
 
 - **ECDSA sign-side scalar multiplication** for P-256, P-384, and secp256k1
   now uses fixed-iteration complete-addition field paths, and final ECDSA
-  nonce inverses no longer use `@bigint.pow`. This is source-level hardening,
-  not external constant-clock evidence; backend lowering, allocation, and GC
-  still need measurement.
+  nonce inverses no longer use `@bigint.pow`. This is source-level hardening
+  with Linux-native callgrind coverage, not external constant-clock evidence;
+  backend breadth, statistical timing, allocation, and GC still need
+  measurement.
 - **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
   modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
-  branchless in source structure, but not yet proven constant-time across
-  MoonBit backends, allocation, GC, and generated JavaScript/native code.
+  branchless in source structure with Linux-native callgrind coverage, but not
+  yet proven constant-time across MoonBit backends, allocation, GC, and
+  generated JavaScript/native code.
 - **Verify-side timing**: variable-time too, but only on public inputs;
   no key material leaks.
 
-Closing the remaining timing gap requires an external leakage harness (for
-example dudect or callgrind-style class comparisons) for the RSA/JWE/ECDSA sign
-paths. CI now runs a loose `leakage_harness/callgrind_check.sh` smoke gate to
-catch gross instruction-count regressions, but those thresholds are not yet
-calibrated constant-time evidence.
+Closing the remaining timing gap requires stronger external leakage evidence
+for the RSA/JWE/ECDSA sign paths. CI now runs
+`leakage_harness/callgrind_check.sh` against every current private-operation
+workload with a 1.0% Linux-native instruction-count threshold, but this is still
+not a constant-time claim; dudect-style statistical gates and backend breadth
+remain open.
 
 ### Caller responsibilities
 

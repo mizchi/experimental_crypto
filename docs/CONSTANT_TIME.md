@@ -15,33 +15,34 @@ This workspace uses three different levels of side-channel language:
 
 | Area | Status | Remaining risk |
 |---|---|---|
-| `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | No dudect / callgrind measurement yet; allocation and backend lowering are not audited. |
-| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | No generated-code leakage measurement yet. |
-| `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; no generated-code leakage measurement yet. |
-| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | No CRT hardening, no blinding, no external leakage measurement yet. |
-| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | No generated-code leakage measurement yet. |
-| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | All ECDSA sign paths still need external leakage measurement. |
+| `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | No direct per-primitive external measurement yet; allocation and backend lowering are not fully audited. |
+| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; no dudect-style statistical gate yet. |
+| `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
+| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; no CRT hardening, blinding, or dudect-style statistical gate yet. |
+| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered indirectly by Linux native callgrind sign workloads; no direct inverse-only dudect-style gate yet. |
+| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; wasm / JS and dudect-style timing remain smoke-only. |
 | Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Backend-level constant-time behavior is not proven. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
 | ChaCha20-Poly1305 | Limb arithmetic, no AES tables. | Backend-level multiply timing and generated code are not audited. |
 
-## Measurement Plan
+## Measurement Status
 
-The next step is to add backend-specific leakage checks instead of relying on
-source inspection alone.
+The workspace now has a Linux-native callgrind instruction-count gate for the
+private-operation paths that previously relied on source inspection alone.
 
-1. Add native dudect-style harnesses for:
+1. Native dudect-style harnesses still need stronger statistical treatment for:
    - `crypto_bigint.Uint::pow_mod` with same modulus and base, split by secret
      exponent class.
    - `crypto_bigint.Uint::inv_mod` with same modulus, split by secret input
      class.
    - RSA sign and JWE RSA-OAEP decrypt with fixed public shape and classed
      private exponent / ciphertext inputs.
-2. Add callgrind-style instruction-count comparisons for the same fixed-size
+2. Callgrind-style instruction-count comparisons exist for the same fixed-size
    classes. These do not prove absence of microarchitectural leakage, but they
    catch obvious secret-dependent control flow and allocation deltas.
-3. Add ECDSA signing leakage checks for P-256, P-384, and secp256k1.
+3. ECDSA signing leakage checks exist for P-256, P-384, and secp256k1 in the
+   Linux-native callgrind gate.
 4. Treat JavaScript timing checks as smoke tests only. JIT, GC, and BigInt
    lowering make JS unsuitable for strong constant-time claims.
 
@@ -86,21 +87,31 @@ dense private-exponent classes, the post-modexp OAEP failure path sees the
 same encoded message; the class comparison is therefore aimed at private
 modexp instruction-count differences rather than data-dependent OAEP parsing.
 
-CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
+CI runs two checks in the Linux-only `.#leakage` devShell:
 
 - a tiny timing smoke test (`compare 2 1 1000000`), which only prevents the
   timing harness from rotting;
-- a representative callgrind instruction-count smoke test
-  (`crypto_bigint-pow_mod`, `p256-sign`) with
-  `leakage_harness/callgrind_smoke_thresholds.tsv`, which catches gross
-  secret-dependent control-flow or allocation regressions in the profiler
-  path without making every CI push run the full slow workload set.
+- a callgrind instruction-count gate for every current private-operation
+  workload in `leakage_harness/callgrind_smoke_thresholds.tsv`, which catches
+  gross secret-dependent control-flow or allocation regressions in the profiler
+  path.
 
-The representative CI callgrind thresholds are currently 1.0%, after the first
-Linux CI report showed deltas below 0.003% for both smoke workloads. This is a
-useful regression tripwire, not calibrated leakage evidence yet. Tight,
-backend-specific thresholds still need repeated Linux measurements before the
-checks can be treated as hard constant-time gates.
+The CI callgrind thresholds are currently 1.0%. The first full Linux profile
+run after introducing the manual workflow produced:
+
+| Workload | Sparse Ir | Dense Ir | Delta |
+|---|---:|---:|---:|
+| `crypto_bigint-pow_mod` | 10,885,060 | 10,884,681 | 0.003482% |
+| `crypto_bigint-inv_mod` | 13,865,760 | 13,865,318 | 0.003188% |
+| `rsa-pkcs1v15-sign` | 1,483,320,050 | 1,483,860,724 | 0.036437% |
+| `jwe-rsa-oaep-decrypt` | 1,483,968,124 | 1,484,508,860 | 0.036425% |
+| `p256-sign` | 163,948,756 | 163,949,841 | 0.000662% |
+| `p384-sign` | 350,467,440 | 350,467,283 | 0.000045% |
+| `secp256k1-sign` | 150,180,452 | 150,182,138 | 0.001123% |
+
+The 1.0% gate is intentionally wider than the first profile to avoid CI noise
+while still failing closed on large instruction-count regressions. Repeated
+Linux profile runs can tighten the per-workload thresholds further.
 
 ## Acceptance Criteria
 
