@@ -20,6 +20,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   callgrind-profile:
     name: callgrind profile (native, ubuntu-latest, nix leakage shell)
@@ -44,7 +51,7 @@ jobs:
           PROFILE_ITERS: ${{ inputs.iters }}
           PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
         run: |
-          nix develop --impure .#leakage --command env -u MOON_HOME moon update
+          nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
           LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
             LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \

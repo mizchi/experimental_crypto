@@ -11,6 +11,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   test:
     name: test (${{ matrix.target }}, ubuntu-latest, nix devShell)
@@ -46,8 +53,8 @@ jobs:
         run: |
           nix develop --impure --command bash -c '
             unset MOON_HOME
-            moon update >/dev/null
-            moon test --target "${{ matrix.target }}"
+            bash scripts/ci_retry.sh moon update >/dev/null
+            bash scripts/ci_retry.sh moon test --target "${{ matrix.target }}"
           '
 
   leakage-smoke:
@@ -71,7 +78,7 @@ jobs:
         run: |
           nix develop --impure .#leakage --command bash -c '
             unset MOON_HOME
-            moon update >/dev/null
+            bash scripts/ci_retry.sh moon update >/dev/null
             bash leakage_harness/callgrind_check_selftest.sh
             moon run --target native ./leakage_harness -- list
             moon run --target native ./leakage_harness -- compare 2 1 1000000
@@ -114,6 +121,6 @@ jobs:
           nix develop --impure --command bash proofs/setup.sh
           nix develop --impure --command bash -c '
             unset MOON_HOME
-            moon update >/dev/null
+            bash scripts/ci_retry.sh moon update >/dev/null
             bash proofs/prove.sh
           '

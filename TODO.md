@@ -209,10 +209,5 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] Investigate native test runner noise:
   `warning: unhandled Platform key FamilyDisplayName`.
-- [ ] Resolve the FlakeHub auth warning emitted by
-  `DeterminateSystems/nix-installer-action`.
-- [ ] Resolve GitHub's Node.js 20 deprecation warning for
-  `DeterminateSystems/magic-nix-cache-action@v13` before Node.js 20 actions are
-  removed on 2026-09-16.
 - [ ] Cache `~/.moon/registry` between CI runs so `moon update` does not
   re-fetch `moonbitlang/x` each time.
