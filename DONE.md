@@ -148,10 +148,11 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add `scripts/ci_retry.sh` and wrap CI `moon update` / `moon test` calls so
   transient MoonBit registry or package download 403s do not fail a run before
   tests execute.
-- Opt GitHub Actions into Node.js 24 for JavaScript actions and grant
-  `id-token: write` / `contents: read` workflow permissions so Determinate
-  Nix actions can authenticate through OIDC instead of emitting FlakeHub auth
-  warnings.
+- Opt GitHub Actions into Node.js 24 for JavaScript actions while waiting for a
+  Node.js 24-targeting `magic-nix-cache-action` release.
+- Disable Determinate Nix / FlakeHub Cache opportunism in CI and force Magic
+  Nix Cache onto GitHub Actions cache so unauthenticated FlakeHub warnings do
+  not mask real test failures.
 
 ## Parser And Protocol Hardening
 

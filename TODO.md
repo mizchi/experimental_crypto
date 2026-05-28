@@ -209,5 +209,8 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] Investigate native test runner noise:
   `warning: unhandled Platform key FamilyDisplayName`.
+- [ ] Upgrade or replace `DeterminateSystems/magic-nix-cache-action@v13` once
+  a Node.js 24-targeting release exists; `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`
+  only mitigates the deprecation warning while v13 still declares `node20`.
 - [ ] Cache `~/.moon/registry` between CI runs so `moon update` does not
   re-fetch `moonbitlang/x` each time.

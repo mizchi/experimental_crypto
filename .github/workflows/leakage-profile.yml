@@ -22,7 +22,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -38,12 +37,16 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
         with:
+          determinate: false
           extra-conf: |
             experimental-features = nix-command flakes
             accept-flake-config = true
 
       - name: Cache /nix/store
         uses: DeterminateSystems/magic-nix-cache-action@v13
+        with:
+          use-flakehub: "disabled"
+          use-gha-cache: "enabled"
 
       - name: callgrind profile
         env:
