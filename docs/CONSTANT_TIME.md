@@ -19,7 +19,7 @@ This workspace uses three different levels of side-channel language:
 | `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but not calibrated proof. |
 | `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
 | RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but there is no CRT hardening or blinding. |
-| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered indirectly by Linux native callgrind sign workloads; no direct inverse-only dudect-style gate yet. |
+| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered by direct sparse-vs-dense nonce-inverse timing workloads plus Linux native callgrind smoke gates. |
 | ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; native timing has a repeated dudect-style smoke gate, while JS / wasm-gc / wasm are CI smoke-only. |
 | Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Backend-level constant-time behavior is not proven. |
@@ -36,6 +36,8 @@ private-operation paths that previously relied on source inspection alone.
      exponent class.
    - `crypto_bigint.Uint::inv_mod` with same modulus, split by secret input
      class.
+   - ECDSA nonce inverses for P-256, P-384, and secp256k1 order moduli,
+     split by sparse-vs-dense nonce class.
    - RSA sign and JWE RSA-OAEP decrypt with fixed public shape and classed
      private exponent / ciphertext inputs.
 2. Callgrind-style instruction-count comparisons exist for the same fixed-size
@@ -122,7 +124,8 @@ CI runs three leakage checks in the Linux-only `.#leakage` devShell:
   path.
 
 The CI callgrind thresholds are currently 1.0%. The first full Linux profile
-run after introducing the manual workflow produced:
+run after introducing the manual workflow, before adding the direct
+nonce-inverse workloads, produced:
 
 | Workload | Sparse Ir | Dense Ir | Delta |
 |---|---:|---:|---:|

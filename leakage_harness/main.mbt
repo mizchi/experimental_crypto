@@ -72,6 +72,21 @@ fn p256_order_uint() -> @crypto_bigint.Uint {
 }
 
 ///|
+fn p384_order_uint() -> @crypto_bigint.Uint {
+  uint_fixture(6, [
+    0xecec_196a_ccc5_2973UL, 0x581a_0db2_48b0_a77aUL, 0xc763_4d81_f437_2ddfUL, 0xffff_ffff_ffff_ffffUL,
+    0xffff_ffff_ffff_ffffUL, 0xffff_ffff_ffff_ffffUL,
+  ])
+}
+
+///|
+fn k1_order_uint() -> @crypto_bigint.Uint {
+  uint_fixture(4, [
+    0xbfd2_5e8c_d036_4141UL, 0xbaaedce6_af48_a03bUL, 0xffff_ffff_ffff_fffeUL, 0xffff_ffff_ffff_ffffUL,
+  ])
+}
+
+///|
 fn bigint_base_uint() -> @crypto_bigint.Uint {
   uint_fixture(4, [
     0x0123_4567_89ab_cdefUL, 0xfedc_ba98_7654_3210UL, 0x0f0e_0d0c_0b0a_0908UL, 0x8070_6050_4030_2010UL,
@@ -131,6 +146,13 @@ fn k1_sparse_scalar() -> Bytes {
 ///|
 fn k1_dense_scalar() -> Bytes {
   hex("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036413f")
+}
+
+///|
+fn uint_from_be_fixture(bytes : Bytes, limb_count : Int) -> @crypto_bigint.Uint {
+  @crypto_bigint.Uint::from_be_bytes(bytes, limb_count) catch {
+    _ => abort("bad Uint fixture")
+  }
 }
 
 ///|
@@ -232,7 +254,15 @@ fn crypto_pow_workload(secret : @crypto_bigint.Uint, sink : Sink) -> () -> Unit 
 
 ///|
 fn crypto_inv_workload(input : @crypto_bigint.Uint, sink : Sink) -> () -> Unit {
-  let modulus = p256_order_uint()
+  inv_mod_workload(input, p256_order_uint(), sink)
+}
+
+///|
+fn inv_mod_workload(
+  input : @crypto_bigint.Uint,
+  modulus : @crypto_bigint.Uint,
+  sink : Sink,
+) -> () -> Unit {
   () => {
     let inv = input.inv_mod(modulus) catch {
       _ => abort("inverse fixture must be invertible")
@@ -308,6 +338,45 @@ fn build_workloads(sink : Sink) -> Array[Workload] {
       name: "crypto_bigint-inv_mod",
       sparse: crypto_inv_workload(sparse_uint(), sink),
       dense: crypto_inv_workload(dense_uint(), sink),
+    },
+    {
+      name: "p256-nonce-inv",
+      sparse: inv_mod_workload(
+        uint_from_be_fixture(p256_sparse_scalar(), 4),
+        p256_order_uint(),
+        sink,
+      ),
+      dense: inv_mod_workload(
+        uint_from_be_fixture(p256_dense_scalar(), 4),
+        p256_order_uint(),
+        sink,
+      ),
+    },
+    {
+      name: "p384-nonce-inv",
+      sparse: inv_mod_workload(
+        uint_from_be_fixture(p384_sparse_scalar(), 6),
+        p384_order_uint(),
+        sink,
+      ),
+      dense: inv_mod_workload(
+        uint_from_be_fixture(p384_dense_scalar(), 6),
+        p384_order_uint(),
+        sink,
+      ),
+    },
+    {
+      name: "secp256k1-nonce-inv",
+      sparse: inv_mod_workload(
+        uint_from_be_fixture(k1_sparse_scalar(), 4),
+        k1_order_uint(),
+        sink,
+      ),
+      dense: inv_mod_workload(
+        uint_from_be_fixture(k1_dense_scalar(), 4),
+        k1_order_uint(),
+        sink,
+      ),
     },
     {
       name: "rsa-pkcs1v15-sign",

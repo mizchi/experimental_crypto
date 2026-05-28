@@ -139,9 +139,10 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **ECDSA / private-operation side-channel measurement**: P-256, P-384,
   and secp256k1 sign-side base-point scalar multiplication now use
   fixed-iteration complete-addition field paths, and final nonce inverses no
-  longer use `@bigint.pow`. Linux-native callgrind now gates the sign paths;
-  the remaining risk is statistical timing, microarchitectural leakage, and
-  wasm / JS backend breadth.
+  longer use `@bigint.pow`. Linux-native callgrind and native timing now gate
+  the sign paths and direct nonce-inverse paths; the remaining risk is
+  calibrated statistical timing, microarchitectural leakage, and repeated
+  backend-breadth evidence.
 
 ## Formal Methods
 

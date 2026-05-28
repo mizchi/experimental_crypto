@@ -1,6 +1,9 @@
 # workload max_abs_t max_mean_abs_t max_failures
 crypto_bigint-pow_mod 20.0 10.0 0
 crypto_bigint-inv_mod 20.0 10.0 0
+p256-nonce-inv 20.0 10.0 0
+p384-nonce-inv 20.0 10.0 0
+secp256k1-nonce-inv 20.0 10.0 0
 rsa-pkcs1v15-sign 20.0 10.0 0
 jwe-rsa-oaep-decrypt 20.0 10.0 0
 p256-sign 20.0 10.0 0

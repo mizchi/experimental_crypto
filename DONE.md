@@ -183,6 +183,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   wasm-gc, and wasm timing smoke checks for every current private-operation
   workload in normal CI. These are backend-breadth regression tripwires, not
   calibrated constant-time evidence.
+- Add direct P-256, P-384, and secp256k1 nonce-inverse sparse-vs-dense
+  workloads to `leakage_harness`, then include them in native timing,
+  backend timing smoke, callgrind thresholds, and the manual leakage profile
+  default workload set.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets
