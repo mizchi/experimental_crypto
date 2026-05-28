@@ -57,6 +57,11 @@ criteria.
 ```sh
 moon run --target native ./leakage_harness -- list
 moon run --target native ./leakage_harness -- compare 8 1
+moon run --target native ./leakage_harness -- compare-one p256-sign 8 1
+bash leakage_harness/timing_check.sh
+LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
+  LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
+  bash leakage_harness/timing_check.sh
 moon run --target native ./leakage_harness -- run p256-sign sparse 100
 moon run --target native ./leakage_harness -- run p256-sign dense 100
 bash leakage_harness/callgrind_check.sh
@@ -67,19 +72,22 @@ LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
 gh workflow run "Leakage Profile" --ref main
 ```
 
-Use `compare` as a local dudect-style timing smoke test. Use `run` under an
-external profiler such as `valgrind --tool=callgrind` on Linux, or a platform
-equivalent, to compare fixed class workloads without including test harness
-branching in the measured operation. `callgrind_check.sh` automates that Linux
-workflow by building the native harness, running each sparse/dense class under
-callgrind, parsing `summary:` instruction totals, and failing if the percentage
-delta exceeds either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload
-limit in `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to
-write a tab-separated report with sparse/dense instruction totals, percentage
-delta, selected threshold, and pass/fail result. The manual `Leakage Profile`
-workflow runs the same checker against caller-selected workloads and prints a
-full TSV report without making normal push CI pay for all private-operation
-profiles.
+Use `compare`, `compare-one`, or `timing_check.sh` as local dudect-style timing
+smoke tests. `timing_check.sh` builds the native harness, runs caller-selected
+workloads, applies either `LEAKAGE_TIMING_MAX_ABS_T` or per-workload thresholds
+from `LEAKAGE_TIMING_THRESHOLDS`, and can write a TSV report via
+`LEAKAGE_TIMING_REPORT`. Use `run` under an external profiler such as
+`valgrind --tool=callgrind` on Linux, or a platform equivalent, to compare
+fixed class workloads without including test harness branching in the measured
+operation. `callgrind_check.sh` automates that Linux workflow by building the
+native harness, running each sparse/dense class under callgrind, parsing
+`summary:` instruction totals, and failing if the percentage delta exceeds
+either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload limit in
+`LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to write a
+tab-separated report with sparse/dense instruction totals, percentage delta,
+selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
+runs both timing and callgrind checkers against caller-selected workloads and
+prints TSV reports without making normal push CI pay for full profiling.
 
 The JWE RSA-OAEP decrypt workload deliberately uses ciphertext `1` and expects
 OAEP authentication failure. Because `1^d mod n` is `1` for both sparse and
@@ -89,8 +97,10 @@ modexp instruction-count differences rather than data-dependent OAEP parsing.
 
 CI runs two checks in the Linux-only `.#leakage` devShell:
 
-- a tiny timing smoke test (`compare 2 1 1000000`), which only prevents the
-  timing harness from rotting;
+- a loose timing smoke test (`timing_check.sh` with eight samples and
+  `leakage_harness/timing_smoke_thresholds.tsv`), which catches only very
+  large sparse/dense timing regressions and keeps report plumbing from
+  rotting;
 - a callgrind instruction-count gate for every current private-operation
   workload in `leakage_harness/callgrind_smoke_thresholds.tsv`, which catches
   gross secret-dependent control-flow or allocation regressions in the profiler
@@ -112,6 +122,10 @@ run after introducing the manual workflow produced:
 The 1.0% gate is intentionally wider than the first profile to avoid CI noise
 while still failing closed on large instruction-count regressions. Repeated
 Linux profile runs can tighten the per-workload thresholds further.
+
+The timing smoke thresholds are deliberately loose (`abs_t <= 20.0`) because
+they run inside ordinary GitHub-hosted runners. They are a regression tripwire,
+not calibrated dudect evidence.
 
 ## Acceptance Criteria
 

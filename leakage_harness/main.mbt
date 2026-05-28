@@ -432,6 +432,34 @@ fn find_workload(workloads : Array[Workload], name : String) -> Workload? {
 }
 
 ///|
+fn workload_or_exit(workloads : Array[Workload], name : String) -> Workload {
+  match find_workload(workloads, name) {
+    Some(w) => w
+    None => {
+      println("unknown workload: " + name)
+      @sys.exit(2)
+      abort("unreachable after exit")
+    }
+  }
+}
+
+///|
+fn selected_workloads(
+  args : Array[String],
+  start : Int,
+  workloads : Array[Workload],
+) -> Array[Workload] {
+  if args.length() <= start {
+    return workloads
+  }
+  let selected : Array[Workload] = []
+  for i in start..<args.length() {
+    selected.push(workload_or_exit(workloads, args[i]))
+  }
+  selected
+}
+
+///|
 fn parse_int_arg(args : Array[String], idx : Int, default : Int) -> Int {
   if args.length() <= idx {
     return default
@@ -473,7 +501,10 @@ fn parse_double_arg(
 ///|
 fn normalize_args(args : Array[String]) -> Array[String] {
   for i in 0..<args.length() {
-    if args[i] == "compare" || args[i] == "list" || args[i] == "run" {
+    if args[i] == "compare" ||
+      args[i] == "compare-one" ||
+      args[i] == "list" ||
+      args[i] == "run" {
       return Array::makei(args.length() - i, fn(j) { args[i + j] })
     }
   }
@@ -489,6 +520,8 @@ fn usage() -> String {
     #|usage:
     #|  moon run --target native ./leakage_harness
     #|  moon run --target native ./leakage_harness -- compare [samples] [inner] [max_abs_t]
+    #|  moon run --target native ./leakage_harness -- compare [samples] [inner] [max_abs_t] [workload...]
+    #|  moon run --target native ./leakage_harness -- compare-one <workload> [samples] [inner] [max_abs_t]
     #|  moon run --target native ./leakage_harness -- list
     #|  moon run --target native ./leakage_harness -- run <workload> <sparse|dense> [iters]
   )
@@ -514,14 +547,7 @@ fn main {
     let name = args[1]
     let class_name = args[2]
     let iters = parse_int_arg(args, 3, 100)
-    let w = match find_workload(workloads, name) {
-      Some(w) => w
-      None => {
-        println("unknown workload: " + name)
-        @sys.exit(2)
-        return
-      }
-    }
+    let w = workload_or_exit(workloads, name)
     let f = if class_name == "sparse" {
       w.sparse
     } else if class_name == "dense" {
@@ -537,6 +563,23 @@ fn main {
     println("sink=" + sink.acc.to_string())
     return
   }
+  if cmd == "compare-one" {
+    if args.length() < 2 {
+      println(usage())
+      @sys.exit(2)
+    }
+    let w = workload_or_exit(workloads, args[1])
+    let samples = parse_min_int_arg(args, 2, 8, 2)
+    let inner = parse_min_int_arg(args, 3, 1, 1)
+    let threshold = parse_double_arg(args, 4, 1000000.0)
+    let t = run_compare_one(w, samples, inner)
+    println("sink=" + sink.acc.to_string())
+    if t > threshold {
+      println("leakage timing threshold exceeded: " + t.to_string())
+      @sys.exit(1)
+    }
+    return
+  }
   if cmd != "compare" {
     println(usage())
     @sys.exit(2)
@@ -545,7 +588,7 @@ fn main {
   let inner = parse_min_int_arg(args, 2, 1, 1)
   let threshold = parse_double_arg(args, 3, 1000000.0)
   let mut worst = 0.0
-  for w in workloads {
+  for w in selected_workloads(args, 4, workloads) {
     let t = run_compare_one(w, samples, inner)
     if t > worst {
       worst = t

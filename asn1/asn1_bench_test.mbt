@@ -38,14 +38,14 @@ test "bench asn1 decode flat SEQUENCE x100" (it : @bench.T) {
 }
 
 ///|
-test "bench asn1 encode nested SEQUENCE depth=50" (it : @bench.T) {
-  let elem = build_nested_sequence(50)
+test "bench asn1 encode nested SEQUENCE depth=32" (it : @bench.T) {
+  let elem = build_nested_sequence(32)
   it.bench(fn() { it.keep(@asn1.encode_der(elem)) })
 }
 
 ///|
-test "bench asn1 decode nested SEQUENCE depth=50" (it : @bench.T) {
-  let bytes = @asn1.encode_der(build_nested_sequence(50))
+test "bench asn1 decode nested SEQUENCE depth=32" (it : @bench.T) {
+  let bytes = @asn1.encode_der(build_nested_sequence(32))
   it.bench(() => {
     it.keep(@asn1.decode_der(bytes) catch { _ => abort("unreachable") })
   })

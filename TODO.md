@@ -159,9 +159,12 @@ fails closed before returning authenticated / verified / trusted.
   operations, and ECDSA signing. A native `leakage_harness` workload entry
   point plus timing and callgrind CI gates exist. Callgrind smoke now writes
   TSV measurements, supports per-workload thresholds, and gates every current
-  private-operation workload at 1.0% on Linux native; stronger dudect-style
-  statistical gates and backend-breadth evidence are still open. Scope and
-  acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
+  private-operation workload at 1.0% on Linux native. Timing smoke now has
+  reusable workload selection, per-workload thresholds, and TSV report
+  plumbing and gates every current private-operation workload at a deliberately
+  loose `abs_t <= 20.0`; calibrated dudect-style statistical gates and
+  backend-breadth evidence are still open. Scope and acceptance criteria are
+  documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
@@ -199,18 +202,11 @@ fails closed before returning authenticated / verified / trusted.
 
 ## Documentation
 
-- [ ] Update top-level `README.md` module map + perf table to reflect the
-  current 35-module workspace.
-- [ ] Add README "git commit signing" walkthrough for SSH / PGP / X.509-CMS.
 - [ ] Migrate per-module quickstart blocks into generated
   `pkg.generated.mbti` docs once moon's doc tooling catches up.
 
 ## CI / Infra
 
-- [ ] Investigate native test runner noise:
-  `warning: unhandled Platform key FamilyDisplayName`.
 - [ ] Upgrade or replace `DeterminateSystems/magic-nix-cache-action@v13` once
   a Node.js 24-targeting release exists; `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`
   only mitigates the deprecation warning while v13 still declares `node20`.
-- [ ] Cache `~/.moon/registry` between CI runs so `moon update` does not
-  re-fetch `moonbitlang/x` each time.

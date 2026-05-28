@@ -13,10 +13,11 @@
 > vetted library (`RustCrypto`, `dalek`, `BoringSSL`, etc.) wherever one
 > exists for your protocol.
 
-Pure MoonBit building blocks for crypto and PKI. A `moon.work` workspace of
-35 self-contained modules, each one focused on a single RFC-level concern.
-The implementations stay on top of `moonbitlang/core` and the small
-`moonbitlang/x/crypto` extension; nothing else.
+Pure MoonBit building blocks for crypto, PKI, JOSE, and signing formats. The
+workspace currently has 35 library/protocol modules plus the `proofs` and
+`leakage_harness` sidecar modules. The implementations stay on top of
+`moonbitlang/core`, a small `moonbitlang/x` dependency for platform hooks, and
+other modules in this workspace.
 
 The constant-time properties of the field arithmetic are not yet up to
 the bar of `dalek` or `RustCrypto`; the file headers call out exactly
@@ -24,23 +25,21 @@ where the gaps are.
 
 ## Module map
 
-| Module        | Spec                                         | Tests | Notes                                                          |
-| ------------- | -------------------------------------------- | ----- | -------------------------------------------------------------- |
-| `asn1`        | X.690 (DER), X.680                           | 54    | Tag, length, OID, primitives, SEQUENCE, SET, BIT STRING, time  |
-| `pem`         | RFC 7468                                     | 12    | Multi-block, lax input, strict 64-char output                  |
-| `pkix`        | RFC 5280                                     | 15    | X.509 v3 cert, Let's Encrypt R10 roundtrip                     |
-| `pkcs8`       | RFC 5208 / 5958                              | 13    | PrivateKeyInfo, EncryptedPrivateKeyInfo, RustCrypto fixtures   |
-| `hkdf`        | RFC 5869                                     | 6     | HKDF-SHA-256; SHA-384/512 deferred until x/crypto exposes them |
-| `pbkdf2`      | RFC 8018                                     | 7     | PBKDF2-HMAC-SHA256                                             |
-| `scrypt`      | RFC 7914                                     | 14    | Salsa20/8 + BlockMix + ROMix; PHC string encode / verify       |
-| `argon2`      | RFC 9106                                     | 22    | Argon2d / i / id; BLAKE2b self-impl; PHC string encode / verify |
-| `aead`        | RFC 8439, NIST SP 800-38D                    | 60    | ChaCha20-Poly1305 (5-limb), AES-128/256-GCM (self-impl)        |
-| `x25519`      | RFC 7748                                     | 31    | 10-limb radix-2^25.5 Montgomery ladder; ~90 µs / ECDH          |
-| `ed25519`     | RFC 8032                                     | 17    | SHA-512 self-impl; @bigint-backed Edwards curve (limb rewrite pending) |
-| `crypto_bigint` | (Rust crypto-bigint shape)                 | 39    | Fixed-limb Uint, Montgomery, modular pow/inv; BigInt only as test oracle |
-| `getrandom`   | OS CSPRNG bridge                             | 6     | `crypto.getRandomValues` on JS, `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native |
+For API-level detail, see [docs/MODULES.md](docs/MODULES.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-`moon test` from the workspace root runs the full suite (1200+ tests).
+| Area | Modules | Notes |
+|---|---|---|
+| Encoding and foundations | `asn1`, `cose_cbor`, `crypto_bigint`, `getrandom` | Strict DER/CBOR codecs, fixed-limb unsigned integers, and platform CSPRNG bridge. |
+| Hashes, AEAD, and KDFs | `hash`, `aead`, `hkdf`, `pbkdf2`, `scrypt`, `argon2` | SHA-1/2, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, ChaCha20/XChaCha20-Poly1305, AES-GCM/CBC, and password KDFs. |
+| Key and certificate containers | `pem`, `pkcs8`, `pkix`, `pkix_verify`, `ocsp`, `crl`, `cms` | PEM, PKCS#8/PBES2, X.509 parsing, chain verification, revocation formats, and CMS SignedData. |
+| Signature and key-exchange primitives | `ed25519`, `x25519`, `p256`, `p384`, `secp256k1`, `rsa` | Ed/X25519, NIST ECDSA, secp256k1, and RSA PKCS#1 v1.5/PSS. |
+| JOSE, COSE, SSH, PGP, and git formats | `jwt`, `jwe`, `jwk`, `cose`, `ssh`, `pgp`, `git_object` | Strict parsers/verifiers for compact JOSE, COSE_Sign1, SSHSIG-style signatures, OpenPGP detached signatures, and git signed-object bytes. |
+| Wallet, box, and OTP protocols | `bip39`, `bip32`, `hpke`, `naclbox`, `totp` | BIP mnemonic/HD wallet helpers, HPKE base mode, libsodium-style box, and HOTP/TOTP. |
+| Sidecar tooling | `proofs`, `leakage_harness` | SMT proof leaves and native sparse-vs-dense leakage measurement harnesses. |
+
+`moon test` from the workspace root runs the full suite (currently 1298 native
+tests on this checkout).
 
 ## Cross-implementation interop
 
@@ -52,9 +51,32 @@ parsers and codecs aren't only validated against bytes we produced ourselves:
 - `pkcs8` parses the Ed25519 PKCS#8 v1 + v2 PEM fixtures from
   `RustCrypto/formats`, including the v2 "Curdle Chairs" attribute from
   RFC 8410 §10.3.
-- `aead` and `x25519` consume a subset of Project Wycheproof vectors
-  covering invalid tags, modified ciphertexts, zero shared secrets,
-  non-canonical public keys, etc.
+- `aead`, `ed25519`, `x25519`, `p256`, `p384`, `secp256k1`, and `rsa`
+  include Wycheproof or Wycheproof-derived vectors where the workspace has
+  matching algorithm support.
+- `jwt`, `jwe`, `cose`, `pkcs8`, `pbkdf2`, `scrypt`, and `hash` include
+  reference or platform-oracle tests against external implementations.
+
+## Git commit signing
+
+Git's three `gpg.format` families are covered as verify-side building blocks:
+
+| `gpg.format` | Format | Modules |
+|---|---|---|
+| `ssh` | SSHSIG-style armor | `git_object` + `ssh` + key primitives |
+| `openpgp` | OpenPGP detached signature armor | `git_object` + `pgp` + `hash` |
+| `x509` | CMS SignedData detached signature | `git_object` + `cms` + `pkix_verify` |
+
+The usual flow is:
+
+1. Read `git cat-file commit <rev>` bytes.
+2. Parse the object with `@git_object.parse_signed_commit`.
+3. Verify `signed.signature_armor` over `signed.signed_content` with `@ssh`,
+   `@pgp`, or `@cms`.
+
+SSH is intentionally a conservative SSHSIG-style subset, not an OpenSSH
+compatibility claim. See [docs/GIT-SIGNING.md](docs/GIT-SIGNING.md) for
+allowed_signers, OpenPGP, and X.509/CMS examples.
 
 ## Build
 
@@ -72,21 +94,24 @@ selects `arc4random_buf` on macOS / *BSD, `getrandom(2)` on Linux, and
 
 ## Performance baselines
 
-Run on wasm-gc, release mode, on the author's machine. Reproduce with
-`moon bench --release -p mizchi/<module>`:
+Run on wasm-gc, release mode, on the author's machine
+(`moon 0.1.20260522`). Reproduce with `moon bench --release -p
+mizchi/<module>`:
 
-| Operation                              | Time      | Notes |
-| -------------------------------------- | --------- | ----- |
-| asn1 encode flat SEQUENCE x100         | ~5.8 µs   | encode is 2.7× slower than decode (Encoder double-pass) |
-| asn1 decode flat SEQUENCE x100         | ~2.1 µs   | |
-| asn1 OID from_string                   | ~75 ns    | |
-| aead ChaCha20-Poly1305 seal 1 KiB      | ~9.9 µs   | ~100 MiB/s after the 5-limb Poly1305 rewrite |
-| aead ChaCha20-Poly1305 seal 16 KiB     | ~147 µs   | |
-| aead ChaCha20-Poly1305 open 1 KiB      | ~8.5 µs   | |
-| x25519 ECDH                            | ~92 µs    | down from 1.33 ms once we left @bigint behind |
-| x25519 derive public key               | ~96 µs    | |
-| pbkdf2-HMAC-SHA256 c=1k dkLen=32       | ~1.4 ms   | |
-| pbkdf2-HMAC-SHA256 c=10k dkLen=32      | ~12.5 ms  | |
+| Operation | Time | Notes |
+|---|---:|---|
+| `asn1` encode flat SEQUENCE x100 | ~3.1 us | depth benchmarks use the enforced MAX_DEPTH=32 |
+| `asn1` decode flat SEQUENCE x100 | ~2.2 us | |
+| `crypto_bigint` 256-bit `pow_mod` | ~108-109 us | sparse and dense exponent classes |
+| `crypto_bigint` 256-bit `inv_mod` | ~109-112 us | sparse and dense input classes |
+| `aead` ChaCha20-Poly1305 seal 1 KiB | ~5.3 us | |
+| `aead` AES-128-GCM seal 1 KiB | ~9.2 us | bit-sliced GHASH is still TODO |
+| `x25519` ECDH | ~85 us | 10-limb Montgomery ladder |
+| `p256` sign | ~2.0 ms | fixed-iteration sign-side scalar path |
+| `p384` sign | ~5.2 ms | fixed-iteration sign-side scalar path |
+| `secp256k1` sign | ~2.0 ms | fixed-iteration sign-side scalar path |
+| `pbkdf2` HMAC-SHA256 c=1k dkLen=32 | ~542 us | |
+| `pbkdf2` HMAC-SHA256 c=10k dkLen=32 | ~5.9 ms | |
 
 For comparison, `dalek` / `RustCrypto` numbers are roughly an order of
 magnitude faster than what's here today. The path to closing that gap is
@@ -99,20 +124,17 @@ backend where possible).
 
 These are intentional and called out in the source where they apply:
 
-- **Not constant-time end-to-end.** `crypto_bigint` now uses fixed-limb /
-  fixed-iteration modular arithmetic instead of runtime `@bigint` fallbacks,
-  but this is branchless-intended source code, not measured constant-clock
-  code. ECDSA scalar multiplication and Ed25519 field arithmetic still rely on
-  variable-time BigInt-style code in places. `x25519` and `aead` (Poly1305) use
-  limb arithmetic with branch-free conditional swaps, but u64 mul on wasm/JS is
-  not formally constant-time either. See `docs/CONSTANT_TIME.md`.
-- **No XChaCha20-Poly1305 yet** (the enum variant raises
-  `UnsupportedAlgorithm`).
-- **No SHA-1 / SHA-384 / SHA-512 HMAC paths** in `hkdf` / `pbkdf2` until
-  `moonbitlang/x/crypto` ships the corresponding hashers (the enums keep
-  the variants so adding them is a one-line `match` arm).
-- **No OCSP / CRL validation** in `pkix`.
-- **No certificate chain verification.** `pkix` is a parser, not a verifier.
+- **Not constant-time end-to-end.** `crypto_bigint`, RSA private modexp, and
+  ECDSA sign-side scalar multiplication now use fixed-limb / fixed-iteration
+  paths and Linux-native leakage smoke gates, but this is still not a
+  constant-clock proof. Ed25519 field arithmetic remains `@bigint`-backed.
+  See [docs/CONSTANT_TIME.md](docs/CONSTANT_TIME.md).
+- **Partial protocol coverage.** TLS 1.3, PKCS#12, P-521 / ES512, Ed448 /
+  X448, ML-KEM / ML-DSA, AES-GCM-SIV / AES-SIV, `age`, and EIP-712 / EIP-191
+  are not implemented.
+- **Revocation scope is conservative.** OCSP and CRL parsing / verification
+  exist, but unsupported delta / indirect / distribution-point semantics are
+  rejected fail-closed rather than silently applied.
 - **No GHASH carryless-multiplication intrinsic.** The `gcm` module does
   GF(2^128) bit-by-bit, which is correct but slow.
 

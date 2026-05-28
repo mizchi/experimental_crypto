@@ -7,6 +7,18 @@ on:
         description: Space-separated leakage_harness workloads to profile
         required: true
         default: "crypto_bigint-pow_mod crypto_bigint-inv_mod rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
+      timing_samples:
+        description: Samples per sparse/dense class for timing profile
+        required: true
+        default: "8"
+      timing_inner:
+        description: Inner iterations per timing sample
+        required: true
+        default: "1"
+      timing_max_abs_t:
+        description: Non-gating timing threshold; keep high while calibrating
+        required: true
+        default: "1000000"
       iters:
         description: Iterations per sparse/dense class under callgrind
         required: true
@@ -48,14 +60,35 @@ jobs:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
 
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
+
       - name: callgrind profile
         env:
           PROFILE_WORKLOADS: ${{ inputs.workloads }}
+          PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
+          PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
+          PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
           PROFILE_ITERS: ${{ inputs.iters }}
           PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
         run: |
           nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
+          LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
+            LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
+            LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
+            LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
+            LEAKAGE_TIMING_REPORT=leakage-timing-profile.tsv \
+            nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
+          cat leakage-timing-profile.tsv
           LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
             LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \
             LEAKAGE_CALLGRIND_MAX_DELTA_PCT="$PROFILE_MAX_DELTA_PCT" \

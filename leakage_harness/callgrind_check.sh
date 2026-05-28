@@ -30,7 +30,9 @@ if ! command -v valgrind >/dev/null 2>&1; then
   exit 2
 fi
 
-if [ ! -x "$BIN" ]; then
+if [ -z "${LEAKAGE_CALLGRIND_BIN:-}" ]; then
+  moon build --target native ./leakage_harness
+elif [ ! -x "$BIN" ]; then
   moon build --target native ./leakage_harness
 fi
 

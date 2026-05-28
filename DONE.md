@@ -153,6 +153,24 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Disable Determinate Nix / FlakeHub Cache opportunism in CI and force Magic
   Nix Cache onto GitHub Actions cache so unauthenticated FlakeHub warnings do
   not mask real test failures.
+- Cache `~/.moon/registry` in CI with `actions/cache@v5` so `moon update` can
+  reuse registry downloads instead of re-fetching `moonbitlang/x` on every job.
+- Add `leakage_harness/timing_check.sh`, `compare-one`, report plumbing, and
+  a shell self-test so dudect-style timing smoke checks can be workload-scoped
+  and calibrated like the callgrind gate.
+- Add a loose CI timing smoke threshold file for every current private
+  operation workload (`abs_t <= 20.0`) so large timing regressions fail without
+  claiming calibrated dudect evidence.
+- Investigate native test runner noise: `warning: unhandled Platform key
+  FamilyDisplayName` no longer appears with Moon 0.1.20260522 locally or in
+  the latest successful CI run. The remaining native warning is the expected
+  `mizchi/getrandom` C/C++ linker flag notice.
+- Refresh the top-level README module map and performance baselines for the
+  current 35 library/protocol modules plus the `proofs` and `leakage_harness`
+  sidecars.
+- Add a top-level README git commit signing walkthrough that maps git
+  `gpg.format=ssh/openpgp/x509` to the `ssh`, `pgp`, `cms`,
+  `pkix_verify`, and `git_object` modules.
 
 ## Parser And Protocol Hardening
 

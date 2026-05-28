@@ -187,8 +187,10 @@ sk.sign(message, format=Raw | Der)                     // RFC 6979 deterministic
 @p256.verify(pk, message, sig, format)
 ```
 
-P-256 with SHA-256, P-384 with SHA-384. Sign side is variable-time on
-the secret nonce; documented.
+P-256 with SHA-256, P-384 with SHA-384. Sign-side base-point multiplication
+and final nonce inverse use fixed-limb / fixed-iteration paths; public verify
+remains affine `@bigint` because inputs are public. See `CONSTANT_TIME.md` for
+the measurement caveat.
 
 ### `mizchi/secp256k1`
 **Spec**: SEC 2 §2.4.1. **Tests**: 25.
@@ -200,8 +202,10 @@ sk.sign_no_low_s(message)
 @secp256k1.PublicKey::to_compressed(self) -> Bytes     // 33-byte 02/03||X
 ```
 
-Verify is permissive on high-s per FIPS 186-5; BIP-66 / EIP-2 strict
-rejection is the caller's job.
+Sign-side base-point multiplication and final nonce inverse use fixed-limb /
+fixed-iteration paths; public verify remains affine `@bigint` because inputs
+are public. Verify is permissive on high-s per FIPS 186-5; BIP-66 / EIP-2
+strict rejection is the caller's job.
 
 ### `mizchi/rsa`
 **RFC**: 8017. **Tests**: 31.

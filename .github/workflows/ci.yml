@@ -42,6 +42,17 @@ jobs:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
 
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
+
       - name: Preflight (provers visible)
         run: |
           nix develop --impure --command bash -c '
@@ -81,14 +92,31 @@ jobs:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
 
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
+
       - name: leakage harness smoke
         run: |
           nix develop --impure .#leakage --command bash -c '
             unset MOON_HOME
             bash scripts/ci_retry.sh moon update >/dev/null
             bash leakage_harness/callgrind_check_selftest.sh
+            bash leakage_harness/timing_check_selftest.sh
             moon run --target native ./leakage_harness -- list
-            moon run --target native ./leakage_harness -- compare 2 1 1000000
+            LEAKAGE_TIMING_SAMPLES=8 \
+              LEAKAGE_TIMING_INNER=1 \
+              LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
+              LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
+              bash leakage_harness/timing_check.sh
+            cat leakage-timing.tsv
             LEAKAGE_CALLGRIND_ITERS=1 \
               LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-pow_mod crypto_bigint-inv_mod rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign" \
               LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
@@ -116,6 +144,17 @@ jobs:
         with:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
+
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
 
       - name: Preflight (provers visible)
         run: |
