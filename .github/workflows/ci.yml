@@ -106,6 +106,7 @@ jobs:
           nix develop --impure .#leakage --command bash -c '
             unset MOON_HOME
             bash scripts/ci_retry.sh moon update >/dev/null
+            bash leakage_harness/workload_registry_selftest.sh
             bash leakage_harness/callgrind_check_selftest.sh
             bash leakage_harness/dudect_check_selftest.sh
             bash leakage_harness/timing_check_selftest.sh

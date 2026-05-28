@@ -225,6 +225,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Split the manual `Leakage Profile` workflow into validation, prepare,
   dudect, timing, callgrind, summary, and evidence-gate steps so long
   high-sample runs expose progress and failed stages directly in Actions.
+- Add `leakage_harness/workload_registry_selftest.sh` and run it from CI so a
+  new private-operation workload must be present in script defaults, threshold
+  files, the CI callgrind list, and the manual `Leakage Profile` default before
+  leakage smoke passes.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets

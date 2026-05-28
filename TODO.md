@@ -177,9 +177,11 @@ fails closed before returning authenticated / verified / trusted.
   Ed25519 signing workloads. Timing smoke now has reusable workload
   selection, per-workload thresholds, and TSV report plumbing. It now runs
   three independent trials per workload, records observed max / mean `abs_t`,
-  gates the mean, and requires zero threshold failures in CI. CI also runs
-  wasm-gc / wasm in-process dudect-style smoke gates for every current
-  private-operation workload. The manual profile workflow can run dudect-style
+  gates the mean, and requires zero threshold failures in CI. CI also checks
+  that the harness workload registry, script defaults, threshold files, and
+  workflow defaults stay in sync. CI also runs wasm-gc / wasm in-process
+  dudect-style smoke gates for every current private-operation workload. The
+  manual profile workflow can run dudect-style
   checks against wasm-gc / wasm plus timing checks against native / JS /
   wasm-gc / wasm targets. Normal CI also runs loose JS / wasm-gc / wasm timing
   smoke checks across every current private-operation workload. The manual
