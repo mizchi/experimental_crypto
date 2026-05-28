@@ -113,7 +113,7 @@ jobs:
           restore-keys: |
             moon-registry-${{ runner.os }}-
 
-      - name: callgrind profile
+      - name: leakage profile
         env:
           PROFILE_WORKLOADS: ${{ inputs.workloads }}
           PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
@@ -214,7 +214,7 @@ jobs:
           cat leakage-timing-profile.tsv
           cat leakage-dudect-profile.tsv
           cat leakage-callgrind-profile.tsv
-          nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_summary.sh \
+          bash leakage_harness/profile_summary.sh \
             leakage-timing-profile.tsv \
             leakage-dudect-profile.tsv \
             leakage-callgrind-profile.tsv \
@@ -230,8 +230,7 @@ jobs:
               LEAKAGE_EVIDENCE_TIMING_THRESHOLDS=leakage_harness/timing_evidence_thresholds.tsv \
               LEAKAGE_EVIDENCE_DUDECT_THRESHOLDS=leakage_harness/dudect_evidence_thresholds.tsv \
               LEAKAGE_EVIDENCE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_evidence_thresholds.tsv \
-              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_evidence_gate.sh \
-                leakage-profile-summary.tsv
+              bash leakage_harness/profile_evidence_gate.sh leakage-profile-summary.tsv
           else
             LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
@@ -242,8 +241,7 @@ jobs:
               LEAKAGE_EVIDENCE_TIMING_THRESHOLDS=leakage_harness/timing_evidence_thresholds.tsv \
               LEAKAGE_EVIDENCE_DUDECT_THRESHOLDS=leakage_harness/dudect_evidence_thresholds.tsv \
               LEAKAGE_EVIDENCE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_evidence_thresholds.tsv \
-              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_evidence_gate.sh \
-                leakage-profile-summary.tsv || true
+              bash leakage_harness/profile_evidence_gate.sh leakage-profile-summary.tsv || true
           fi
 
       - name: upload leakage profile artifacts

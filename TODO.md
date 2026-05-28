@@ -190,10 +190,17 @@ fails closed before returning authenticated / verified / trusted.
   dudect-style smoke gates, and the manual profile workflow now aggregates and
   gates repeated dudect TSV rows with artifact upload. Calibrated evidence
   still needs an actual high-sample Linux run archived from CI before
-  strengthening any constant-time / constant-clock wording. If strict
-  third-party `dudect` compatibility is required, add a vendored upstream
-  dudect adapter for the native path; wasm / wasm-gc still use the local
-  MoonBit timing harness.
+  strengthening any constant-time / constant-clock wording. Run
+  `26566406830` produced an archived high-sample artifact, but the workflow
+  failed because `nix develop` shellHook output polluted
+  `leakage-profile-summary.tsv`; a clean replay then failed the evidence gate
+  on `wasm/p384-nonce-inv` with `max_abs_t=47.47` while `max_mean_abs_t`
+  remained below the current `10.0` mean threshold. A local macOS targeted
+  rerun did not reproduce the spike (`wasm` max `0.51`, `wasm-gc` max `2.51`);
+  re-run the cleaned workflow on Linux and investigate that workload before
+  tightening claims. If strict third-party `dudect` compatibility is required,
+  add a vendored upstream dudect adapter for the native path; wasm / wasm-gc
+  still use the local MoonBit timing harness.
 - [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
   after repeated Linux profile runs and archive a passing backend-breadth
   leakage evidence artifact for fixed-limb private operations.
