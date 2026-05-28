@@ -204,6 +204,11 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   basepoint peer key, then include it in native timing smoke, JS / wasm-gc /
   wasm backend smoke, native callgrind smoke, and manual evidence profile
   defaults.
+- Keep Ed25519 on the existing 10-limb Edwards field implementation, route
+  sign-side scalar reduction / mul-add through fixed-limb `crypto_bigint.Uint`,
+  and add an `ed25519-sign` sparse-vs-dense seed workload to native timing,
+  JS / wasm-gc / wasm backend smoke, native callgrind smoke, and manual
+  evidence profile defaults.
 - Add `leakage_harness/dudect_check.sh` plus a native C stub and non-native
   MoonBit runner that run sparse/dense workload closures in-process and report
   Welch `abs_t`. CI now runs this dudect-style smoke gate on wasm-gc / wasm
@@ -217,6 +222,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Upload the manual `Leakage Profile` TSV outputs as GitHub Actions artifacts
   so high-sample dudect / timing / callgrind evidence can be archived with the
   run that produced it.
+- Split the manual `Leakage Profile` workflow into validation, prepare,
+  dudect, timing, callgrind, summary, and evidence-gate steps so long
+  high-sample runs expose progress and failed stages directly in Actions.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets

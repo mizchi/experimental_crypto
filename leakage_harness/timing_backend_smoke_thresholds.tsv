@@ -8,6 +8,7 @@ p256-nonce-inv 100.0 100.0 0
 p384-nonce-inv 100.0 100.0 0
 secp256k1-nonce-inv 100.0 100.0 0
 x25519-diffie_hellman 100.0 100.0 0
+ed25519-sign 100.0 100.0 0
 rsa-pkcs1v15-sign 100.0 100.0 0
 jwe-rsa-oaep-decrypt 100.0 100.0 0
 p256-sign 100.0 100.0 0

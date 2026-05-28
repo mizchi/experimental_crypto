@@ -32,6 +32,9 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      the leakage harness and include them in smoke / evidence profile gates.
    - [x] Add an X25519 sparse-vs-dense scalar ECDH workload to the leakage
      harness and include it in smoke / evidence profile gates.
+   - [x] Route Ed25519 sign-side scalar reduction / mul-add through
+     fixed-limb `crypto_bigint.Uint`, then add an `ed25519-sign`
+     sparse-vs-dense seed workload to smoke / evidence profile gates.
    - [x] Add a CI smoke gate that builds and runs the native leakage harness.
    - [x] Add wasm-gc / wasm in-process dudect-style CI smoke gates for every
      current private-operation workload.
@@ -166,19 +169,19 @@ fails closed before returning authenticated / verified / trusted.
   branch after P-521 exists.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
-  operations, and ECDSA signing. A native `leakage_harness` workload entry
-  point plus timing and callgrind CI gates exist. Callgrind smoke now writes
-  TSV measurements, supports per-workload thresholds, and gates every current
-  private-operation workload at 1.0% on Linux native, including direct
-  `crypto_bigint` add/sub/mul/pow/inv and X25519 ECDH workloads. Timing smoke
-  now has reusable workload selection, per-workload thresholds, and TSV report
-  plumbing. It now runs three independent trials per workload, records
-  observed max / mean `abs_t`, gates the mean, and requires zero threshold
-  failures in CI. CI also runs wasm-gc / wasm in-process dudect-style smoke
-  gates for every current private-operation workload. The manual profile
-  workflow can run dudect-style checks against wasm-gc / wasm plus timing
-  checks against native / JS / wasm-gc / wasm targets. Normal CI also runs
-  loose JS / wasm-gc / wasm timing
+  operations, Ed25519 signing, and ECDSA signing. A native `leakage_harness`
+  workload entry point plus timing and callgrind CI gates exist. Callgrind
+  smoke now writes TSV measurements, supports per-workload thresholds, and
+  gates every current private-operation workload at 1.0% on Linux native,
+  including direct `crypto_bigint` add/sub/mul/pow/inv, X25519 ECDH, and
+  Ed25519 signing workloads. Timing smoke now has reusable workload
+  selection, per-workload thresholds, and TSV report plumbing. It now runs
+  three independent trials per workload, records observed max / mean `abs_t`,
+  gates the mean, and requires zero threshold failures in CI. CI also runs
+  wasm-gc / wasm in-process dudect-style smoke gates for every current
+  private-operation workload. The manual profile workflow can run dudect-style
+  checks against wasm-gc / wasm plus timing checks against native / JS /
+  wasm-gc / wasm targets. Normal CI also runs loose JS / wasm-gc / wasm timing
   smoke checks across every current private-operation workload. The manual
   profile workflow can now repeat full profiles and gate the aggregated
   summary with calibrated backend-breadth evidence thresholds. Scope and
@@ -232,9 +235,6 @@ fails closed before returning authenticated / verified / trusted.
     multiplication away from affine `@bigint`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
-- [ ] **`ed25519`** 10-limb field arithmetic, matching the speedup already
-  obtained in `x25519`.
-
 ## Documentation
 
 - [ ] Migrate per-module quickstart blocks into generated

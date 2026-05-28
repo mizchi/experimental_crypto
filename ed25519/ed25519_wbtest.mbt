@@ -22,6 +22,15 @@ fn sha512_bytes_for_test(data : Bytes) -> FixedArray[Byte] {
 }
 
 ///|
+fn fa_from_bytes_for_test(bytes : Bytes, n : Int) -> FixedArray[Byte] {
+  let out = FixedArray::make(n, b'\x00')
+  for i = 0; i < n; i = i + 1 {
+    out[i] = bytes[i]
+  }
+  out
+}
+
+///|
 fn ed_window_table_lookup_for_test(
   table : FixedArray[EdPoint],
   idx : Int,
@@ -106,6 +115,45 @@ test "sha512 1000 'a'" {
 }
 
 ///|
+test "scalar_from_64_le_uint matches BigInt reduction oracle" {
+  let vectors : Array[FixedArray[Byte]] = [
+    sha512_bytes_for_test(b"ed25519 scalar reduction"),
+    FixedArray::make(64, b'\xff'),
+  ]
+  for v in vectors {
+    let got = scalar_to_le_bytes_uint(scalar_from_64_le_uint(v))
+    let want = scalar_to_le_bytes(scalar_from_64_le(v))
+    for i in 0..<32 {
+      assert_eq(got[i], want[i])
+    }
+  }
+}
+
+///|
+test "scalar_muladd_mod_l matches BigInt oracle" {
+  let a_bytes = fa_from_bytes_for_test(
+    b"\xf8\xff\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x5f",
+    32,
+  )
+  let r_hash = sha512_bytes_for_test(b"ed25519 scalar r")
+  let k_hash = sha512_bytes_for_test(b"ed25519 scalar k")
+  let a = scalar_from_32_le_uint(a_bytes)
+  let r = scalar_from_64_le_uint(r_hash)
+  let k = scalar_from_64_le_uint(k_hash)
+  let got = scalar_to_le_bytes_uint(scalar_muladd_mod_l(k, a, r))
+  let want = scalar_to_le_bytes(
+    (
+      scalar_from_64_le(r_hash) +
+      scalar_from_64_le(k_hash) * scalar_from_32_le(a_bytes)
+    ) %
+    ed_l,
+  )
+  for i in 0..<32 {
+    assert_eq(got[i], want[i])
+  }
+}
+
+///|
 test "sqrt(-1) squared equals -1" {
   // sanity-check the field constant: I^2 == -1 (mod p).
   let s = fe_mul(ed_sqrt_m1, ed_sqrt_m1)
@@ -177,6 +225,12 @@ test "ed_scalar_mult_point: scalar 0 yields identity" {
 ///|
 test "ed_scalar_mult_point: scalar 1 yields base" {
   let r = ed_scalar_mult_point(BigInt::from_int(1), ed_base)
+  assert_true(ed_points_equal(r, ed_base))
+}
+
+///|
+test "ed25519_scalar_base_mult: uint scalar 1 yields base" {
+  let r = ed25519_scalar_base_mult(@crypto_bigint.Uint::one(4))
   assert_true(ed_points_equal(r, ed_base))
 }
 

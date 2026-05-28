@@ -7,9 +7,9 @@
 // coordinates (X:Y:Z:T) for sign / verify and a double-and-add scalar
 // ladder.
 //
-// Scalar arithmetic (mod L) still uses @bigint; it runs O(1) times per
-// sign / verify and is not on the hot path. Field arithmetic (255
-// doublings × multiple fe_mul each) is what we cared about.
+// Sign-side scalar arithmetic (mod L) uses fixed-width `crypto_bigint.Uint`
+// values. Verify-side scalar parsing still uses @bigint because the signature
+// and public key are attacker-controlled public inputs.
 //
 // SHA-512 is self-contained in `sha512.mbt`.
 //
@@ -96,9 +96,16 @@ pub fn PrivateKey::seed_bytes(self : PrivateKey) -> Bytes {
 ///|
 pub fn PrivateKey::public_key(self : PrivateKey) -> PublicKey {
   let h = sha512_fa(self.seed)
-  let (scalar, _) = derive_scalar_and_prefix(h)
+  let (scalar, prefix) = derive_scalar_and_prefix(h)
   let a_point = ed25519_scalar_base_mult(scalar)
   let encoded = point_compress(a_point)
+  scalar_wipe(scalar)
+  for i in 0..<64 {
+    h[i] = b'\x00'
+  }
+  for i in 0..<32 {
+    prefix[i] = b'\x00'
+  }
   { bytes: encoded }
 }
 
@@ -116,7 +123,7 @@ pub fn PrivateKey::sign(self : PrivateKey, message : Bytes) -> Bytes {
     ctx.update_bytes(message)
     ctx.finalize()
   }
-  let r = scalar_from_64_le(r_hash)
+  let r = scalar_from_64_le_uint(r_hash)
   let r_point = ed25519_scalar_base_mult(r)
   let r_encoded = point_compress(r_point)
 
@@ -128,11 +135,11 @@ pub fn PrivateKey::sign(self : PrivateKey, message : Bytes) -> Bytes {
     ctx.update_bytes(message)
     ctx.finalize()
   }
-  let k = scalar_from_64_le(k_hash)
+  let k = scalar_from_64_le_uint(k_hash)
 
   // S = (r + k * a) mod L
-  let s = (r + k * a_scalar) % ed_l
-  let s_bytes = scalar_to_le_bytes(s)
+  let s = scalar_muladd_mod_l(k, a_scalar, r)
+  let s_bytes = scalar_to_le_bytes_uint(s)
 
   // signature = R (32) || S (32)
   let signature = Bytes::makei(64, fn(i) {
@@ -142,10 +149,9 @@ pub fn PrivateKey::sign(self : PrivateKey, message : Bytes) -> Bytes {
       s_bytes[i - 32]
     }
   })
-  // Best-effort wipe of seed-derived intermediate secrets. See review #2
-  // finding 9. The BigInts `a_scalar`, `r`, `k` and any SHA-512 working
-  // state reachable through the (now out-of-scope) `ctx` objects are NOT
-  // wipe-able from MoonBit. The FixedArray-backed values below are.
+  // Best-effort wipe of seed-derived intermediate secrets. The SHA-512
+  // working state reachable through the (now out-of-scope) `ctx` objects is
+  // still GC-managed and cannot be directly wiped.
   for i in 0..<64 {
     h[i] = b'\x00'
     r_hash[i] = b'\x00'
@@ -154,6 +160,10 @@ pub fn PrivateKey::sign(self : PrivateKey, message : Bytes) -> Bytes {
   for i in 0..<32 {
     prefix[i] = b'\x00'
   }
+  scalar_wipe(a_scalar)
+  scalar_wipe(r)
+  scalar_wipe(k)
+  scalar_wipe(s)
   signature
 }
 
@@ -277,7 +287,9 @@ pub fn PublicKey::verify(
 // ─── helpers: seed → (scalar, prefix) ───────────────────────────────────
 
 ///|
-fn derive_scalar_and_prefix(h : FixedArray[Byte]) -> (BigInt, FixedArray[Byte]) {
+fn derive_scalar_and_prefix(
+  h : FixedArray[Byte],
+) -> (@crypto_bigint.Uint, FixedArray[Byte]) {
   // First 32 bytes -> clamped scalar; second 32 bytes -> signing prefix.
   let a_bytes = FixedArray::make(32, b'\x00')
   let prefix = FixedArray::make(32, b'\x00')
@@ -289,16 +301,104 @@ fn derive_scalar_and_prefix(h : FixedArray[Byte]) -> (BigInt, FixedArray[Byte]) 
   a_bytes[0] = (a_bytes[0].to_int() & 0xF8).to_byte()
   a_bytes[31] = (a_bytes[31].to_int() & 0x7F).to_byte()
   a_bytes[31] = (a_bytes[31].to_int() | 0x40).to_byte()
-  let scalar = scalar_from_32_le(a_bytes)
+  let scalar = scalar_from_32_le_uint(a_bytes)
   (scalar, prefix)
 }
 
-// ─── scalar arithmetic mod L (still on @bigint) ────────────────────────
+// ─── scalar arithmetic mod L ───────────────────────────────────────────
 
 ///|
 // Group order L = 2^252 + 27742317777372353535851937790883648493
 let ed_l : BigInt = (BigInt::from_int(1) << 252) +
   BigInt::from_string("27742317777372353535851937790883648493")
+
+///|
+fn ed_l_le_bytes() -> Bytes {
+  b"\xed\xd3\xf5\x5c\x1a\x63\x12\x58\xd6\x9c\xf7\xa2\xde\xf9\xde\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10"
+}
+
+///|
+fn ed_l_uint() -> @crypto_bigint.Uint {
+  @crypto_bigint.Uint::from_le_bytes(ed_l_le_bytes(), 4) catch {
+    _ => abort("bad Ed25519 group order fixture")
+  }
+}
+
+///|
+fn scalar_uint_from_le_fa(
+  b : FixedArray[Byte],
+  limb_count : Int,
+) -> @crypto_bigint.Uint {
+  let limbs = FixedArray::make(limb_count, 0UL)
+  for i in 0..<b.length() {
+    let limb_idx = i / 8
+    if limb_idx < limb_count {
+      let shift = i % 8 * 8
+      limbs[limb_idx] = limbs[limb_idx] | (b[i].to_uint64() << shift)
+    }
+  }
+  { limbs, }
+}
+
+///|
+fn scalar_reduce_le_fa(
+  b : FixedArray[Byte],
+  limb_count : Int,
+) -> @crypto_bigint.Uint {
+  let x = scalar_uint_from_le_fa(b, limb_count)
+  let m = ed_l_uint()
+  let reduced = x.add_mod(@crypto_bigint.Uint::zero(m.limbs.length()), m)
+  scalar_wipe(x)
+  reduced
+}
+
+///|
+fn scalar_from_32_le_uint(b : FixedArray[Byte]) -> @crypto_bigint.Uint {
+  scalar_reduce_le_fa(b, 4)
+}
+
+///|
+fn scalar_from_64_le_uint(b : FixedArray[Byte]) -> @crypto_bigint.Uint {
+  scalar_reduce_le_fa(b, 8)
+}
+
+///|
+fn scalar_to_le_bytes_uint(s : @crypto_bigint.Uint) -> FixedArray[Byte] {
+  let out = FixedArray::make(32, b'\x00')
+  for limb_idx in 0..<4 {
+    let v = if limb_idx < s.limbs.length() { s.limbs[limb_idx] } else { 0UL }
+    let base = limb_idx * 8
+    out[base + 0] = (v & 0xFFUL).to_int().to_byte()
+    out[base + 1] = ((v >> 8) & 0xFFUL).to_int().to_byte()
+    out[base + 2] = ((v >> 16) & 0xFFUL).to_int().to_byte()
+    out[base + 3] = ((v >> 24) & 0xFFUL).to_int().to_byte()
+    out[base + 4] = ((v >> 32) & 0xFFUL).to_int().to_byte()
+    out[base + 5] = ((v >> 40) & 0xFFUL).to_int().to_byte()
+    out[base + 6] = ((v >> 48) & 0xFFUL).to_int().to_byte()
+    out[base + 7] = ((v >> 56) & 0xFFUL).to_int().to_byte()
+  }
+  out
+}
+
+///|
+fn scalar_muladd_mod_l(
+  k : @crypto_bigint.Uint,
+  a : @crypto_bigint.Uint,
+  r : @crypto_bigint.Uint,
+) -> @crypto_bigint.Uint {
+  let m = ed_l_uint()
+  let product = k.mul_mod(a, m)
+  let result = product.add_mod(r, m)
+  scalar_wipe(product)
+  result
+}
+
+///|
+fn scalar_wipe(s : @crypto_bigint.Uint) -> Unit {
+  for i in 0..<s.limbs.length() {
+    s.limbs[i] = 0UL
+  }
+}
 
 ///|
 fn scalar_from_32_le(b : FixedArray[Byte]) -> BigInt {
@@ -1152,9 +1252,8 @@ fn ed_make_window_table(base : EdPoint) -> FixedArray[EdPoint] {
 // Fixed-base scalar mult — uses the Niels-form static base table and a
 // 7-multiplication mixed-add formula. Saves ~2 fe_mul per windowed
 // add (64 adds × 2 mul = 128 fe_mul saved per scalar mult).
-fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
-  let s = (scalar % ed_l + ed_l) % ed_l
-  let s_bytes = scalar_to_le_bytes(s)
+fn ed25519_scalar_base_mult(scalar : @crypto_bigint.Uint) -> EdPoint {
+  let s_bytes = scalar_to_le_bytes_uint(scalar)
   let mut q = ed_identity()
   for byte_idx = 31; byte_idx >= 0; byte_idx = byte_idx - 1 {
     let byte = s_bytes[byte_idx].to_int()
@@ -1170,6 +1269,9 @@ fn ed25519_scalar_base_mult(scalar : BigInt) -> EdPoint {
     q = ed_point_double(q)
     let low = byte & 0xF
     q = ed_madd_niels(q, ed_niels_base_lookup(low))
+  }
+  for i in 0..<32 {
+    s_bytes[i] = b'\x00'
   }
   q
 }

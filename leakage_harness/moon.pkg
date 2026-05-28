@@ -1,5 +1,6 @@
 import {
   "mizchi/crypto_bigint",
+  "mizchi/ed25519",
   "mizchi/jwe",
   "mizchi/p256",
   "mizchi/p384",

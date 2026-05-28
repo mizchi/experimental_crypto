@@ -4,6 +4,7 @@ version = "0.1.0"
 
 import {
   "mizchi/crypto_bigint@0.1.0",
+  "mizchi/ed25519@0.1.0",
   "mizchi/jwe@0.1.0",
   "mizchi/p256@0.1.0",
   "mizchi/p384@0.1.0",

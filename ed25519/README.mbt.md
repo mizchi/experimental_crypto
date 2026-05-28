@@ -16,11 +16,12 @@ hash, the 32-byte signing prefix, and the two SHA-512 outputs
 `r_hash` / `k_hash` are overwritten in their `FixedArray[Byte]`
 backing storage.
 
-Several sign-side secrets are **not** wipe-able from MoonBit:
+Several sign-side secrets are **not** fully wipe-able from MoonBit:
 
-- `a_scalar`, `r`, `k`, and any internal heap allocated by
-  `BigInt` arithmetic — `BigInt` exposes no programmatic clear
-  and may live as immutable boxed words behind the GC.
+- Internal heap allocated while reducing `a_scalar`, `r`, `k`, and
+  `S` with `crypto_bigint.Uint`. The visible limb arrays are wiped
+  on a best-effort basis, but intermediate copies may live behind
+  the GC.
 - The SHA-512 working state reachable through the (now
   out-of-scope) `SHA512::new()` contexts. The arrays are
   GC-managed and reclaimed at the GC's discretion.

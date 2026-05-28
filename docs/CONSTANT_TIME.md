@@ -21,7 +21,7 @@ This workspace uses three different levels of side-channel language:
 | RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; wasm-gc / wasm dudect-style smoke gates now exist, but there is no CRT hardening or blinding. |
 | ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered by direct sparse-vs-dense nonce-inverse timing workloads plus Linux native callgrind smoke gates. |
 | ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; wasm-gc / wasm have dudect-style smoke gates, while JS remains smoke-only. |
-| Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
+| Ed25519 | 10-limb Edwards field arithmetic with fixed-limb sign-side scalar reduction / mul-add. Public verify scalar parsing remains public `@bigint`. | `ed25519-sign` sparse/dense seed workload is included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; backend-level constant-time behavior is still not proven. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Sparse/dense scalar ECDH workload is included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; backend-level constant-time behavior is still not proven. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
 | ChaCha20-Poly1305 | Limb arithmetic, no AES tables. | Backend-level multiply timing and generated code are not audited. |
@@ -42,13 +42,15 @@ private-operation paths that previously relied on source inspection alone.
      split by sparse-vs-dense nonce class.
    - X25519 ECDH with a fixed basepoint peer key, split by secret scalar
      class.
+   - Ed25519 signing with fixed messages, split by sparse-vs-dense seed
+     class.
    - RSA sign and JWE RSA-OAEP decrypt with fixed public shape and classed
      private exponent / ciphertext inputs.
 2. Callgrind-style instruction-count comparisons exist for the same fixed-size
    classes. These do not prove absence of microarchitectural leakage, but they
    catch obvious secret-dependent control flow and allocation deltas.
-3. ECDSA signing leakage checks exist for P-256, P-384, and secp256k1 in the
-   Linux-native callgrind gate.
+3. Signing leakage checks exist for Ed25519, P-256, P-384, and secp256k1 in
+   the Linux-native callgrind gate.
 4. CI also runs loose timing smoke checks for JS, wasm-gc, and wasm so backend
    lowering paths keep executing. Treat these as smoke tests only: JIT, GC,
    and BigInt lowering make them unsuitable for strong constant-time claims.

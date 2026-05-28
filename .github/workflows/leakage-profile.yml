@@ -6,7 +6,7 @@ on:
       workloads:
         description: Space-separated leakage_harness workloads to profile
         required: true
-        default: "crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
+        default: "crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman ed25519-sign rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
       profile_repetitions:
         description: Independent full profile repetitions for evidence aggregation
         required: true
@@ -85,6 +85,24 @@ jobs:
     name: leakage profile (ubuntu-latest, nix leakage shell)
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      PROFILE_WORKLOADS: ${{ inputs.workloads }}
+      PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
+      PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
+      PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
+      PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
+      PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
+      PROFILE_TIMING_MAX_MEAN_ABS_T: ${{ inputs.timing_max_mean_abs_t }}
+      PROFILE_DUDECT_MEASUREMENTS: ${{ inputs.dudect_measurements }}
+      PROFILE_DUDECT_ROUNDS: ${{ inputs.dudect_rounds }}
+      PROFILE_DUDECT_TRIALS: ${{ inputs.dudect_trials }}
+      PROFILE_DUDECT_TARGETS: ${{ inputs.dudect_targets }}
+      PROFILE_DUDECT_MAX_ABS_T: ${{ inputs.dudect_max_abs_t }}
+      PROFILE_DUDECT_MAX_MEAN_ABS_T: ${{ inputs.dudect_max_mean_abs_t }}
+      PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
+      PROFILE_ITERS: ${{ inputs.iters }}
+      PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
+      PROFILE_EVIDENCE_GATE: ${{ inputs.evidence_gate }}
     steps:
       - uses: actions/checkout@v6
 
@@ -113,25 +131,7 @@ jobs:
           restore-keys: |
             moon-registry-${{ runner.os }}-
 
-      - name: leakage profile
-        env:
-          PROFILE_WORKLOADS: ${{ inputs.workloads }}
-          PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
-          PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
-          PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
-          PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
-          PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
-          PROFILE_TIMING_MAX_MEAN_ABS_T: ${{ inputs.timing_max_mean_abs_t }}
-          PROFILE_DUDECT_MEASUREMENTS: ${{ inputs.dudect_measurements }}
-          PROFILE_DUDECT_ROUNDS: ${{ inputs.dudect_rounds }}
-          PROFILE_DUDECT_TRIALS: ${{ inputs.dudect_trials }}
-          PROFILE_DUDECT_TARGETS: ${{ inputs.dudect_targets }}
-          PROFILE_DUDECT_MAX_ABS_T: ${{ inputs.dudect_max_abs_t }}
-          PROFILE_DUDECT_MAX_MEAN_ABS_T: ${{ inputs.dudect_max_mean_abs_t }}
-          PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
-          PROFILE_ITERS: ${{ inputs.iters }}
-          PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
-          PROFILE_EVIDENCE_GATE: ${{ inputs.evidence_gate }}
+      - name: validate profile inputs
         run: |
           case "$PROFILE_REPETITIONS" in
             ''|*[!0-9]*)
@@ -150,17 +150,21 @@ jobs:
               exit 2
               ;;
           esac
+
+      - name: prepare leakage profile
+        run: |
           nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
           : >leakage-timing-profile.tsv
           : >leakage-dudect-profile.tsv
           : >leakage-callgrind-profile.tsv
-          first_timing_report=1
+
+      - name: dudect profile
+        run: |
           first_dudect_report=1
-          first_callgrind_report=1
           repetition=1
           while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
-            echo "[leakage-profile] repetition=$repetition/$PROFILE_REPETITIONS"
+            echo "[leakage-dudect-profile] repetition=$repetition/$PROFILE_REPETITIONS"
             for target in $PROFILE_DUDECT_TARGETS; do
               dudect_report="leakage-dudect-profile-$repetition-$target.tsv"
               LEAKAGE_DUDECT_TARGET="$target" \
@@ -179,6 +183,16 @@ jobs:
                 tail -n +2 "$dudect_report" >>leakage-dudect-profile.tsv
               fi
             done
+            repetition=$((repetition + 1))
+          done
+          cat leakage-dudect-profile.tsv
+
+      - name: timing profile
+        run: |
+          first_timing_report=1
+          repetition=1
+          while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
+            echo "[leakage-timing-profile] repetition=$repetition/$PROFILE_REPETITIONS"
             for target in $PROFILE_TIMING_TARGETS; do
               report="leakage-timing-profile-$repetition-$target.tsv"
               LEAKAGE_TIMING_TARGET="$target" \
@@ -197,6 +211,16 @@ jobs:
                 tail -n +2 "$report" >>leakage-timing-profile.tsv
               fi
             done
+            repetition=$((repetition + 1))
+          done
+          cat leakage-timing-profile.tsv
+
+      - name: callgrind profile
+        run: |
+          first_callgrind_report=1
+          repetition=1
+          while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
+            echo "[leakage-callgrind-profile] repetition=$repetition/$PROFILE_REPETITIONS"
             callgrind_report="leakage-callgrind-profile-$repetition.tsv"
             LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
               LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \
@@ -211,6 +235,10 @@ jobs:
             fi
             repetition=$((repetition + 1))
           done
+          cat leakage-callgrind-profile.tsv
+
+      - name: summarize leakage profile
+        run: |
           cat leakage-timing-profile.tsv
           cat leakage-dudect-profile.tsv
           cat leakage-callgrind-profile.tsv
@@ -220,6 +248,9 @@ jobs:
             leakage-callgrind-profile.tsv \
             >leakage-profile-summary.tsv
           cat leakage-profile-summary.tsv
+
+      - name: gate leakage evidence
+        run: |
           if [ "$PROFILE_EVIDENCE_GATE" = "true" ]; then
             LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \

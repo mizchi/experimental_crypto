@@ -167,6 +167,16 @@ fn x25519_dense_scalar() -> Bytes {
 }
 
 ///|
+fn ed25519_sparse_seed() -> Bytes {
+  Bytes::makei(32, fn(i) { if i == 0 { b'\x01' } else { b'\x00' } })
+}
+
+///|
+fn ed25519_dense_seed() -> Bytes {
+  Bytes::makei(32, fn(_) { b'\xff' })
+}
+
+///|
 fn x25519_base_public_key() -> @x25519.PublicKey {
   let base = Bytes::makei(32, fn(i) { if i == 0 { b'\x09' } else { b'\x00' } })
   @x25519.PublicKey::from_bytes(base) catch {
@@ -386,6 +396,15 @@ fn x25519_dh_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
 }
 
 ///|
+fn ed25519_sign_workload(seed : Bytes, sink : Sink) -> () -> Unit {
+  let sk = @ed25519.PrivateKey::from_seed(seed) catch {
+    _ => abort("bad Ed25519 seed fixture")
+  }
+  let msg = fixed_msg32()
+  () => sink_bytes(sink, sk.sign(msg))
+}
+
+///|
 fn build_workloads(sink : Sink) -> Array[Workload] {
   let (_, sparse_rsa, dense_rsa) = rsa_private_keys()
   let token = jwe_fixed_oaep_failure_token(sparse_rsa.n_bytes_len)
@@ -458,6 +477,11 @@ fn build_workloads(sink : Sink) -> Array[Workload] {
       name: "x25519-diffie_hellman",
       sparse: x25519_dh_workload(x25519_sparse_scalar(), sink),
       dense: x25519_dh_workload(x25519_dense_scalar(), sink),
+    },
+    {
+      name: "ed25519-sign",
+      sparse: ed25519_sign_workload(ed25519_sparse_seed(), sink),
+      dense: ed25519_sign_workload(ed25519_dense_seed(), sink),
     },
     {
       name: "rsa-pkcs1v15-sign",
