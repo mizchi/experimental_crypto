@@ -450,7 +450,7 @@ jobs:
         with:
           path: leakage-artifacts
           pattern: leakage-*-profile-*
-          merge-multiple: true
+          merge-multiple: false
 
       - name: merge leakage profile artifacts
         run: |
