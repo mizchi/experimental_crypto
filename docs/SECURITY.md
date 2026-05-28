@@ -85,9 +85,10 @@ worth noting:
 - **ECDSA sign-side scalar multiplication** for P-256, P-384, and secp256k1
   now uses fixed-iteration complete-addition field paths, and final ECDSA
   nonce inverses no longer use `@bigint.pow`. This is source-level hardening
-  with Linux-native callgrind coverage, native in-process dudect-style smoke,
-  and repeated native timing smoke checks plus loose JS / wasm-gc / wasm smoke
-  checks, not a constant-clock claim. A passing repeated backend-breadth
+  with Linux-native callgrind coverage, wasm-gc / wasm in-process
+  dudect-style smoke, and repeated native timing smoke checks plus loose JS /
+  wasm-gc / wasm smoke checks, not a constant-clock claim. A passing repeated
+  backend-breadth
   evidence profile is required before this wording can be upgraded.
 - **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
   modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
@@ -106,13 +107,13 @@ Closing the remaining timing gap requires stronger external leakage evidence
 for the RSA/JWE/ECDSA sign paths. CI now runs
 `leakage_harness/callgrind_check.sh` against every current private-operation
 workload with a 1.0% Linux-native instruction-count threshold, but this is still
-not a constant-time claim. Native timing now also runs repeated dudect-style
-smoke gates, CI also runs a native in-process dudect-style smoke gate, and CI
-keeps JS / wasm-gc / wasm smoke paths alive. The manual leakage profile
-workflow now repeats native dudect-style profiles, full native / JS / wasm-gc /
-wasm timing profiles, and native callgrind profiles, then checks the aggregate
-summary with `leakage_harness/profile_evidence_gate.sh`; without a passing
-artifact from that gate, no constant-time / constant-clock claim is made.
+not a constant-time claim. CI now runs wasm-gc / wasm in-process dudect-style
+smoke gates and keeps JS / wasm-gc / wasm timing smoke paths alive. The manual
+leakage profile workflow now repeats dudect-style profiles for selected
+targets, full native / JS / wasm-gc / wasm timing profiles, and native
+callgrind profiles, then checks the aggregate summary with
+`leakage_harness/profile_evidence_gate.sh`; without a passing artifact from
+that gate, no constant-time / constant-clock claim is made.
 
 ### Caller responsibilities
 

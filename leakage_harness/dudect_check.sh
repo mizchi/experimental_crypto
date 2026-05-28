@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET="${LEAKAGE_DUDECT_TARGET:-native}"
 BIN="${LEAKAGE_DUDECT_BIN:-$ROOT/_build/native/debug/build/mizchi/leakage_harness/leakage_harness.exe}"
 MEASUREMENTS="${LEAKAGE_DUDECT_MEASUREMENTS:-64}"
 ROUNDS="${LEAKAGE_DUDECT_ROUNDS:-1}"
@@ -84,6 +85,20 @@ if ! is_nonnegative_int "$MAX_FAILS"; then
   exit 2
 fi
 
+case "$TARGET" in
+  native | js | wasm-gc | wasm)
+    ;;
+  *)
+    echo "[leakage-dudect] LEAKAGE_DUDECT_TARGET must be native, js, wasm-gc, or wasm: $TARGET" >&2
+    exit 2
+    ;;
+esac
+
+if [ -n "${LEAKAGE_DUDECT_BIN:-}" ] && [ "$TARGET" != "native" ]; then
+  echo "[leakage-dudect] LEAKAGE_DUDECT_BIN is only supported with native target" >&2
+  exit 2
+fi
+
 if [ -n "$THRESHOLDS_FILE" ] && [ ! -f "$THRESHOLDS_FILE" ]; then
   echo "[leakage-dudect] threshold file not found: $THRESHOLDS_FILE" >&2
   exit 2
@@ -124,16 +139,36 @@ threshold_column_for_workload() {
   ' "$THRESHOLDS_FILE" || printf '%s\n' "$default_value"
 }
 
-if [ -z "${LEAKAGE_DUDECT_BIN:-}" ]; then
-  moon build --target native ./leakage_harness
-elif [ ! -x "$BIN" ]; then
-  moon build --target native ./leakage_harness
-fi
+build_harness() {
+  if [ "$TARGET" = "native" ]; then
+    if [ -z "${LEAKAGE_DUDECT_BIN:-}" ]; then
+      moon build --target native ./leakage_harness
+    elif [ ! -x "$BIN" ]; then
+      moon build --target native ./leakage_harness
+    fi
 
-if [ ! -x "$BIN" ]; then
-  echo "[leakage-dudect] native harness binary not found: $BIN" >&2
-  exit 2
-fi
+    if [ ! -x "$BIN" ]; then
+      echo "[leakage-dudect] native harness binary not found: $BIN" >&2
+      exit 2
+    fi
+  else
+    moon build --target "$TARGET" ./leakage_harness
+  fi
+}
+
+run_dudect_one() {
+  local workload="$1"
+  local max_abs_t="$2"
+
+  if [ "$TARGET" = "native" ]; then
+    "$BIN" dudect-one "$workload" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t"
+  else
+    moon run --target "$TARGET" ./leakage_harness -- \
+      dudect-one "$workload" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t"
+  fi
+}
+
+build_harness
 
 if [ -n "$REPORT" ]; then
   mkdir -p "$(dirname "$REPORT")"
@@ -167,7 +202,7 @@ for workload in "${workloads[@]}"; do
   sum_abs_t=0
   for ((trial = 1; trial <= TRIALS; trial++)); do
     set +e
-    output="$("$BIN" dudect-one "$workload" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t" 2>&1)"
+    output="$(run_dudect_one "$workload" "$max_abs_t" 2>&1)"
     rc="$?"
     set -e
     printf '%s\n' "$output"
@@ -201,7 +236,7 @@ for workload in "${workloads[@]}"; do
       failures=$((failures + 1))
     fi
     printf '[leakage-dudect] %s trial=%s/%s abs_t=%s max_abs_t=%s result=%s\n' \
-      "$workload" "$trial" "$TRIALS" "$abs_t" "$max_abs_t" \
+      "$TARGET/$workload" "$trial" "$TRIALS" "$abs_t" "$max_abs_t" \
       "$(if [ "$trial_failed" -eq 1 ]; then printf 'fail'; else printf 'pass'; fi)"
   done
 
@@ -216,11 +251,11 @@ for workload in "${workloads[@]}"; do
     result="fail"
   fi
   printf '[leakage-dudect] %s trials=%s observed_max_abs_t=%s mean_abs_t=%s max_abs_t=%s max_mean_abs_t=%s failures=%s max_failures=%s result=%s\n' \
-    "$workload" "$TRIALS" "$observed_max_abs_t" "$mean_abs_t" \
+    "$TARGET/$workload" "$TRIALS" "$observed_max_abs_t" "$mean_abs_t" \
     "$max_abs_t" "$max_mean_abs_t" "$failures" "$max_failures" "$result"
   if [ -n "$REPORT" ]; then
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      native "$workload" "$TRIALS" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t" \
+      "$TARGET" "$workload" "$TRIALS" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t" \
       "$max_mean_abs_t" "$max_failures" "$observed_max_abs_t" "$mean_abs_t" \
       "$failures" "$result" >>"$REPORT"
   fi

@@ -112,13 +112,25 @@ jobs:
             bash leakage_harness/profile_summary_selftest.sh
             bash leakage_harness/profile_evidence_gate_selftest.sh
             moon run --target native ./leakage_harness -- list
-            LEAKAGE_DUDECT_MEASUREMENTS=64 \
-              LEAKAGE_DUDECT_ROUNDS=1 \
-              LEAKAGE_DUDECT_TRIALS=1 \
-              LEAKAGE_DUDECT_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
-              LEAKAGE_DUDECT_REPORT=leakage-dudect.tsv \
-              bash leakage_harness/dudect_check.sh
-            cat leakage-dudect.tsv
+            : >leakage-dudect-backends.tsv
+            first_dudect_report=1
+            for target in wasm-gc wasm; do
+              report="leakage-dudect-$target.tsv"
+              LEAKAGE_DUDECT_TARGET="$target" \
+                LEAKAGE_DUDECT_MEASUREMENTS=32 \
+                LEAKAGE_DUDECT_ROUNDS=1 \
+                LEAKAGE_DUDECT_TRIALS=1 \
+                LEAKAGE_DUDECT_THRESHOLDS=leakage_harness/timing_backend_smoke_thresholds.tsv \
+                LEAKAGE_DUDECT_REPORT="$report" \
+                bash leakage_harness/dudect_check.sh
+              if [ "$first_dudect_report" -eq 1 ]; then
+                cat "$report" >leakage-dudect-backends.tsv
+                first_dudect_report=0
+              else
+                tail -n +2 "$report" >>leakage-dudect-backends.tsv
+              fi
+            done
+            cat leakage-dudect-backends.tsv
             LEAKAGE_TIMING_SAMPLES=8 \
               LEAKAGE_TIMING_INNER=1 \
               LEAKAGE_TIMING_TRIALS=3 \
@@ -154,6 +166,7 @@ jobs:
             bash leakage_harness/profile_summary.sh \
               leakage-timing.tsv \
               leakage-timing-backends.tsv \
+              leakage-dudect-backends.tsv \
               leakage-callgrind.tsv
           '
 

@@ -32,17 +32,21 @@ on:
         required: true
         default: "1000000"
       dudect_measurements:
-        description: Randomized measurements per native dudect-style trial
+        description: Randomized measurements per dudect-style trial
         required: true
-        default: "1024"
+        default: "256"
       dudect_rounds:
-        description: Independent Welch contexts inside one native dudect-style trial
+        description: Independent Welch contexts inside one dudect-style trial
         required: true
         default: "1"
       dudect_trials:
-        description: Independent native dudect-style trials per workload
+        description: Independent dudect-style trials per workload
         required: true
         default: "3"
+      dudect_targets:
+        description: Space-separated dudect-style targets to profile (wasm-gc wasm; native/js optional)
+        required: true
+        default: "wasm-gc wasm"
       dudect_max_abs_t:
         description: Non-gating per-trial dudect threshold; keep high while calibrating
         required: true
@@ -121,6 +125,7 @@ jobs:
           PROFILE_DUDECT_MEASUREMENTS: ${{ inputs.dudect_measurements }}
           PROFILE_DUDECT_ROUNDS: ${{ inputs.dudect_rounds }}
           PROFILE_DUDECT_TRIALS: ${{ inputs.dudect_trials }}
+          PROFILE_DUDECT_TARGETS: ${{ inputs.dudect_targets }}
           PROFILE_DUDECT_MAX_ABS_T: ${{ inputs.dudect_max_abs_t }}
           PROFILE_DUDECT_MAX_MEAN_ABS_T: ${{ inputs.dudect_max_mean_abs_t }}
           PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
@@ -156,21 +161,24 @@ jobs:
           repetition=1
           while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
             echo "[leakage-profile] repetition=$repetition/$PROFILE_REPETITIONS"
-            dudect_report="leakage-dudect-profile-$repetition.tsv"
-            LEAKAGE_DUDECT_MEASUREMENTS="$PROFILE_DUDECT_MEASUREMENTS" \
-              LEAKAGE_DUDECT_ROUNDS="$PROFILE_DUDECT_ROUNDS" \
-              LEAKAGE_DUDECT_TRIALS="$PROFILE_DUDECT_TRIALS" \
-              LEAKAGE_DUDECT_WORKLOADS="$PROFILE_WORKLOADS" \
-              LEAKAGE_DUDECT_MAX_ABS_T="$PROFILE_DUDECT_MAX_ABS_T" \
-              LEAKAGE_DUDECT_MAX_MEAN_ABS_T="$PROFILE_DUDECT_MAX_MEAN_ABS_T" \
-              LEAKAGE_DUDECT_REPORT="$dudect_report" \
-              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/dudect_check.sh
-            if [ "$first_dudect_report" -eq 1 ]; then
-              cat "$dudect_report" >leakage-dudect-profile.tsv
-              first_dudect_report=0
-            else
-              tail -n +2 "$dudect_report" >>leakage-dudect-profile.tsv
-            fi
+            for target in $PROFILE_DUDECT_TARGETS; do
+              dudect_report="leakage-dudect-profile-$repetition-$target.tsv"
+              LEAKAGE_DUDECT_TARGET="$target" \
+                LEAKAGE_DUDECT_MEASUREMENTS="$PROFILE_DUDECT_MEASUREMENTS" \
+                LEAKAGE_DUDECT_ROUNDS="$PROFILE_DUDECT_ROUNDS" \
+                LEAKAGE_DUDECT_TRIALS="$PROFILE_DUDECT_TRIALS" \
+                LEAKAGE_DUDECT_WORKLOADS="$PROFILE_WORKLOADS" \
+                LEAKAGE_DUDECT_MAX_ABS_T="$PROFILE_DUDECT_MAX_ABS_T" \
+                LEAKAGE_DUDECT_MAX_MEAN_ABS_T="$PROFILE_DUDECT_MAX_MEAN_ABS_T" \
+                LEAKAGE_DUDECT_REPORT="$dudect_report" \
+                nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/dudect_check.sh
+              if [ "$first_dudect_report" -eq 1 ]; then
+                cat "$dudect_report" >leakage-dudect-profile.tsv
+                first_dudect_report=0
+              else
+                tail -n +2 "$dudect_report" >>leakage-dudect-profile.tsv
+              fi
+            done
             for target in $PROFILE_TIMING_TARGETS; do
               report="leakage-timing-profile-$repetition-$target.tsv"
               LEAKAGE_TIMING_TARGET="$target" \
@@ -215,7 +223,7 @@ jobs:
           if [ "$PROFILE_EVIDENCE_GATE" = "true" ]; then
             LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
-              LEAKAGE_EVIDENCE_DUDECT_TARGETS=native \
+              LEAKAGE_EVIDENCE_DUDECT_TARGETS="$PROFILE_DUDECT_TARGETS" \
               LEAKAGE_EVIDENCE_MIN_TIMING_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_MIN_DUDECT_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_MIN_CALLGRIND_RUNS="$PROFILE_REPETITIONS" \
@@ -227,7 +235,7 @@ jobs:
           else
             LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
-              LEAKAGE_EVIDENCE_DUDECT_TARGETS=native \
+              LEAKAGE_EVIDENCE_DUDECT_TARGETS="$PROFILE_DUDECT_TARGETS" \
               LEAKAGE_EVIDENCE_MIN_TIMING_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_MIN_DUDECT_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_MIN_CALLGRIND_RUNS="$PROFILE_REPETITIONS" \

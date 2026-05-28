@@ -16,11 +16,11 @@ This workspace uses three different levels of side-channel language:
 | Area | Status | Remaining risk |
 |---|---|---|
 | `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | Direct sparse/dense workloads are now included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; allocation and backend lowering are still not fully audited. |
-| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but not calibrated proof. |
+| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; wasm-gc / wasm dudect-style smoke gates now exist, but not calibrated proof. |
 | `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
-| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but there is no CRT hardening or blinding. |
+| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; wasm-gc / wasm dudect-style smoke gates now exist, but there is no CRT hardening or blinding. |
 | ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered by direct sparse-vs-dense nonce-inverse timing workloads plus Linux native callgrind smoke gates. |
-| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; native timing has a repeated dudect-style smoke gate, while JS / wasm-gc / wasm are CI smoke-only. |
+| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; wasm-gc / wasm have dudect-style smoke gates, while JS remains smoke-only. |
 | Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Sparse/dense scalar ECDH workload is included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; backend-level constant-time behavior is still not proven. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
@@ -31,7 +31,7 @@ This workspace uses three different levels of side-channel language:
 The workspace now has a Linux-native callgrind instruction-count gate for the
 private-operation paths that previously relied on source inspection alone.
 
-1. Native dudect-style harnesses now run repeated trial aggregation for:
+1. Dudect-style harnesses now run repeated trial aggregation for:
    - `crypto_bigint.Uint::add_mod`, `sub_mod`, and `mul_mod` with same
      modulus and same public peer operand, split by secret operand class.
    - `crypto_bigint.Uint::pow_mod` with same modulus and base, split by secret
@@ -86,13 +86,17 @@ bash leakage_harness/profile_evidence_gate.sh leakage-profile-summary.tsv
 gh workflow run "Leakage Profile" --ref main
 ```
 
-Use `dudect`, `dudect-one`, or `dudect_check.sh` for native in-process
-dudect-style smoke tests. The native dudect runner measures randomized
-sparse/dense class executions inside the same MoonBit process via a C stub and
-reports the maximum Welch `abs_t` over the selected measurement rounds. This
-is still a CI smoke gate unless run with calibrated measurement counts and
-archived with the manual evidence profile. Use `compare`, `compare-one`, or
-`timing_check.sh` as broader backend timing smoke tests. `timing_check.sh`
+Use `dudect`, `dudect-one`, or `dudect_check.sh` for in-process
+dudect-style smoke tests. Set
+`LEAKAGE_DUDECT_TARGET=native|js|wasm-gc|wasm`; the evidence defaults are
+`wasm-gc wasm` because native deployments can prefer OpenSSL / libsodium and
+JS deployments can prefer WebCrypto, while wasm / wasm-gc execute this
+MoonBit-generated code directly. The native target uses a small C stub for
+cycle timing; non-native targets use the MoonBit monotonic clock with balanced
+pseudo-random sparse/dense class order. This is still a CI smoke gate unless
+run with calibrated measurement counts and archived with the manual evidence
+profile. Use `compare`, `compare-one`, or `timing_check.sh` as broader backend
+timing smoke tests. `timing_check.sh`
 builds the selected harness target
 (`LEAKAGE_TIMING_TARGET=native|js|wasm-gc|wasm`), runs caller-selected
 workloads, and can repeat the Welch t-test using `LEAKAGE_TIMING_TRIALS`.
@@ -111,19 +115,20 @@ either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload limit in
 `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to write a
 tab-separated report with sparse/dense instruction totals, percentage delta,
 selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
-runs a native dudect-style profile, repeated timing checks against
-caller-selected backend targets, then the Linux-native callgrind checker for
-each repetition, and prints TSV reports without making normal push CI pay for
-full profiling. The workflow uploads the raw and aggregated TSV files as a
-GitHub Actions artifact so a passing high-sample run can be archived.
+runs dudect-style profiles against caller-selected dudect targets, repeated
+timing checks against caller-selected backend targets, then the Linux-native
+callgrind checker for each repetition, and prints TSV reports without making
+normal push CI pay for full profiling. The workflow uploads the raw and
+aggregated TSV files as a GitHub Actions artifact so a passing high-sample run
+can be archived.
 `profile_summary.sh` can aggregate one or more timing / dudect / callgrind TSV
 reports by target and workload.
 `profile_evidence_gate.sh` consumes that summary and fails unless every
 selected workload has enough repeated timing evidence for every selected
-backend target plus enough native dudect and native callgrind evidence. Its
-default evidence inputs require three runs, native / JS / wasm-gc / wasm
-timing rows, native dudect rows, zero timing / dudect threshold failures, and
-the thresholds in `leakage_harness/timing_evidence_thresholds.tsv`,
+backend target plus enough wasm-gc / wasm dudect and native callgrind evidence.
+Its default evidence inputs require three runs, native / JS / wasm-gc / wasm
+timing rows, wasm-gc / wasm dudect rows, zero timing / dudect threshold
+failures, and the thresholds in `leakage_harness/timing_evidence_thresholds.tsv`,
 `leakage_harness/dudect_evidence_thresholds.tsv`, and
 `leakage_harness/callgrind_evidence_thresholds.tsv`.
 
@@ -135,10 +140,10 @@ modexp instruction-count differences rather than data-dependent OAEP parsing.
 
 CI runs four leakage checks in the Linux-only `.#leakage` devShell:
 
-- a native in-process dudect-style smoke test (`dudect_check.sh` with 64
-  randomized measurements, one round, and the loose thresholds from
-  `leakage_harness/timing_smoke_thresholds.tsv`), which catches gross
-  randomized sparse/dense timing regressions without process-spawn overhead;
+- wasm-gc / wasm in-process dudect-style smoke tests (`dudect_check.sh` with
+  32 randomized measurements, one round, and the loose thresholds from
+  `leakage_harness/timing_backend_smoke_thresholds.tsv`), which catch gross
+  randomized sparse/dense timing regressions in the generated wasm backends;
 - a repeated timing smoke test (`timing_check.sh` with eight samples, three
   independent trials, `max_abs_t <= 20.0`, `mean_abs_t <= 10.0`, and zero
   tolerated threshold failures from
@@ -196,7 +201,7 @@ Before upgrading any path from "branchless / fixed-iteration intended" to
 - callgrind-style comparisons with no unexplained secret-dependent instruction
   count deltas;
 - a passing `profile_evidence_gate.sh` summary with repeated native, JS,
-  wasm-gc, and wasm timing rows plus repeated native dudect and native
+  wasm-gc, and wasm timing rows plus repeated wasm-gc / wasm dudect and native
   callgrind rows for every advertised private-operation workload.
 
 Until those checks exist, the correct description is:

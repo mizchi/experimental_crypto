@@ -76,4 +76,16 @@ LEAKAGE_DUDECT_BIN="$fake_bin" \
   bash "$ROOT/leakage_harness/dudect_check.sh" >/dev/null 2>&1 &&
   fail "invalid measurements passed"
 
+LEAKAGE_DUDECT_BIN="$fake_bin" \
+  LEAKAGE_DUDECT_TARGET=wat \
+  LEAKAGE_DUDECT_WORKLOADS="alpha" \
+  bash "$ROOT/leakage_harness/dudect_check.sh" >/dev/null 2>&1 &&
+  fail "invalid target passed"
+
+LEAKAGE_DUDECT_BIN="$fake_bin" \
+  LEAKAGE_DUDECT_TARGET=wasm \
+  LEAKAGE_DUDECT_WORKLOADS="alpha" \
+  bash "$ROOT/leakage_harness/dudect_check.sh" >/dev/null 2>&1 &&
+  fail "non-native bin override passed"
+
 echo "[dudect-check-selftest] ok"

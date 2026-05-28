@@ -204,16 +204,16 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   basepoint peer key, then include it in native timing smoke, JS / wasm-gc /
   wasm backend smoke, native callgrind smoke, and manual evidence profile
   defaults.
-- Add `leakage_harness/dudect_check.sh` plus a native C stub that runs
-  randomized sparse/dense workload closures in-process and reports Welch
-  `abs_t`. CI now runs this dudect-style smoke gate for every current
-  private-operation workload before the broader timing / backend / callgrind
-  smoke checks.
-- Integrate native dudect-style profile TSV rows into `profile_summary.sh`,
+- Add `leakage_harness/dudect_check.sh` plus a native C stub and non-native
+  MoonBit runner that run sparse/dense workload closures in-process and report
+  Welch `abs_t`. CI now runs this dudect-style smoke gate on wasm-gc / wasm
+  for every current private-operation workload before the broader timing /
+  backend / callgrind smoke checks.
+- Integrate dudect-style profile TSV rows into `profile_summary.sh`,
   `profile_evidence_gate.sh`, and the manual `Leakage Profile` workflow so
-  repeated dudect evidence is gated alongside backend timing and native
-  callgrind evidence before any constant-time / constant-clock wording can be
-  upgraded.
+  repeated wasm-gc / wasm dudect evidence is gated alongside backend timing
+  and native callgrind evidence before any constant-time / constant-clock
+  wording can be upgraded.
 - Upload the manual `Leakage Profile` TSV outputs as GitHub Actions artifacts
   so high-sample dudect / timing / callgrind evidence can be archived with the
   run that produced it.
