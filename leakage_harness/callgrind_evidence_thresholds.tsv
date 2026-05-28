@@ -1,0 +1,11 @@
+# workload max_delta_pct
+crypto_bigint-pow_mod 1.0
+crypto_bigint-inv_mod 1.0
+p256-nonce-inv 1.0
+p384-nonce-inv 1.0
+secp256k1-nonce-inv 1.0
+rsa-pkcs1v15-sign 1.0
+jwe-rsa-oaep-decrypt 1.0
+p256-sign 1.0
+p384-sign 1.0
+secp256k1-sign 1.0

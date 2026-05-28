@@ -75,6 +75,7 @@ LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
   LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
   bash leakage_harness/callgrind_check.sh
 bash leakage_harness/profile_summary.sh leakage-timing.tsv leakage-callgrind.tsv
+bash leakage_harness/profile_evidence_gate.sh leakage-profile-summary.tsv
 gh workflow run "Leakage Profile" --ref main
 ```
 
@@ -97,11 +98,17 @@ either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload limit in
 `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to write a
 tab-separated report with sparse/dense instruction totals, percentage delta,
 selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
-runs timing checks against caller-selected backend targets, then runs the
-Linux-native callgrind checker, and prints TSV reports without making normal
-push CI pay for full profiling. `profile_summary.sh` can aggregate one or more
-timing / callgrind TSV reports by target and workload, making repeated profile
-runs easier to compare before tightening thresholds.
+runs repeated timing checks against caller-selected backend targets, then runs
+the Linux-native callgrind checker for each repetition, and prints TSV reports
+without making normal push CI pay for full profiling. `profile_summary.sh` can
+aggregate one or more timing / callgrind TSV reports by target and workload.
+`profile_evidence_gate.sh` consumes that summary and fails unless every
+selected workload has enough repeated timing evidence for every selected
+backend target plus enough native callgrind evidence. Its default evidence
+inputs require three runs, native / JS / wasm-gc / wasm timing rows, zero
+timing threshold failures, and the thresholds in
+`leakage_harness/timing_evidence_thresholds.tsv` and
+`leakage_harness/callgrind_evidence_thresholds.tsv`.
 
 The JWE RSA-OAEP decrypt workload deliberately uses ciphertext `1` and expects
 OAEP authentication failure. Because `1^d mod n` is `1` for both sparse and
@@ -152,7 +159,9 @@ calibrated dudect evidence.
 
 The backend smoke thresholds are looser still. They exist to keep JS, wasm-gc,
 and wasm code-generation paths under sparse-vs-dense workload observation, not
-to justify a constant-time claim for those runtimes.
+to justify a constant-time claim for those runtimes. Backend-breadth evidence
+for a future claim must come from the repeated manual profile summary passing
+`profile_evidence_gate.sh`, not from the ordinary CI smoke thresholds.
 
 ## Acceptance Criteria
 
@@ -165,8 +174,9 @@ Before upgrading any path from "branchless / fixed-iteration intended" to
 - dudect-style class tests repeatedly below the chosen threshold;
 - callgrind-style comparisons with no unexplained secret-dependent instruction
   count deltas;
-- separate results for native, wasm, and JS if those targets are advertised for
-  the API.
+- a passing `profile_evidence_gate.sh` summary with repeated native, JS,
+  wasm-gc, and wasm timing rows plus repeated native callgrind rows for every
+  advertised private-operation workload.
 
 Until those checks exist, the correct description is:
 

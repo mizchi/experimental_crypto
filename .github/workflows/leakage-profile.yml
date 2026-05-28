@@ -7,6 +7,10 @@ on:
         description: Space-separated leakage_harness workloads to profile
         required: true
         default: "crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
+      profile_repetitions:
+        description: Independent full profile repetitions for evidence aggregation
+        required: true
+        default: "3"
       timing_samples:
         description: Samples per sparse/dense class for timing profile
         required: true
@@ -30,7 +34,7 @@ on:
       timing_targets:
         description: Space-separated timing targets to profile (native js wasm-gc wasm)
         required: true
-        default: "native"
+        default: "native js wasm-gc wasm"
       iters:
         description: Iterations per sparse/dense class under callgrind
         required: true
@@ -39,6 +43,11 @@ on:
         description: Non-gating report threshold; keep high while calibrating
         required: true
         default: "1000000"
+      evidence_gate:
+        description: Fail if the repeated profile summary does not meet evidence thresholds
+        required: true
+        default: true
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -49,9 +58,9 @@ permissions:
 
 jobs:
   callgrind-profile:
-    name: callgrind profile (native, ubuntu-latest, nix leakage shell)
+    name: leakage profile (ubuntu-latest, nix leakage shell)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v6
 
@@ -83,6 +92,7 @@ jobs:
       - name: callgrind profile
         env:
           PROFILE_WORKLOADS: ${{ inputs.workloads }}
+          PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
           PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
           PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
           PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
@@ -91,36 +101,89 @@ jobs:
           PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
           PROFILE_ITERS: ${{ inputs.iters }}
           PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
+          PROFILE_EVIDENCE_GATE: ${{ inputs.evidence_gate }}
         run: |
+          case "$PROFILE_REPETITIONS" in
+            ''|*[!0-9]*)
+              echo "profile_repetitions must be a positive integer: $PROFILE_REPETITIONS" >&2
+              exit 2
+              ;;
+          esac
+          if [ "$PROFILE_REPETITIONS" -le 0 ]; then
+            echo "profile_repetitions must be a positive integer: $PROFILE_REPETITIONS" >&2
+            exit 2
+          fi
+          case "$PROFILE_EVIDENCE_GATE" in
+            true|false) ;;
+            *)
+              echo "evidence_gate must be true or false: $PROFILE_EVIDENCE_GATE" >&2
+              exit 2
+              ;;
+          esac
           nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
           : >leakage-timing-profile.tsv
+          : >leakage-callgrind-profile.tsv
           first_timing_report=1
-          for target in $PROFILE_TIMING_TARGETS; do
-            report="leakage-timing-profile-$target.tsv"
+          first_callgrind_report=1
+          repetition=1
+          while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
+            echo "[leakage-profile] repetition=$repetition/$PROFILE_REPETITIONS"
+            for target in $PROFILE_TIMING_TARGETS; do
+              report="leakage-timing-profile-$repetition-$target.tsv"
               LEAKAGE_TIMING_TARGET="$target" \
-              LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
-              LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
-              LEAKAGE_TIMING_TRIALS="$PROFILE_TIMING_TRIALS" \
-              LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
-              LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
-              LEAKAGE_TIMING_MAX_MEAN_ABS_T="$PROFILE_TIMING_MAX_MEAN_ABS_T" \
-              LEAKAGE_TIMING_REPORT="$report" \
-              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
-            if [ "$first_timing_report" -eq 1 ]; then
-              cat "$report" >leakage-timing-profile.tsv
-              first_timing_report=0
+                LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
+                LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
+                LEAKAGE_TIMING_TRIALS="$PROFILE_TIMING_TRIALS" \
+                LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
+                LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
+                LEAKAGE_TIMING_MAX_MEAN_ABS_T="$PROFILE_TIMING_MAX_MEAN_ABS_T" \
+                LEAKAGE_TIMING_REPORT="$report" \
+                nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
+              if [ "$first_timing_report" -eq 1 ]; then
+                cat "$report" >leakage-timing-profile.tsv
+                first_timing_report=0
+              else
+                tail -n +2 "$report" >>leakage-timing-profile.tsv
+              fi
+            done
+            callgrind_report="leakage-callgrind-profile-$repetition.tsv"
+            LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
+              LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_CALLGRIND_MAX_DELTA_PCT="$PROFILE_MAX_DELTA_PCT" \
+              LEAKAGE_CALLGRIND_REPORT="$callgrind_report" \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/callgrind_check.sh
+            if [ "$first_callgrind_report" -eq 1 ]; then
+              cat "$callgrind_report" >leakage-callgrind-profile.tsv
+              first_callgrind_report=0
             else
-              tail -n +2 "$report" >>leakage-timing-profile.tsv
+              tail -n +2 "$callgrind_report" >>leakage-callgrind-profile.tsv
             fi
+            repetition=$((repetition + 1))
           done
           cat leakage-timing-profile.tsv
-          LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
-            LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \
-            LEAKAGE_CALLGRIND_MAX_DELTA_PCT="$PROFILE_MAX_DELTA_PCT" \
-            LEAKAGE_CALLGRIND_REPORT=leakage-callgrind-profile.tsv \
-            nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/callgrind_check.sh
           cat leakage-callgrind-profile.tsv
           nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_summary.sh \
             leakage-timing-profile.tsv \
-            leakage-callgrind-profile.tsv
+            leakage-callgrind-profile.tsv \
+            >leakage-profile-summary.tsv
+          cat leakage-profile-summary.tsv
+          if [ "$PROFILE_EVIDENCE_GATE" = "true" ]; then
+            LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
+              LEAKAGE_EVIDENCE_MIN_TIMING_RUNS="$PROFILE_REPETITIONS" \
+              LEAKAGE_EVIDENCE_MIN_CALLGRIND_RUNS="$PROFILE_REPETITIONS" \
+              LEAKAGE_EVIDENCE_TIMING_THRESHOLDS=leakage_harness/timing_evidence_thresholds.tsv \
+              LEAKAGE_EVIDENCE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_evidence_thresholds.tsv \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_evidence_gate.sh \
+                leakage-profile-summary.tsv
+          else
+            LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
+              LEAKAGE_EVIDENCE_MIN_TIMING_RUNS="$PROFILE_REPETITIONS" \
+              LEAKAGE_EVIDENCE_MIN_CALLGRIND_RUNS="$PROFILE_REPETITIONS" \
+              LEAKAGE_EVIDENCE_TIMING_THRESHOLDS=leakage_harness/timing_evidence_thresholds.tsv \
+              LEAKAGE_EVIDENCE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_evidence_thresholds.tsv \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_evidence_gate.sh \
+                leakage-profile-summary.tsv || true
+          fi

@@ -86,9 +86,9 @@ worth noting:
   now uses fixed-iteration complete-addition field paths, and final ECDSA
   nonce inverses no longer use `@bigint.pow`. This is source-level hardening
   with Linux-native callgrind coverage and repeated native timing smoke
-  checks plus loose JS / wasm-gc / wasm smoke checks, not external
-  constant-clock evidence; allocation, GC, and calibrated backend profiles
-  still need measurement.
+  checks plus loose JS / wasm-gc / wasm smoke checks, not a constant-clock
+  claim. A passing repeated backend-breadth evidence profile is required
+  before this wording can be upgraded.
 - **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
   modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
   branchless in source structure with Linux-native callgrind coverage, but not
@@ -102,8 +102,11 @@ for the RSA/JWE/ECDSA sign paths. CI now runs
 `leakage_harness/callgrind_check.sh` against every current private-operation
 workload with a 1.0% Linux-native instruction-count threshold, but this is still
 not a constant-time claim. Native timing now also runs repeated dudect-style
-smoke gates, and CI keeps JS / wasm-gc / wasm smoke paths alive, but
-calibrated backend-breadth evidence remains open.
+smoke gates, and CI keeps JS / wasm-gc / wasm smoke paths alive. The manual
+leakage profile workflow now repeats full native / JS / wasm-gc / wasm timing
+profiles, aggregates them with native callgrind profiles, and checks the
+summary with `leakage_harness/profile_evidence_gate.sh`; without a passing
+artifact from that gate, no constant-time / constant-clock claim is made.
 
 ### Caller responsibilities
 

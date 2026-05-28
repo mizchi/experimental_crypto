@@ -41,7 +41,7 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Add stronger dudect-style statistical gates for the native timing
      smoke path.
    - [x] Add backend-breadth CI smoke checks for JS, wasm-gc, and wasm.
-   - [ ] Add repeated calibrated backend-breadth evidence before making
+   - [x] Add a repeated calibrated backend-breadth evidence gate before making
      constant-time / constant-clock claims.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
@@ -141,8 +141,8 @@ fails closed before returning authenticated / verified / trusted.
   fixed-iteration complete-addition field paths, and final nonce inverses no
   longer use `@bigint.pow`. Linux-native callgrind and native timing now gate
   the sign paths and direct nonce-inverse paths; the remaining risk is
-  calibrated statistical timing, microarchitectural leakage, and repeated
-  backend-breadth evidence.
+  producing and archiving a passing calibrated profile artifact before any
+  constant-time / constant-clock status upgrade.
 
 ## Formal Methods
 
@@ -167,15 +167,15 @@ fails closed before returning authenticated / verified / trusted.
   failures in CI. The manual profile workflow can run timing checks against
   native / JS / wasm-gc / wasm targets. Normal CI also runs loose JS /
   wasm-gc / wasm timing smoke checks across every current private-operation
-  workload. Repeated calibrated backend-breadth evidence is still open. Scope
-  and acceptance criteria are documented in
-  `docs/CONSTANT_TIME.md`.
+  workload. The manual profile workflow can now repeat full profiles and gate
+  the aggregated summary with calibrated backend-breadth evidence thresholds.
+  Scope and acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
 - [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
-  after repeated Linux profile runs and collect backend-breadth leakage
-  evidence for fixed-limb private operations.
+  after repeated Linux profile runs and archive a passing backend-breadth
+  leakage evidence artifact for fixed-limb private operations.
 - [x] **ECDSA field rewrite**: keep p256/p384/secp256k1 sign-side scalar
   multiplication off affine BigInt point formulas; verify-side multiplication
   remains affine because inputs are public.
