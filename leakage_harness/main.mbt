@@ -165,18 +165,38 @@ fn rsa2048_priv_pkcs1_der() -> Bytes {
 }
 
 ///|
-fn fixed_cek32() -> Bytes {
-  hex("000102030405060708090a0b0c0d0e0f" + "101112131415161718191a1b1c1d1e1f")
+fn b64url(b : Bytes) -> String {
+  let s = @base64.encode(b[:], padding=false)
+  let buf = StringBuilder::new()
+  for c in s {
+    let c2 = if c == '+' { '-' } else if c == '/' { '_' } else { c }
+    buf.write_char(c2)
+  }
+  buf.to_string()
 }
 
 ///|
-fn fixed_iv12() -> Bytes {
-  hex("0102030405060708090a0b0c")
+fn fixed_bytes(n : Int, value : Byte) -> Bytes {
+  Bytes::makei(n, fn(_) { value })
 }
 
 ///|
-fn fixed_oaep_seed() -> Bytes {
-  hex("aabbccddeeff00112233445566778899" + "aabbccddeeff00112233445566778899")
+fn one_ciphertext(k : Int) -> Bytes {
+  Bytes::makei(k, fn(i) { if i == k - 1 { b'\x01' } else { b'\x00' } })
+}
+
+///|
+fn jwe_fixed_oaep_failure_token(k : Int) -> String {
+  let header = @utf8.encode("{\"alg\":\"RSA-OAEP-256\",\"enc\":\"A256GCM\"}"[:])
+  b64url(header) +
+  "." +
+  b64url(one_ciphertext(k)) +
+  "." +
+  b64url(fixed_bytes(12, b'\x00')) +
+  "." +
+  "" +
+  "." +
+  b64url(fixed_bytes(16, b'\x00'))
 }
 
 ///|
@@ -201,21 +221,6 @@ fn rsa_private_keys() -> (
     n_bytes_len: real.n_bytes_len,
   }
   (real, sparse, dense)
-}
-
-///|
-fn jwe_rsa_token(real : @rsa.RsaPrivateKey) -> String {
-  @jwe.encrypt(
-    b"leakage harness plaintext",
-    @jwe.JweAlg::Rsa_oaep_256,
-    @jwe.JweEnc::A256gcm,
-    @jwe.EncryptionKey::EncRsa(pubkey=real.public_key()),
-    cek=fixed_cek32(),
-    iv=fixed_iv12(),
-    oaep_seed=fixed_oaep_seed(),
-  ) catch {
-    _ => abort("bad JWE fixture")
-  }
 }
 
 ///|
@@ -291,8 +296,8 @@ fn k1_sign_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
 
 ///|
 fn build_workloads(sink : Sink) -> Array[Workload] {
-  let (real_rsa, sparse_rsa, dense_rsa) = rsa_private_keys()
-  let token = jwe_rsa_token(real_rsa)
+  let (_, sparse_rsa, dense_rsa) = rsa_private_keys()
+  let token = jwe_fixed_oaep_failure_token(sparse_rsa.n_bytes_len)
   [
     {
       name: "crypto_bigint-pow_mod",

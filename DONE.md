@@ -129,6 +129,15 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   first Linux CI report showed `crypto_bigint-pow_mod` and `p256-sign` below
   0.003% delta. This is still a regression tripwire, not calibrated leakage
   evidence.
+- Add `leakage_harness/callgrind_check_selftest.sh` and run it in the leakage
+  smoke job so threshold/report plumbing fails closed before the real
+  valgrind check.
+- Add a manual `Leakage Profile` workflow for full Linux callgrind reports
+  over caller-selected workloads. Normal push CI stays on the representative
+  smoke subset.
+- Change the JWE RSA-OAEP decrypt leakage workload to use ciphertext `1`,
+  making the post-modexp OAEP failure path identical for sparse and dense
+  private-exponent classes while still exercising private modexp.
 
 ## Parser And Protocol Hardening
 

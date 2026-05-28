@@ -33,6 +33,8 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      leakage harness.
    - [x] Add per-workload callgrind threshold and TSV report plumbing so CI
      smoke measurements can be tightened without changing the harness code.
+   - [x] Add callgrind checker self-tests and a manual Linux profile workflow
+     for all private-operation workloads.
    - [ ] Calibrate and gate external leakage checks (`dudect` /
      callgrind-style harness) with backend-specific thresholds for RSA/JWE
      private operations and ECDSA sign paths. Measurement scope and

@@ -1,0 +1,54 @@
+name: Leakage Profile
+
+on:
+  workflow_dispatch:
+    inputs:
+      workloads:
+        description: Space-separated leakage_harness workloads to profile
+        required: true
+        default: "crypto_bigint-pow_mod crypto_bigint-inv_mod rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
+      iters:
+        description: Iterations per sparse/dense class under callgrind
+        required: true
+        default: "1"
+      max_delta_pct:
+        description: Non-gating report threshold; keep high while calibrating
+        required: true
+        default: "1000000"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  callgrind-profile:
+    name: callgrind profile (native, ubuntu-latest, nix leakage shell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: callgrind profile
+        env:
+          PROFILE_WORKLOADS: ${{ inputs.workloads }}
+          PROFILE_ITERS: ${{ inputs.iters }}
+          PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
+        run: |
+          nix develop --impure .#leakage --command env -u MOON_HOME moon update
+          nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
+          LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
+            LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \
+            LEAKAGE_CALLGRIND_MAX_DELTA_PCT="$PROFILE_MAX_DELTA_PCT" \
+            LEAKAGE_CALLGRIND_REPORT=leakage-callgrind-profile.tsv \
+            nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/callgrind_check.sh
+          cat leakage-callgrind-profile.tsv

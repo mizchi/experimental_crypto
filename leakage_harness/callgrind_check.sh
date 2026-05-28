@@ -10,6 +10,21 @@ WORKLOADS_TEXT="${LEAKAGE_CALLGRIND_WORKLOADS:-$DEFAULT_WORKLOADS}"
 THRESHOLDS_FILE="${LEAKAGE_CALLGRIND_THRESHOLDS:-}"
 REPORT="${LEAKAGE_CALLGRIND_REPORT:-}"
 
+is_positive_int() {
+  local value="$1"
+  case "$value" in
+    '' | *[!0-9]*)
+      return 1
+      ;;
+  esac
+  [ "$value" -gt 0 ]
+}
+
+if ! is_positive_int "$ITERS"; then
+  echo "[leakage-callgrind] LEAKAGE_CALLGRIND_ITERS must be a positive integer: $ITERS" >&2
+  exit 2
+fi
+
 if ! command -v valgrind >/dev/null 2>&1; then
   echo "[leakage-callgrind] valgrind is required" >&2
   exit 2
@@ -36,6 +51,11 @@ if [ "$#" -gt 0 ]; then
   workloads=("$@")
 else
   read -r -a workloads <<<"$WORKLOADS_TEXT"
+fi
+
+if [ "${#workloads[@]}" -eq 0 ]; then
+  echo "[leakage-callgrind] no workloads selected" >&2
+  exit 2
 fi
 
 run_class() {

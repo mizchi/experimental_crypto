@@ -63,6 +63,7 @@ nix develop --impure .#leakage --command bash leakage_harness/callgrind_check.sh
 LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
   LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
   bash leakage_harness/callgrind_check.sh
+gh workflow run "Leakage Profile" --ref main
 ```
 
 Use `compare` as a local dudect-style timing smoke test. Use `run` under an
@@ -74,7 +75,16 @@ callgrind, parsing `summary:` instruction totals, and failing if the percentage
 delta exceeds either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload
 limit in `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to
 write a tab-separated report with sparse/dense instruction totals, percentage
-delta, selected threshold, and pass/fail result.
+delta, selected threshold, and pass/fail result. The manual `Leakage Profile`
+workflow runs the same checker against caller-selected workloads and prints a
+full TSV report without making normal push CI pay for all private-operation
+profiles.
+
+The JWE RSA-OAEP decrypt workload deliberately uses ciphertext `1` and expects
+OAEP authentication failure. Because `1^d mod n` is `1` for both sparse and
+dense private-exponent classes, the post-modexp OAEP failure path sees the
+same encoded message; the class comparison is therefore aimed at private
+modexp instruction-count differences rather than data-dependent OAEP parsing.
 
 CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
 
