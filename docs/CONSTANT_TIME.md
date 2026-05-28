@@ -15,14 +15,14 @@ This workspace uses three different levels of side-channel language:
 
 | Area | Status | Remaining risk |
 |---|---|---|
-| `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | No direct per-primitive external measurement yet; allocation and backend lowering are not fully audited. |
+| `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | Direct sparse/dense workloads are now included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; allocation and backend lowering are still not fully audited. |
 | `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but not calibrated proof. |
 | `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
 | RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but there is no CRT hardening or blinding. |
 | ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered by direct sparse-vs-dense nonce-inverse timing workloads plus Linux native callgrind smoke gates. |
 | ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; native timing has a repeated dudect-style smoke gate, while JS / wasm-gc / wasm are CI smoke-only. |
 | Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
-| X25519 | 10-limb Montgomery ladder with conditional swaps. | Backend-level constant-time behavior is not proven. |
+| X25519 | 10-limb Montgomery ladder with conditional swaps. | Sparse/dense scalar ECDH workload is included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; backend-level constant-time behavior is still not proven. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
 | ChaCha20-Poly1305 | Limb arithmetic, no AES tables. | Backend-level multiply timing and generated code are not audited. |
 
@@ -32,12 +32,16 @@ The workspace now has a Linux-native callgrind instruction-count gate for the
 private-operation paths that previously relied on source inspection alone.
 
 1. Native dudect-style harnesses now run repeated trial aggregation for:
+   - `crypto_bigint.Uint::add_mod`, `sub_mod`, and `mul_mod` with same
+     modulus and same public peer operand, split by secret operand class.
    - `crypto_bigint.Uint::pow_mod` with same modulus and base, split by secret
      exponent class.
    - `crypto_bigint.Uint::inv_mod` with same modulus, split by secret input
      class.
    - ECDSA nonce inverses for P-256, P-384, and secp256k1 order moduli,
      split by sparse-vs-dense nonce class.
+   - X25519 ECDH with a fixed basepoint peer key, split by secret scalar
+     class.
    - RSA sign and JWE RSA-OAEP decrypt with fixed public shape and classed
      private exponent / ciphertext inputs.
 2. Callgrind-style instruction-count comparisons exist for the same fixed-size
@@ -61,6 +65,8 @@ criteria.
 moon run --target native ./leakage_harness -- list
 moon run --target native ./leakage_harness -- compare 8 1
 moon run --target native ./leakage_harness -- compare-one p256-sign 8 1
+moon run --target native ./leakage_harness -- dudect-one p256-sign 64 1
+bash leakage_harness/dudect_check.sh
 bash leakage_harness/timing_check.sh
 LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
   LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
@@ -74,13 +80,20 @@ nix develop --impure .#leakage --command bash leakage_harness/callgrind_check.sh
 LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
   LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
   bash leakage_harness/callgrind_check.sh
-bash leakage_harness/profile_summary.sh leakage-timing.tsv leakage-callgrind.tsv
+bash leakage_harness/profile_summary.sh \
+  leakage-timing.tsv leakage-dudect.tsv leakage-callgrind.tsv
 bash leakage_harness/profile_evidence_gate.sh leakage-profile-summary.tsv
 gh workflow run "Leakage Profile" --ref main
 ```
 
-Use `compare`, `compare-one`, or `timing_check.sh` as local dudect-style timing
-smoke tests. `timing_check.sh` builds the selected harness target
+Use `dudect`, `dudect-one`, or `dudect_check.sh` for native in-process
+dudect-style smoke tests. The native dudect runner measures randomized
+sparse/dense class executions inside the same MoonBit process via a C stub and
+reports the maximum Welch `abs_t` over the selected measurement rounds. This
+is still a CI smoke gate unless run with calibrated measurement counts and
+archived with the manual evidence profile. Use `compare`, `compare-one`, or
+`timing_check.sh` as broader backend timing smoke tests. `timing_check.sh`
+builds the selected harness target
 (`LEAKAGE_TIMING_TARGET=native|js|wasm-gc|wasm`), runs caller-selected
 workloads, and can repeat the Welch t-test using `LEAKAGE_TIMING_TRIALS`.
 Threshold files use `workload max_abs_t max_mean_abs_t max_failures`; older
@@ -98,16 +111,20 @@ either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload limit in
 `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to write a
 tab-separated report with sparse/dense instruction totals, percentage delta,
 selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
-runs repeated timing checks against caller-selected backend targets, then runs
-the Linux-native callgrind checker for each repetition, and prints TSV reports
-without making normal push CI pay for full profiling. `profile_summary.sh` can
-aggregate one or more timing / callgrind TSV reports by target and workload.
+runs a native dudect-style profile, repeated timing checks against
+caller-selected backend targets, then the Linux-native callgrind checker for
+each repetition, and prints TSV reports without making normal push CI pay for
+full profiling. The workflow uploads the raw and aggregated TSV files as a
+GitHub Actions artifact so a passing high-sample run can be archived.
+`profile_summary.sh` can aggregate one or more timing / dudect / callgrind TSV
+reports by target and workload.
 `profile_evidence_gate.sh` consumes that summary and fails unless every
 selected workload has enough repeated timing evidence for every selected
-backend target plus enough native callgrind evidence. Its default evidence
-inputs require three runs, native / JS / wasm-gc / wasm timing rows, zero
-timing threshold failures, and the thresholds in
-`leakage_harness/timing_evidence_thresholds.tsv` and
+backend target plus enough native dudect and native callgrind evidence. Its
+default evidence inputs require three runs, native / JS / wasm-gc / wasm
+timing rows, native dudect rows, zero timing / dudect threshold failures, and
+the thresholds in `leakage_harness/timing_evidence_thresholds.tsv`,
+`leakage_harness/dudect_evidence_thresholds.tsv`, and
 `leakage_harness/callgrind_evidence_thresholds.tsv`.
 
 The JWE RSA-OAEP decrypt workload deliberately uses ciphertext `1` and expects
@@ -116,8 +133,12 @@ dense private-exponent classes, the post-modexp OAEP failure path sees the
 same encoded message; the class comparison is therefore aimed at private
 modexp instruction-count differences rather than data-dependent OAEP parsing.
 
-CI runs three leakage checks in the Linux-only `.#leakage` devShell:
+CI runs four leakage checks in the Linux-only `.#leakage` devShell:
 
+- a native in-process dudect-style smoke test (`dudect_check.sh` with 64
+  randomized measurements, one round, and the loose thresholds from
+  `leakage_harness/timing_smoke_thresholds.tsv`), which catches gross
+  randomized sparse/dense timing regressions without process-spawn overhead;
 - a repeated timing smoke test (`timing_check.sh` with eight samples, three
   independent trials, `max_abs_t <= 20.0`, `mean_abs_t <= 10.0`, and zero
   tolerated threshold failures from
@@ -175,8 +196,8 @@ Before upgrading any path from "branchless / fixed-iteration intended" to
 - callgrind-style comparisons with no unexplained secret-dependent instruction
   count deltas;
 - a passing `profile_evidence_gate.sh` summary with repeated native, JS,
-  wasm-gc, and wasm timing rows plus repeated native callgrind rows for every
-  advertised private-operation workload.
+  wasm-gc, and wasm timing rows plus repeated native dudect and native
+  callgrind rows for every advertised private-operation workload.
 
 Until those checks exist, the correct description is:
 

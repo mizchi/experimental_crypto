@@ -85,15 +85,20 @@ worth noting:
 - **ECDSA sign-side scalar multiplication** for P-256, P-384, and secp256k1
   now uses fixed-iteration complete-addition field paths, and final ECDSA
   nonce inverses no longer use `@bigint.pow`. This is source-level hardening
-  with Linux-native callgrind coverage and repeated native timing smoke
-  checks plus loose JS / wasm-gc / wasm smoke checks, not a constant-clock
-  claim. A passing repeated backend-breadth evidence profile is required
-  before this wording can be upgraded.
+  with Linux-native callgrind coverage, native in-process dudect-style smoke,
+  and repeated native timing smoke checks plus loose JS / wasm-gc / wasm smoke
+  checks, not a constant-clock claim. A passing repeated backend-breadth
+  evidence profile is required before this wording can be upgraded.
 - **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
   modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
-  branchless in source structure with Linux-native callgrind coverage, but not
-  yet proven constant-time across MoonBit backends, allocation, GC, and
-  generated JavaScript/native code.
+  branchless in source structure with direct `crypto_bigint` add/sub/mul/pow
+  leakage workloads and Linux-native callgrind coverage, but not yet proven
+  constant-time across MoonBit backends, allocation, GC, and generated
+  JavaScript/native code.
+- **X25519 ECDH** uses a 10-limb Montgomery ladder with conditional swaps and
+  now has sparse-vs-dense scalar leakage workloads across the smoke/profile
+  harnesses. This is still measurement coverage, not a constant-time claim
+  across MoonBit backends.
 - **Verify-side timing**: variable-time too, but only on public inputs;
   no key material leaks.
 
@@ -102,9 +107,10 @@ for the RSA/JWE/ECDSA sign paths. CI now runs
 `leakage_harness/callgrind_check.sh` against every current private-operation
 workload with a 1.0% Linux-native instruction-count threshold, but this is still
 not a constant-time claim. Native timing now also runs repeated dudect-style
-smoke gates, and CI keeps JS / wasm-gc / wasm smoke paths alive. The manual
-leakage profile workflow now repeats full native / JS / wasm-gc / wasm timing
-profiles, aggregates them with native callgrind profiles, and checks the
+smoke gates, CI also runs a native in-process dudect-style smoke gate, and CI
+keeps JS / wasm-gc / wasm smoke paths alive. The manual leakage profile
+workflow now repeats native dudect-style profiles, full native / JS / wasm-gc /
+wasm timing profiles, and native callgrind profiles, then checks the aggregate
 summary with `leakage_harness/profile_evidence_gate.sh`; without a passing
 artifact from that gate, no constant-time / constant-clock claim is made.
 

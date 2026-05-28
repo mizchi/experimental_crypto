@@ -31,8 +31,15 @@ alpha	1000	1010	0.990000	1.0	pass
 alpha	1000	1020	1.960000	2.0	pass
 EOF
 
+dudect="$tmpdir/dudect.tsv"
+cat >"$dudect" <<'EOF'
+target	workload	trials	measurements	rounds	max_abs_t	max_mean_abs_t	max_failures	observed_max_abs_t	mean_abs_t	failures	result
+native	alpha	3	1024	1	20.0	10.0	0	1.25	0.75	0	pass
+native	alpha	3	1024	1	20.0	10.0	0	2.75	1.75	1	fail
+EOF
+
 summary="$tmpdir/summary.tsv"
-bash "$ROOT/leakage_harness/profile_summary.sh" "$timing_a" "$timing_b" "$callgrind" >"$summary"
+bash "$ROOT/leakage_harness/profile_summary.sh" "$timing_a" "$timing_b" "$callgrind" "$dudect" >"$summary"
 
 awk -F '\t' '
   BEGIN { found = 0 }
@@ -51,5 +58,11 @@ awk -F '\t' '
   $1 == "callgrind" && $2 == "native" && $3 == "alpha" && $4 == "2" && $8 == "1.96" { found = 1 }
   END { exit(found ? 0 : 1) }
 ' "$summary" || fail "callgrind aggregate missing"
+
+awk -F '\t' '
+  BEGIN { found = 0 }
+  $1 == "dudect" && $2 == "native" && $3 == "alpha" && $4 == "2" && $5 == "2.75" && $6 == "1.75" && $7 == "1" { found = 1 }
+  END { exit(found ? 0 : 1) }
+' "$summary" || fail "dudect aggregate missing"
 
 echo "[profile-summary-selftest] ok"

@@ -149,6 +149,32 @@ fn k1_dense_scalar() -> Bytes {
 }
 
 ///|
+fn x25519_sparse_scalar() -> Bytes {
+  Bytes::makei(32, fn(i) {
+    if i == 0 {
+      b'\x08'
+    } else if i == 31 {
+      b'\x40'
+    } else {
+      b'\x00'
+    }
+  })
+}
+
+///|
+fn x25519_dense_scalar() -> Bytes {
+  Bytes::makei(32, fn(_) { b'\xff' })
+}
+
+///|
+fn x25519_base_public_key() -> @x25519.PublicKey {
+  let base = Bytes::makei(32, fn(i) { if i == 0 { b'\x09' } else { b'\x00' } })
+  @x25519.PublicKey::from_bytes(base) catch {
+    _ => abort("bad X25519 basepoint fixture")
+  }
+}
+
+///|
 fn uint_from_be_fixture(bytes : Bytes, limb_count : Int) -> @crypto_bigint.Uint {
   @crypto_bigint.Uint::from_be_bytes(bytes, limb_count) catch {
     _ => abort("bad Uint fixture")
@@ -253,6 +279,27 @@ fn crypto_pow_workload(secret : @crypto_bigint.Uint, sink : Sink) -> () -> Unit 
 }
 
 ///|
+fn crypto_add_workload(secret : @crypto_bigint.Uint, sink : Sink) -> () -> Unit {
+  let other = bigint_base_uint()
+  let modulus = p256_order_uint()
+  () => sink_bytes(sink, secret.add_mod(other, modulus).to_be_bytes())
+}
+
+///|
+fn crypto_sub_workload(secret : @crypto_bigint.Uint, sink : Sink) -> () -> Unit {
+  let other = bigint_base_uint()
+  let modulus = p256_order_uint()
+  () => sink_bytes(sink, secret.sub_mod(other, modulus).to_be_bytes())
+}
+
+///|
+fn crypto_mul_workload(secret : @crypto_bigint.Uint, sink : Sink) -> () -> Unit {
+  let other = bigint_base_uint()
+  let modulus = p256_order_uint()
+  () => sink_bytes(sink, secret.mul_mod(other, modulus).to_be_bytes())
+}
+
+///|
 fn crypto_inv_workload(input : @crypto_bigint.Uint, sink : Sink) -> () -> Unit {
   inv_mod_workload(input, p256_order_uint(), sink)
 }
@@ -325,10 +372,39 @@ fn k1_sign_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
 }
 
 ///|
+fn x25519_dh_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
+  let sk = @x25519.PrivateKey::from_bytes(scalar) catch {
+    _ => abort("bad X25519 scalar fixture")
+  }
+  let pk = x25519_base_public_key()
+  () => {
+    let shared = @x25519.diffie_hellman(sk, pk) catch {
+      _ => abort("X25519 fixture produced all-zero shared secret")
+    }
+    sink_bytes(sink, shared.to_bytes())
+  }
+}
+
+///|
 fn build_workloads(sink : Sink) -> Array[Workload] {
   let (_, sparse_rsa, dense_rsa) = rsa_private_keys()
   let token = jwe_fixed_oaep_failure_token(sparse_rsa.n_bytes_len)
   [
+    {
+      name: "crypto_bigint-add_mod",
+      sparse: crypto_add_workload(sparse_uint(), sink),
+      dense: crypto_add_workload(dense_uint(), sink),
+    },
+    {
+      name: "crypto_bigint-sub_mod",
+      sparse: crypto_sub_workload(sparse_uint(), sink),
+      dense: crypto_sub_workload(dense_uint(), sink),
+    },
+    {
+      name: "crypto_bigint-mul_mod",
+      sparse: crypto_mul_workload(sparse_uint(), sink),
+      dense: crypto_mul_workload(dense_uint(), sink),
+    },
     {
       name: "crypto_bigint-pow_mod",
       sparse: crypto_pow_workload(sparse_uint(), sink),
@@ -377,6 +453,11 @@ fn build_workloads(sink : Sink) -> Array[Workload] {
         k1_order_uint(),
         sink,
       ),
+    },
+    {
+      name: "x25519-diffie_hellman",
+      sparse: x25519_dh_workload(x25519_sparse_scalar(), sink),
+      dense: x25519_dh_workload(x25519_dense_scalar(), sink),
     },
     {
       name: "rsa-pkcs1v15-sign",
@@ -491,6 +572,21 @@ fn run_compare_one(w : Workload, samples : Int, inner : Int) -> Double {
 }
 
 ///|
+fn run_dudect_one(w : Workload, measurements : Int, rounds : Int) -> Double {
+  let t = dudect_max_abs_t(w.sparse, w.dense, measurements, rounds)
+  println(
+    w.name +
+    " dudect_measurements=" +
+    measurements.to_string() +
+    " dudect_rounds=" +
+    rounds.to_string() +
+    " abs_t=" +
+    t.to_string(),
+  )
+  t
+}
+
+///|
 fn find_workload(workloads : Array[Workload], name : String) -> Workload? {
   for w in workloads {
     if w.name == name {
@@ -572,6 +668,8 @@ fn normalize_args(args : Array[String]) -> Array[String] {
   for i in 0..<args.length() {
     if args[i] == "compare" ||
       args[i] == "compare-one" ||
+      args[i] == "dudect" ||
+      args[i] == "dudect-one" ||
       args[i] == "list" ||
       args[i] == "run" {
       return Array::makei(args.length() - i, fn(j) { args[i + j] })
@@ -591,6 +689,9 @@ fn usage() -> String {
     #|  moon run --target native ./leakage_harness -- compare [samples] [inner] [max_abs_t]
     #|  moon run --target native ./leakage_harness -- compare [samples] [inner] [max_abs_t] [workload...]
     #|  moon run --target native ./leakage_harness -- compare-one <workload> [samples] [inner] [max_abs_t]
+    #|  moon run --target native ./leakage_harness -- dudect [measurements] [rounds] [max_abs_t]
+    #|  moon run --target native ./leakage_harness -- dudect [measurements] [rounds] [max_abs_t] [workload...]
+    #|  moon run --target native ./leakage_harness -- dudect-one <workload> [measurements] [rounds] [max_abs_t]
     #|  moon run --target native ./leakage_harness -- list
     #|  moon run --target native ./leakage_harness -- run <workload> <sparse|dense> [iters]
   )
@@ -645,6 +746,49 @@ fn main {
     println("sink=" + sink.acc.to_string())
     if t > threshold {
       println("leakage timing threshold exceeded: " + t.to_string())
+      @sys.exit(1)
+    }
+    return
+  }
+  if cmd == "dudect-one" {
+    if args.length() < 2 {
+      println(usage())
+      @sys.exit(2)
+    }
+    let w = workload_or_exit(workloads, args[1])
+    let measurements = parse_min_int_arg(args, 2, 64, 4)
+    let rounds = parse_min_int_arg(args, 3, 1, 1)
+    let threshold = parse_double_arg(args, 4, 1000000.0)
+    let t = run_dudect_one(w, measurements, rounds)
+    println("sink=" + sink.acc.to_string())
+    if t < 0.0 {
+      println("dudect is only supported on native target")
+      @sys.exit(2)
+    }
+    if t > threshold {
+      println("dudect threshold exceeded: " + t.to_string())
+      @sys.exit(1)
+    }
+    return
+  }
+  if cmd == "dudect" {
+    let measurements = parse_min_int_arg(args, 1, 64, 4)
+    let rounds = parse_min_int_arg(args, 2, 1, 1)
+    let threshold = parse_double_arg(args, 3, 1000000.0)
+    let mut worst = 0.0
+    for w in selected_workloads(args, 4, workloads) {
+      let t = run_dudect_one(w, measurements, rounds)
+      if t < 0.0 {
+        println("dudect is only supported on native target")
+        @sys.exit(2)
+      }
+      if t > worst {
+        worst = t
+      }
+    }
+    println("sink=" + sink.acc.to_string())
+    if worst > threshold {
+      println("dudect smoke threshold exceeded: " + worst.to_string())
       @sys.exit(1)
     }
     return

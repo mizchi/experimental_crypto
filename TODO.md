@@ -28,7 +28,16 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Add a native `leakage_harness` entry point with sparse-vs-dense class
      workloads for `crypto_bigint`, RSA sign, JWE RSA-OAEP decrypt, and
      P-256/P-384/secp256k1 ECDSA sign.
+   - [x] Add direct `crypto_bigint` add/sub/mul sparse-vs-dense workloads to
+     the leakage harness and include them in smoke / evidence profile gates.
+   - [x] Add an X25519 sparse-vs-dense scalar ECDH workload to the leakage
+     harness and include it in smoke / evidence profile gates.
    - [x] Add a CI smoke gate that builds and runs the native leakage harness.
+   - [x] Add a native in-process dudect-style CI smoke gate for every current
+     private-operation workload.
+   - [x] Integrate native dudect-style profile reports into
+     `profile_summary.sh` and `profile_evidence_gate.sh` for manual repeated
+     leakage evidence.
    - [x] Add a Linux callgrind instruction-count smoke gate for the native
      leakage harness.
    - [x] Add per-workload callgrind threshold and TSV report plumbing so CI
@@ -160,19 +169,29 @@ fails closed before returning authenticated / verified / trusted.
   operations, and ECDSA signing. A native `leakage_harness` workload entry
   point plus timing and callgrind CI gates exist. Callgrind smoke now writes
   TSV measurements, supports per-workload thresholds, and gates every current
-  private-operation workload at 1.0% on Linux native. Timing smoke now has
-  reusable workload selection, per-workload thresholds, and TSV report
+  private-operation workload at 1.0% on Linux native, including direct
+  `crypto_bigint` add/sub/mul/pow/inv and X25519 ECDH workloads. Timing smoke
+  now has reusable workload selection, per-workload thresholds, and TSV report
   plumbing. It now runs three independent trials per workload, records
   observed max / mean `abs_t`, gates the mean, and requires zero threshold
-  failures in CI. The manual profile workflow can run timing checks against
-  native / JS / wasm-gc / wasm targets. Normal CI also runs loose JS /
-  wasm-gc / wasm timing smoke checks across every current private-operation
-  workload. The manual profile workflow can now repeat full profiles and gate
-  the aggregated summary with calibrated backend-breadth evidence thresholds.
-  Scope and acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
+  failures in CI. CI also runs a native in-process dudect-style smoke gate for
+  every current private-operation workload. The manual profile workflow can
+  run native dudect-style checks plus timing checks against native / JS /
+  wasm-gc / wasm targets. Normal CI also runs loose JS / wasm-gc / wasm timing
+  smoke checks across every current private-operation workload. The manual
+  profile workflow can now repeat full profiles and gate the aggregated
+  summary with calibrated backend-breadth evidence thresholds. Scope and
+  acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
+- [ ] **Dudect evidence hardening**: normal CI now runs a native in-process
+  dudect-style smoke gate, and the manual profile workflow now aggregates and
+  gates repeated dudect TSV rows with artifact upload. Calibrated evidence
+  still needs an actual high-sample Linux run archived from CI before
+  strengthening any constant-time / constant-clock wording. If strict
+  third-party `dudect` compatibility is required, add a vendored upstream
+  dudect adapter rather than relying only on the local C stub.
 - [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
   after repeated Linux profile runs and archive a passing backend-breadth
   leakage evidence artifact for fixed-limb private operations.

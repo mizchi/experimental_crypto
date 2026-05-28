@@ -196,6 +196,27 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   profiles, aggregates backend timing plus native callgrind summaries, and can
   fail unless every selected workload/target has enough calibrated evidence
   before any constant-time / constant-clock wording is upgraded.
+- Add direct `crypto_bigint-add_mod`, `crypto_bigint-sub_mod`, and
+  `crypto_bigint-mul_mod` sparse-vs-dense workloads to `leakage_harness`, then
+  include them in native timing smoke, JS / wasm-gc / wasm backend smoke,
+  native callgrind smoke, and manual evidence profile defaults.
+- Add `x25519-diffie_hellman` sparse-vs-dense scalar workload with a fixed
+  basepoint peer key, then include it in native timing smoke, JS / wasm-gc /
+  wasm backend smoke, native callgrind smoke, and manual evidence profile
+  defaults.
+- Add `leakage_harness/dudect_check.sh` plus a native C stub that runs
+  randomized sparse/dense workload closures in-process and reports Welch
+  `abs_t`. CI now runs this dudect-style smoke gate for every current
+  private-operation workload before the broader timing / backend / callgrind
+  smoke checks.
+- Integrate native dudect-style profile TSV rows into `profile_summary.sh`,
+  `profile_evidence_gate.sh`, and the manual `Leakage Profile` workflow so
+  repeated dudect evidence is gated alongside backend timing and native
+  callgrind evidence before any constant-time / constant-clock wording can be
+  upgraded.
+- Upload the manual `Leakage Profile` TSV outputs as GitHub Actions artifacts
+  so high-sample dudect / timing / callgrind evidence can be archived with the
+  run that produced it.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets

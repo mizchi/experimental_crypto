@@ -107,10 +107,18 @@ jobs:
             unset MOON_HOME
             bash scripts/ci_retry.sh moon update >/dev/null
             bash leakage_harness/callgrind_check_selftest.sh
+            bash leakage_harness/dudect_check_selftest.sh
             bash leakage_harness/timing_check_selftest.sh
             bash leakage_harness/profile_summary_selftest.sh
             bash leakage_harness/profile_evidence_gate_selftest.sh
             moon run --target native ./leakage_harness -- list
+            LEAKAGE_DUDECT_MEASUREMENTS=64 \
+              LEAKAGE_DUDECT_ROUNDS=1 \
+              LEAKAGE_DUDECT_TRIALS=1 \
+              LEAKAGE_DUDECT_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
+              LEAKAGE_DUDECT_REPORT=leakage-dudect.tsv \
+              bash leakage_harness/dudect_check.sh
+            cat leakage-dudect.tsv
             LEAKAGE_TIMING_SAMPLES=8 \
               LEAKAGE_TIMING_INNER=1 \
               LEAKAGE_TIMING_TRIALS=3 \
@@ -138,7 +146,7 @@ jobs:
             done
             cat leakage-timing-backends.tsv
             LEAKAGE_CALLGRIND_ITERS=1 \
-              LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign" \
+              LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign" \
               LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
               LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
               bash leakage_harness/callgrind_check.sh

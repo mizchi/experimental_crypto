@@ -5,6 +5,7 @@ import {
   "mizchi/p384",
   "mizchi/rsa",
   "mizchi/secp256k1",
+  "mizchi/x25519",
   "moonbitlang/core/bench",
   "moonbitlang/core/bigint",
   "moonbitlang/core/encoding/base64",
@@ -15,4 +16,9 @@ import {
 
 options(
   is_main: true,
+  "native-stub": [ "dudect_native.c" ],
+  targets: {
+    "dudect_native.mbt": [ "native" ],
+    "dudect_non_native.mbt": [ "js", "wasm", "wasm-gc" ],
+  },
 )

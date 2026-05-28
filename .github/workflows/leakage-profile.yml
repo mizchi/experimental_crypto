@@ -6,7 +6,7 @@ on:
       workloads:
         description: Space-separated leakage_harness workloads to profile
         required: true
-        default: "crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
+        default: "crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
       profile_repetitions:
         description: Independent full profile repetitions for evidence aggregation
         required: true
@@ -29,6 +29,26 @@ on:
         default: "1000000"
       timing_max_mean_abs_t:
         description: Non-gating mean timing threshold; keep high while calibrating
+        required: true
+        default: "1000000"
+      dudect_measurements:
+        description: Randomized measurements per native dudect-style trial
+        required: true
+        default: "1024"
+      dudect_rounds:
+        description: Independent Welch contexts inside one native dudect-style trial
+        required: true
+        default: "1"
+      dudect_trials:
+        description: Independent native dudect-style trials per workload
+        required: true
+        default: "3"
+      dudect_max_abs_t:
+        description: Non-gating per-trial dudect threshold; keep high while calibrating
+        required: true
+        default: "1000000"
+      dudect_max_mean_abs_t:
+        description: Non-gating mean dudect threshold; keep high while calibrating
         required: true
         default: "1000000"
       timing_targets:
@@ -98,6 +118,11 @@ jobs:
           PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
           PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
           PROFILE_TIMING_MAX_MEAN_ABS_T: ${{ inputs.timing_max_mean_abs_t }}
+          PROFILE_DUDECT_MEASUREMENTS: ${{ inputs.dudect_measurements }}
+          PROFILE_DUDECT_ROUNDS: ${{ inputs.dudect_rounds }}
+          PROFILE_DUDECT_TRIALS: ${{ inputs.dudect_trials }}
+          PROFILE_DUDECT_MAX_ABS_T: ${{ inputs.dudect_max_abs_t }}
+          PROFILE_DUDECT_MAX_MEAN_ABS_T: ${{ inputs.dudect_max_mean_abs_t }}
           PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
           PROFILE_ITERS: ${{ inputs.iters }}
           PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
@@ -123,12 +148,29 @@ jobs:
           nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
           : >leakage-timing-profile.tsv
+          : >leakage-dudect-profile.tsv
           : >leakage-callgrind-profile.tsv
           first_timing_report=1
+          first_dudect_report=1
           first_callgrind_report=1
           repetition=1
           while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
             echo "[leakage-profile] repetition=$repetition/$PROFILE_REPETITIONS"
+            dudect_report="leakage-dudect-profile-$repetition.tsv"
+            LEAKAGE_DUDECT_MEASUREMENTS="$PROFILE_DUDECT_MEASUREMENTS" \
+              LEAKAGE_DUDECT_ROUNDS="$PROFILE_DUDECT_ROUNDS" \
+              LEAKAGE_DUDECT_TRIALS="$PROFILE_DUDECT_TRIALS" \
+              LEAKAGE_DUDECT_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_DUDECT_MAX_ABS_T="$PROFILE_DUDECT_MAX_ABS_T" \
+              LEAKAGE_DUDECT_MAX_MEAN_ABS_T="$PROFILE_DUDECT_MAX_MEAN_ABS_T" \
+              LEAKAGE_DUDECT_REPORT="$dudect_report" \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/dudect_check.sh
+            if [ "$first_dudect_report" -eq 1 ]; then
+              cat "$dudect_report" >leakage-dudect-profile.tsv
+              first_dudect_report=0
+            else
+              tail -n +2 "$dudect_report" >>leakage-dudect-profile.tsv
+            fi
             for target in $PROFILE_TIMING_TARGETS; do
               report="leakage-timing-profile-$repetition-$target.tsv"
               LEAKAGE_TIMING_TARGET="$target" \
@@ -162,28 +204,47 @@ jobs:
             repetition=$((repetition + 1))
           done
           cat leakage-timing-profile.tsv
+          cat leakage-dudect-profile.tsv
           cat leakage-callgrind-profile.tsv
           nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_summary.sh \
             leakage-timing-profile.tsv \
+            leakage-dudect-profile.tsv \
             leakage-callgrind-profile.tsv \
             >leakage-profile-summary.tsv
           cat leakage-profile-summary.tsv
           if [ "$PROFILE_EVIDENCE_GATE" = "true" ]; then
             LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
+              LEAKAGE_EVIDENCE_DUDECT_TARGETS=native \
               LEAKAGE_EVIDENCE_MIN_TIMING_RUNS="$PROFILE_REPETITIONS" \
+              LEAKAGE_EVIDENCE_MIN_DUDECT_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_MIN_CALLGRIND_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_TIMING_THRESHOLDS=leakage_harness/timing_evidence_thresholds.tsv \
+              LEAKAGE_EVIDENCE_DUDECT_THRESHOLDS=leakage_harness/dudect_evidence_thresholds.tsv \
               LEAKAGE_EVIDENCE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_evidence_thresholds.tsv \
               nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_evidence_gate.sh \
                 leakage-profile-summary.tsv
           else
             LEAKAGE_EVIDENCE_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_EVIDENCE_TIMING_TARGETS="$PROFILE_TIMING_TARGETS" \
+              LEAKAGE_EVIDENCE_DUDECT_TARGETS=native \
               LEAKAGE_EVIDENCE_MIN_TIMING_RUNS="$PROFILE_REPETITIONS" \
+              LEAKAGE_EVIDENCE_MIN_DUDECT_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_MIN_CALLGRIND_RUNS="$PROFILE_REPETITIONS" \
               LEAKAGE_EVIDENCE_TIMING_THRESHOLDS=leakage_harness/timing_evidence_thresholds.tsv \
+              LEAKAGE_EVIDENCE_DUDECT_THRESHOLDS=leakage_harness/dudect_evidence_thresholds.tsv \
               LEAKAGE_EVIDENCE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_evidence_thresholds.tsv \
               nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/profile_evidence_gate.sh \
                 leakage-profile-summary.tsv || true
           fi
+
+      - name: upload leakage profile artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: leakage-profile-${{ github.run_id }}
+          path: |
+            leakage-*-profile*.tsv
+            leakage-profile-summary.tsv
+          if-no-files-found: warn
+          retention-days: 30

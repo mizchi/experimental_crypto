@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
-  echo "usage: leakage_harness/profile_summary.sh <timing-or-callgrind-report.tsv>..." >&2
+  echo "usage: leakage_harness/profile_summary.sh <timing-or-dudect-or-callgrind-report.tsv>..." >&2
   exit 2
 fi
 
@@ -18,6 +18,11 @@ awk -F '\t' '
 
   FNR == 1 && $0 == "target\tworkload\ttrials\tsamples\tinner\tmax_abs_t\tmax_mean_abs_t\tmax_failures\tobserved_max_abs_t\tmean_abs_t\tfailures\tresult" {
     kind = "timing"
+    next
+  }
+
+  FNR == 1 && $0 == "target\tworkload\ttrials\tmeasurements\trounds\tmax_abs_t\tmax_mean_abs_t\tmax_failures\tobserved_max_abs_t\tmean_abs_t\tfailures\tresult" {
+    kind = "dudect"
     next
   }
 
@@ -53,6 +58,15 @@ awk -F '\t' '
     next
   }
 
+  kind == "dudect" && NF >= 12 {
+    key = $1 SUBSEP $2
+    dudect_runs[key] += 1
+    dudect_max_abs[key] = max_value(dudect_max_abs[key], $9)
+    dudect_max_mean[key] = max_value(dudect_max_mean[key], $10)
+    dudect_max_failures[key] = max_value(dudect_max_failures[key], $11)
+    next
+  }
+
   kind == "callgrind" && NF >= 6 {
     key = "native" SUBSEP $1
     callgrind_runs[key] += 1
@@ -71,6 +85,12 @@ awk -F '\t' '
       printf "timing\t%s\t%s\t%d\t%.17g\t%.17g\t%.17g\t\n",
         parts[1], parts[2], timing_runs[key],
         timing_max_abs[key], timing_max_mean[key], timing_max_failures[key]
+    }
+    for (key in dudect_runs) {
+      split(key, parts, SUBSEP)
+      printf "dudect\t%s\t%s\t%d\t%.17g\t%.17g\t%.17g\t\n",
+        parts[1], parts[2], dudect_runs[key],
+        dudect_max_abs[key], dudect_max_mean[key], dudect_max_failures[key]
     }
     for (key in callgrind_runs) {
       split(key, parts, SUBSEP)

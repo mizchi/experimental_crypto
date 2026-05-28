@@ -2,18 +2,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET="${LEAKAGE_TIMING_TARGET:-native}"
-BIN="${LEAKAGE_TIMING_BIN:-$ROOT/_build/native/debug/build/mizchi/leakage_harness/leakage_harness.exe}"
-SAMPLES="${LEAKAGE_TIMING_SAMPLES:-8}"
-INNER="${LEAKAGE_TIMING_INNER:-1}"
-TRIALS="${LEAKAGE_TIMING_TRIALS:-1}"
-MAX_ABS_T="${LEAKAGE_TIMING_MAX_ABS_T:-1000000}"
-MAX_MEAN_ABS_T="${LEAKAGE_TIMING_MAX_MEAN_ABS_T:-}"
-MAX_FAILS="${LEAKAGE_TIMING_MAX_FAILS:-0}"
+BIN="${LEAKAGE_DUDECT_BIN:-$ROOT/_build/native/debug/build/mizchi/leakage_harness/leakage_harness.exe}"
+MEASUREMENTS="${LEAKAGE_DUDECT_MEASUREMENTS:-64}"
+ROUNDS="${LEAKAGE_DUDECT_ROUNDS:-1}"
+TRIALS="${LEAKAGE_DUDECT_TRIALS:-1}"
+MAX_ABS_T="${LEAKAGE_DUDECT_MAX_ABS_T:-1000000}"
+MAX_MEAN_ABS_T="${LEAKAGE_DUDECT_MAX_MEAN_ABS_T:-}"
+MAX_FAILS="${LEAKAGE_DUDECT_MAX_FAILS:-0}"
 DEFAULT_WORKLOADS="crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
-WORKLOADS_TEXT="${LEAKAGE_TIMING_WORKLOADS:-$DEFAULT_WORKLOADS}"
-THRESHOLDS_FILE="${LEAKAGE_TIMING_THRESHOLDS:-}"
-REPORT="${LEAKAGE_TIMING_REPORT:-}"
+WORKLOADS_TEXT="${LEAKAGE_DUDECT_WORKLOADS:-$DEFAULT_WORKLOADS}"
+THRESHOLDS_FILE="${LEAKAGE_DUDECT_THRESHOLDS:-}"
+REPORT="${LEAKAGE_DUDECT_REPORT:-}"
 
 is_positive_int() {
   local value="$1"
@@ -55,52 +54,38 @@ float_gt() {
   awk -v a="$1" -v b="$2" 'BEGIN { exit(a > b ? 0 : 1) }'
 }
 
-if ! is_positive_int "$SAMPLES"; then
-  echo "[leakage-timing] LEAKAGE_TIMING_SAMPLES must be a positive integer: $SAMPLES" >&2
+if ! is_positive_int "$MEASUREMENTS"; then
+  echo "[leakage-dudect] LEAKAGE_DUDECT_MEASUREMENTS must be a positive integer: $MEASUREMENTS" >&2
   exit 2
 fi
 
-if ! is_positive_int "$INNER"; then
-  echo "[leakage-timing] LEAKAGE_TIMING_INNER must be a positive integer: $INNER" >&2
+if ! is_positive_int "$ROUNDS"; then
+  echo "[leakage-dudect] LEAKAGE_DUDECT_ROUNDS must be a positive integer: $ROUNDS" >&2
   exit 2
 fi
 
 if ! is_positive_int "$TRIALS"; then
-  echo "[leakage-timing] LEAKAGE_TIMING_TRIALS must be a positive integer: $TRIALS" >&2
+  echo "[leakage-dudect] LEAKAGE_DUDECT_TRIALS must be a positive integer: $TRIALS" >&2
   exit 2
 fi
 
 if ! is_number "$MAX_ABS_T"; then
-  echo "[leakage-timing] LEAKAGE_TIMING_MAX_ABS_T must be numeric: $MAX_ABS_T" >&2
+  echo "[leakage-dudect] LEAKAGE_DUDECT_MAX_ABS_T must be numeric: $MAX_ABS_T" >&2
   exit 2
 fi
 
 if [ -n "$MAX_MEAN_ABS_T" ] && ! is_number "$MAX_MEAN_ABS_T"; then
-  echo "[leakage-timing] LEAKAGE_TIMING_MAX_MEAN_ABS_T must be numeric: $MAX_MEAN_ABS_T" >&2
+  echo "[leakage-dudect] LEAKAGE_DUDECT_MAX_MEAN_ABS_T must be numeric: $MAX_MEAN_ABS_T" >&2
   exit 2
 fi
 
 if ! is_nonnegative_int "$MAX_FAILS"; then
-  echo "[leakage-timing] LEAKAGE_TIMING_MAX_FAILS must be a non-negative integer: $MAX_FAILS" >&2
-  exit 2
-fi
-
-case "$TARGET" in
-  native | js | wasm-gc | wasm)
-    ;;
-  *)
-    echo "[leakage-timing] LEAKAGE_TIMING_TARGET must be native, js, wasm-gc, or wasm: $TARGET" >&2
-    exit 2
-    ;;
-esac
-
-if [ -n "${LEAKAGE_TIMING_BIN:-}" ] && [ "$TARGET" != "native" ]; then
-  echo "[leakage-timing] LEAKAGE_TIMING_BIN is only supported with native target" >&2
+  echo "[leakage-dudect] LEAKAGE_DUDECT_MAX_FAILS must be a non-negative integer: $MAX_FAILS" >&2
   exit 2
 fi
 
 if [ -n "$THRESHOLDS_FILE" ] && [ ! -f "$THRESHOLDS_FILE" ]; then
-  echo "[leakage-timing] threshold file not found: $THRESHOLDS_FILE" >&2
+  echo "[leakage-dudect] threshold file not found: $THRESHOLDS_FILE" >&2
   exit 2
 fi
 
@@ -111,7 +96,7 @@ else
 fi
 
 if [ "${#workloads[@]}" -eq 0 ]; then
-  echo "[leakage-timing] no workloads selected" >&2
+  echo "[leakage-dudect] no workloads selected" >&2
   exit 2
 fi
 
@@ -139,47 +124,27 @@ threshold_column_for_workload() {
   ' "$THRESHOLDS_FILE" || printf '%s\n' "$default_value"
 }
 
-build_harness() {
-  if [ "$TARGET" = "native" ]; then
-    if [ -z "${LEAKAGE_TIMING_BIN:-}" ]; then
-      moon build --target native ./leakage_harness
-    elif [ ! -x "$BIN" ]; then
-      moon build --target native ./leakage_harness
-    fi
+if [ -z "${LEAKAGE_DUDECT_BIN:-}" ]; then
+  moon build --target native ./leakage_harness
+elif [ ! -x "$BIN" ]; then
+  moon build --target native ./leakage_harness
+fi
 
-    if [ ! -x "$BIN" ]; then
-      echo "[leakage-timing] native harness binary not found: $BIN" >&2
-      exit 2
-    fi
-  else
-    moon build --target "$TARGET" ./leakage_harness
-  fi
-}
-
-run_compare_one() {
-  local workload="$1"
-  local max_abs_t="$2"
-
-  if [ "$TARGET" = "native" ]; then
-    "$BIN" compare-one "$workload" "$SAMPLES" "$INNER" "$max_abs_t"
-  else
-    moon run --target "$TARGET" ./leakage_harness -- \
-      compare-one "$workload" "$SAMPLES" "$INNER" "$max_abs_t"
-  fi
-}
-
-build_harness
+if [ ! -x "$BIN" ]; then
+  echo "[leakage-dudect] native harness binary not found: $BIN" >&2
+  exit 2
+fi
 
 if [ -n "$REPORT" ]; then
   mkdir -p "$(dirname "$REPORT")"
-  printf 'target\tworkload\ttrials\tsamples\tinner\tmax_abs_t\tmax_mean_abs_t\tmax_failures\tobserved_max_abs_t\tmean_abs_t\tfailures\tresult\n' >"$REPORT"
+  printf 'target\tworkload\ttrials\tmeasurements\trounds\tmax_abs_t\tmax_mean_abs_t\tmax_failures\tobserved_max_abs_t\tmean_abs_t\tfailures\tresult\n' >"$REPORT"
 fi
 
 failed=0
 for workload in "${workloads[@]}"; do
   max_abs_t="$(threshold_column_for_workload "$workload" 2 "$MAX_ABS_T")"
   if ! is_number "$max_abs_t"; then
-    echo "[leakage-timing] threshold for $workload must be numeric: $max_abs_t" >&2
+    echo "[leakage-dudect] threshold for $workload must be numeric: $max_abs_t" >&2
     exit 2
   fi
   default_max_mean_abs_t="$MAX_MEAN_ABS_T"
@@ -188,12 +153,12 @@ for workload in "${workloads[@]}"; do
   fi
   max_mean_abs_t="$(threshold_column_for_workload "$workload" 3 "$default_max_mean_abs_t")"
   if ! is_number "$max_mean_abs_t"; then
-    echo "[leakage-timing] mean threshold for $workload must be numeric: $max_mean_abs_t" >&2
+    echo "[leakage-dudect] mean threshold for $workload must be numeric: $max_mean_abs_t" >&2
     exit 2
   fi
   max_failures="$(threshold_column_for_workload "$workload" 4 "$MAX_FAILS")"
   if ! is_nonnegative_int "$max_failures"; then
-    echo "[leakage-timing] failure threshold for $workload must be a non-negative integer: $max_failures" >&2
+    echo "[leakage-dudect] failure threshold for $workload must be a non-negative integer: $max_failures" >&2
     exit 2
   fi
 
@@ -202,7 +167,7 @@ for workload in "${workloads[@]}"; do
   sum_abs_t=0
   for ((trial = 1; trial <= TRIALS; trial++)); do
     set +e
-    output="$(run_compare_one "$workload" "$max_abs_t" 2>&1)"
+    output="$("$BIN" dudect-one "$workload" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t" 2>&1)"
     rc="$?"
     set -e
     printf '%s\n' "$output"
@@ -214,11 +179,11 @@ for workload in "${workloads[@]}"; do
       }
       END { exit(found ? 0 : 1) }
     ')" || {
-      echo "[leakage-timing] could not parse abs_t for $workload trial $trial" >&2
+      echo "[leakage-dudect] could not parse abs_t for $workload trial $trial" >&2
       exit 2
     }
     if ! is_number "$abs_t"; then
-      echo "[leakage-timing] parsed abs_t for $workload trial $trial is not numeric: $abs_t" >&2
+      echo "[leakage-dudect] parsed abs_t for $workload trial $trial is not numeric: $abs_t" >&2
       exit 2
     fi
     sum_abs_t="$(float_add "$sum_abs_t" "$abs_t")"
@@ -235,8 +200,8 @@ for workload in "${workloads[@]}"; do
     if [ "$trial_failed" -eq 1 ]; then
       failures=$((failures + 1))
     fi
-    printf '[leakage-timing] %s trial=%s/%s abs_t=%s max_abs_t=%s result=%s\n' \
-      "$TARGET/$workload" "$trial" "$TRIALS" "$abs_t" "$max_abs_t" \
+    printf '[leakage-dudect] %s trial=%s/%s abs_t=%s max_abs_t=%s result=%s\n' \
+      "$workload" "$trial" "$TRIALS" "$abs_t" "$max_abs_t" \
       "$(if [ "$trial_failed" -eq 1 ]; then printf 'fail'; else printf 'pass'; fi)"
   done
 
@@ -250,12 +215,12 @@ for workload in "${workloads[@]}"; do
     failed=1
     result="fail"
   fi
-  printf '[leakage-timing] %s trials=%s observed_max_abs_t=%s mean_abs_t=%s max_abs_t=%s max_mean_abs_t=%s failures=%s max_failures=%s result=%s\n' \
-    "$TARGET/$workload" "$TRIALS" "$observed_max_abs_t" "$mean_abs_t" \
+  printf '[leakage-dudect] %s trials=%s observed_max_abs_t=%s mean_abs_t=%s max_abs_t=%s max_mean_abs_t=%s failures=%s max_failures=%s result=%s\n' \
+    "$workload" "$TRIALS" "$observed_max_abs_t" "$mean_abs_t" \
     "$max_abs_t" "$max_mean_abs_t" "$failures" "$max_failures" "$result"
   if [ -n "$REPORT" ]; then
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$TARGET" "$workload" "$TRIALS" "$SAMPLES" "$INNER" "$max_abs_t" \
+      native "$workload" "$TRIALS" "$MEASUREMENTS" "$ROUNDS" "$max_abs_t" \
       "$max_mean_abs_t" "$max_failures" "$observed_max_abs_t" "$mean_abs_t" \
       "$failures" "$result" >>"$REPORT"
   fi
