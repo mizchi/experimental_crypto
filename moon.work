@@ -3,6 +3,7 @@ members = [
   "./argon2",
   "./asn1",
   "./crypto_bigint",
+  "./crypto_bigint/wrap",
   "./getrandom",
   "./hkdf",
   "./pbkdf2",

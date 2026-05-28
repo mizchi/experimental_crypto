@@ -4,6 +4,10 @@ package "mizchi/totp/wrap"
 // Values
 pub fn totp_digit_modulus(Int) -> Int
 
+pub fn totp_time_bucket(Int, Int, Int) -> Int
+
+pub fn totp_time_bucket_delta(Int, Int, Int, Int) -> Int
+
 // Errors
 
 // Types and methods

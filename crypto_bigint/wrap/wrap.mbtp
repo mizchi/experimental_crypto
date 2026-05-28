@@ -1,0 +1,17 @@
+// Logic-side spec for `mizchi/crypto_bigint/wrap`.
+
+fn limb_count_for_bytes_logic(byte_len : Int) -> Int {
+  (byte_len + 7) / 8
+}
+
+fn limb_capacity_bytes_logic(byte_len : Int) -> Int {
+  limb_count_for_bytes_logic(byte_len) * 8
+}
+
+lemma limb_capacity_matches_count(byte_len : Int) where {
+  proof_require: byte_len > 0,
+  proof_require: byte_len <= 2147483640,
+  proof_ensure: limb_capacity_bytes_logic(byte_len) == limb_count_for_bytes_logic(byte_len) * 8,
+} {
+
+}

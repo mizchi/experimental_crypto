@@ -28,3 +28,37 @@ pub fn totp_digit_modulus(
     100000000
   }
 }
+
+///|
+/// RFC 6238 §4.2 time-step counter using `Int` for proofability:
+/// `T = floor((now - T0) / step)`.
+pub fn totp_time_bucket(
+  now_seconds : Int,
+  step_seconds : Int,
+  t0 : Int,
+) -> Int where {
+  proof_require: step_seconds > 0,
+  proof_require: now_seconds >= t0,
+  proof_ensure: result => result >= 0,
+  proof_ensure: result => result * step_seconds <= now_seconds - t0,
+  proof_ensure: result => now_seconds - t0 < (result + 1) * step_seconds,
+} {
+  (now_seconds - t0) / step_seconds
+}
+
+///|
+/// Monotonicity witness for `totp_time_bucket`: later accepted times cannot
+/// map to an earlier TOTP counter when `step_seconds > 0`.
+pub fn totp_time_bucket_delta(
+  earlier_seconds : Int,
+  later_seconds : Int,
+  step_seconds : Int,
+  t0 : Int,
+) -> Int where {
+  proof_require: step_seconds > 0,
+  proof_require: t0 <= earlier_seconds,
+  proof_require: earlier_seconds <= later_seconds,
+  proof_ensure: result => result >= 0,
+} {
+  (later_seconds - t0) / step_seconds - (earlier_seconds - t0) / step_seconds
+}

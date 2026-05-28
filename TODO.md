@@ -144,9 +144,6 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] Remove the `partial_prover` shim in `proofs/why3.conf` once Why3 1.7.2
   recognises Z3 4.16 / CVC5 1.3 natively.
-- [ ] Add proof targets for `pbkdf2` block count, `argon2` memory alignment,
-  `bip32` `is_hardened`, `crypto_bigint` `limb_count`, and `totp`
-  time-bucket monotonicity.
 - [ ] Revisit `ct_select` bitmask proofs once `moon prove` lowers `&`, `|`,
   and `lnot` to a bitvector theory.
 

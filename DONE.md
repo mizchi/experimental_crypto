@@ -174,6 +174,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Extend `leakage_harness/timing_check.sh` and the manual leakage profile
   workflow so timing smoke reports can be collected for native, JS, wasm-gc,
   and wasm targets.
+- Add the remaining formal proof targets from the backlog: `crypto_bigint`
+  byte-length to limb-count/capacity arithmetic and `totp` time-bucket
+  monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets
+  already existed and are documented in `proofs/README.md`.
 
 ## Parser And Protocol Hardening
 

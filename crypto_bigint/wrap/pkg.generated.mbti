@@ -1,0 +1,16 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/crypto_bigint/wrap"
+
+// Values
+pub fn limb_capacity_bytes(Int) -> Int
+
+pub fn limb_count_for_bytes(Int) -> Int
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

@@ -57,11 +57,13 @@ planned const-time field-arithmetic rewrite in `@ed25519`.
 | `hkdf/wrap` | `hkdf_block_count(L, hash_len)` | RFC 5869 §2.3 block count ∈ [1, 255] given L ≤ 255·HashLen — wired into `hkdf.expand` |
 | `pbkdf2/wrap` | `pbkdf2_block_count(dk_len, h_len)` | RFC 8018 §5.2 block count ∈ [1, ⌈dk_len/h_len⌉] with `(N-1)·h_len < dk_len ≤ N·h_len` — spec for `pbkdf2.derive` |
 | `pbkdf2/wrap` | `pbkdf2_total_output_bytes(dk_len, h_len)` | Block-aligned scratch size = `block_count × h_len`. Anchors consistency with `pbkdf2_block_count` |
+| `crypto_bigint/wrap` | `limb_count_for_bytes(byte_len)` | Fixed-width byte packing uses `ceil(byte_len / 8)` 64-bit limbs with capacity in `[byte_len, byte_len + 8)` |
 | `bip32/wrap` | `is_hardened_from_msb(msb)` | BIP-32 §3 hardened-bit dispatch: `ser32(i)[0] >= 0x80` ⇔ hardened. Returns `{0,1}` |
 | `bip39/wrap` | `mnemonic_word_count(ent_bits)` | BIP-39 §3 mnemonic length ∈ {12,15,18,21,24} for entropy ∈ {128,160,192,224,256} bits |
 | `hash/wrap` | `sha256_pad_len(msg_bytes)` | FIPS 180-4 §5.1.1 SHA-256 padding length ∈ [9, 72] AND `(msg_bytes + result) % 64 == 0` |
 | `hash/wrap` | `sha512_pad_len(msg_bytes)` | FIPS 180-4 §5.1.2 SHA-512 padding length ∈ [17, 144] AND `(msg_bytes + result) % 128 == 0` |
 | `totp/wrap` | `totp_digit_modulus(digits)` | RFC 4226 §5.3 / RFC 6238 HOTP-truncation modulus ∈ {10^6, 10^7, 10^8} for digits ∈ {6, 7, 8} |
+| `totp/wrap` | `totp_time_bucket_delta(earlier, later, step, t0)` | RFC 6238 §4.2 TOTP counter monotonicity: `earlier ≤ later` with positive step cannot decrease the bucket |
 | `scrypt/wrap` | `scrypt_pbkdf_blocks(dk_len, h_len)` | RFC 7914 §2 step-4 PBKDF2 block count for the final dkLen-byte derivation |
 | `getrandom/wrap` | `getrandom_chunk_len(remaining, cap)` | OS CSPRNG syscall chunking — `min(remaining, cap)` with caller-cap honored (Linux 256B, macOS 4096B, …) |
 | `argon2/wrap` | `argon2_segment_length(m_cost, lanes)` | RFC 9106 §3.2: `floor(m_cost / (4·lanes)) ≥ 2` with `4·lanes·segment_length ≤ m_cost < 4·lanes·(segment_length+1)` |

@@ -28,7 +28,7 @@ prove_one() {
 }
 
 if [ $# -eq 0 ]; then
-  for pkg in proofs pem/wrap aead/wrap hkdf/wrap asn1/wrap pbkdf2/wrap bip32/wrap bip39/wrap hash/wrap totp/wrap scrypt/wrap getrandom/wrap argon2/wrap jwt/wrap pgp/wrap; do
+  for pkg in proofs pem/wrap aead/wrap hkdf/wrap asn1/wrap pbkdf2/wrap bip32/wrap bip39/wrap hash/wrap totp/wrap scrypt/wrap getrandom/wrap argon2/wrap jwt/wrap pgp/wrap crypto_bigint/wrap; do
     prove_one "$pkg"
   done
 else
