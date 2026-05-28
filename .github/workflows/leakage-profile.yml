@@ -81,28 +81,109 @@ permissions:
   contents: read
 
 jobs:
-  callgrind-profile:
-    name: leakage profile (ubuntu-latest, nix leakage shell)
+  validate-profile-inputs:
+    name: validate leakage profile inputs
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    outputs:
+      workloads: ${{ steps.matrix.outputs.workloads }}
+      dudect-targets: ${{ steps.matrix.outputs.dudect-targets }}
+      timing-targets: ${{ steps.matrix.outputs.timing-targets }}
     env:
       PROFILE_WORKLOADS: ${{ inputs.workloads }}
       PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
-      PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
-      PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
-      PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
-      PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
-      PROFILE_TIMING_MAX_MEAN_ABS_T: ${{ inputs.timing_max_mean_abs_t }}
+      PROFILE_DUDECT_TARGETS: ${{ inputs.dudect_targets }}
+      PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
+      PROFILE_EVIDENCE_GATE: ${{ inputs.evidence_gate }}
+    steps:
+      - name: validate profile inputs
+        id: matrix
+        run: |
+          case "$PROFILE_REPETITIONS" in
+            ''|*[!0-9]*)
+              echo "profile_repetitions must be a positive integer: $PROFILE_REPETITIONS" >&2
+              exit 2
+              ;;
+          esac
+          if [ "$PROFILE_REPETITIONS" -le 0 ]; then
+            echo "profile_repetitions must be a positive integer: $PROFILE_REPETITIONS" >&2
+            exit 2
+          fi
+          case "$PROFILE_EVIDENCE_GATE" in
+            true|false) ;;
+            *)
+              echo "evidence_gate must be true or false: $PROFILE_EVIDENCE_GATE" >&2
+              exit 2
+              ;;
+          esac
+
+          words_to_json() {
+            label="$1"
+            text="$2"
+            out="["
+            first=1
+            for word in $text; do
+              case "$word" in
+                *[!A-Za-z0-9_-]*)
+                  echo "$label contains an invalid word: $word" >&2
+                  exit 2
+                  ;;
+              esac
+              if [ "$first" -eq 1 ]; then
+                first=0
+              else
+                out="$out,"
+              fi
+              out="$out\"$word\""
+            done
+            if [ "$first" -eq 1 ]; then
+              echo "$label must not be empty" >&2
+              exit 2
+            fi
+            out="$out]"
+            printf '%s\n' "$out"
+          }
+
+          validate_targets() {
+            label="$1"
+            text="$2"
+            for word in $text; do
+              case "$word" in
+                native|js|wasm-gc|wasm) ;;
+                *)
+                  echo "$label contains an unsupported target: $word" >&2
+                  exit 2
+                  ;;
+              esac
+            done
+          }
+
+          validate_targets "dudect_targets" "$PROFILE_DUDECT_TARGETS"
+          validate_targets "timing_targets" "$PROFILE_TIMING_TARGETS"
+
+          {
+            echo "workloads=$(words_to_json "workloads" "$PROFILE_WORKLOADS")"
+            echo "dudect-targets=$(words_to_json "dudect_targets" "$PROFILE_DUDECT_TARGETS")"
+            echo "timing-targets=$(words_to_json "timing_targets" "$PROFILE_TIMING_TARGETS")"
+          } >>"$GITHUB_OUTPUT"
+
+  dudect-profile:
+    name: dudect profile (${{ matrix.target }})
+    needs: validate-profile-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.validate-profile-inputs.outputs.dudect-targets) }}
+    env:
+      PROFILE_WORKLOADS: ${{ inputs.workloads }}
+      PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
       PROFILE_DUDECT_MEASUREMENTS: ${{ inputs.dudect_measurements }}
       PROFILE_DUDECT_ROUNDS: ${{ inputs.dudect_rounds }}
       PROFILE_DUDECT_TRIALS: ${{ inputs.dudect_trials }}
-      PROFILE_DUDECT_TARGETS: ${{ inputs.dudect_targets }}
       PROFILE_DUDECT_MAX_ABS_T: ${{ inputs.dudect_max_abs_t }}
       PROFILE_DUDECT_MAX_MEAN_ABS_T: ${{ inputs.dudect_max_mean_abs_t }}
-      PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
-      PROFILE_ITERS: ${{ inputs.iters }}
-      PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
-      PROFILE_EVIDENCE_GATE: ${{ inputs.evidence_gate }}
+      PROFILE_DUDECT_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v6
 
@@ -131,99 +212,191 @@ jobs:
           restore-keys: |
             moon-registry-${{ runner.os }}-
 
-      - name: validate profile inputs
+      - name: prepare leakage profile
         run: |
-          case "$PROFILE_REPETITIONS" in
-            ''|*[!0-9]*)
-              echo "profile_repetitions must be a positive integer: $PROFILE_REPETITIONS" >&2
-              exit 2
-              ;;
-          esac
-          if [ "$PROFILE_REPETITIONS" -le 0 ]; then
-            echo "profile_repetitions must be a positive integer: $PROFILE_REPETITIONS" >&2
-            exit 2
-          fi
-          case "$PROFILE_EVIDENCE_GATE" in
-            true|false) ;;
-            *)
-              echo "evidence_gate must be true or false: $PROFILE_EVIDENCE_GATE" >&2
-              exit 2
-              ;;
-          esac
+          nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
+          nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
+          : >leakage-dudect-profile.tsv
+
+      - name: dudect profile target
+        run: |
+          first_dudect_report=1
+          repetition=1
+          while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
+            echo "[leakage-dudect-profile] target=$PROFILE_DUDECT_TARGET repetition=$repetition/$PROFILE_REPETITIONS"
+            dudect_report="leakage-dudect-profile-$repetition-$PROFILE_DUDECT_TARGET.tsv"
+            LEAKAGE_DUDECT_TARGET="$PROFILE_DUDECT_TARGET" \
+              LEAKAGE_DUDECT_MEASUREMENTS="$PROFILE_DUDECT_MEASUREMENTS" \
+              LEAKAGE_DUDECT_ROUNDS="$PROFILE_DUDECT_ROUNDS" \
+              LEAKAGE_DUDECT_TRIALS="$PROFILE_DUDECT_TRIALS" \
+              LEAKAGE_DUDECT_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_DUDECT_MAX_ABS_T="$PROFILE_DUDECT_MAX_ABS_T" \
+              LEAKAGE_DUDECT_MAX_MEAN_ABS_T="$PROFILE_DUDECT_MAX_MEAN_ABS_T" \
+              LEAKAGE_DUDECT_REPORT="$dudect_report" \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/dudect_check.sh
+            if [ "$first_dudect_report" -eq 1 ]; then
+              cat "$dudect_report" >leakage-dudect-profile.tsv
+              first_dudect_report=0
+            else
+              tail -n +2 "$dudect_report" >>leakage-dudect-profile.tsv
+            fi
+            repetition=$((repetition + 1))
+          done
+          cat leakage-dudect-profile.tsv
+
+      - name: upload dudect profile artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: leakage-dudect-profile-${{ matrix.target }}
+          path: leakage-dudect-profile.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+  timing-profile:
+    name: timing profile (${{ matrix.target }})
+    needs: validate-profile-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.validate-profile-inputs.outputs.timing-targets) }}
+    env:
+      PROFILE_WORKLOADS: ${{ inputs.workloads }}
+      PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
+      PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
+      PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
+      PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
+      PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
+      PROFILE_TIMING_MAX_MEAN_ABS_T: ${{ inputs.timing_max_mean_abs_t }}
+      PROFILE_TIMING_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          determinate: false
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: "disabled"
+          use-gha-cache: "enabled"
+
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
 
       - name: prepare leakage profile
         run: |
           nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
           : >leakage-timing-profile.tsv
-          : >leakage-dudect-profile.tsv
-          : >leakage-callgrind-profile.tsv
 
-      - name: dudect profile
-        run: |
-          first_dudect_report=1
-          repetition=1
-          while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
-            echo "[leakage-dudect-profile] repetition=$repetition/$PROFILE_REPETITIONS"
-            for target in $PROFILE_DUDECT_TARGETS; do
-              dudect_report="leakage-dudect-profile-$repetition-$target.tsv"
-              LEAKAGE_DUDECT_TARGET="$target" \
-                LEAKAGE_DUDECT_MEASUREMENTS="$PROFILE_DUDECT_MEASUREMENTS" \
-                LEAKAGE_DUDECT_ROUNDS="$PROFILE_DUDECT_ROUNDS" \
-                LEAKAGE_DUDECT_TRIALS="$PROFILE_DUDECT_TRIALS" \
-                LEAKAGE_DUDECT_WORKLOADS="$PROFILE_WORKLOADS" \
-                LEAKAGE_DUDECT_MAX_ABS_T="$PROFILE_DUDECT_MAX_ABS_T" \
-                LEAKAGE_DUDECT_MAX_MEAN_ABS_T="$PROFILE_DUDECT_MAX_MEAN_ABS_T" \
-                LEAKAGE_DUDECT_REPORT="$dudect_report" \
-                nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/dudect_check.sh
-              if [ "$first_dudect_report" -eq 1 ]; then
-                cat "$dudect_report" >leakage-dudect-profile.tsv
-                first_dudect_report=0
-              else
-                tail -n +2 "$dudect_report" >>leakage-dudect-profile.tsv
-              fi
-            done
-            repetition=$((repetition + 1))
-          done
-          cat leakage-dudect-profile.tsv
-
-      - name: timing profile
+      - name: timing profile target
         run: |
           first_timing_report=1
           repetition=1
           while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
-            echo "[leakage-timing-profile] repetition=$repetition/$PROFILE_REPETITIONS"
-            for target in $PROFILE_TIMING_TARGETS; do
-              report="leakage-timing-profile-$repetition-$target.tsv"
-              LEAKAGE_TIMING_TARGET="$target" \
-                LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
-                LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
-                LEAKAGE_TIMING_TRIALS="$PROFILE_TIMING_TRIALS" \
-                LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
-                LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
-                LEAKAGE_TIMING_MAX_MEAN_ABS_T="$PROFILE_TIMING_MAX_MEAN_ABS_T" \
-                LEAKAGE_TIMING_REPORT="$report" \
-                nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
-              if [ "$first_timing_report" -eq 1 ]; then
-                cat "$report" >leakage-timing-profile.tsv
-                first_timing_report=0
-              else
-                tail -n +2 "$report" >>leakage-timing-profile.tsv
-              fi
-            done
+            echo "[leakage-timing-profile] target=$PROFILE_TIMING_TARGET repetition=$repetition/$PROFILE_REPETITIONS"
+            report="leakage-timing-profile-$repetition-$PROFILE_TIMING_TARGET.tsv"
+            LEAKAGE_TIMING_TARGET="$PROFILE_TIMING_TARGET" \
+              LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
+              LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
+              LEAKAGE_TIMING_TRIALS="$PROFILE_TIMING_TRIALS" \
+              LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
+              LEAKAGE_TIMING_MAX_MEAN_ABS_T="$PROFILE_TIMING_MAX_MEAN_ABS_T" \
+              LEAKAGE_TIMING_REPORT="$report" \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
+            if [ "$first_timing_report" -eq 1 ]; then
+              cat "$report" >leakage-timing-profile.tsv
+              first_timing_report=0
+            else
+              tail -n +2 "$report" >>leakage-timing-profile.tsv
+            fi
             repetition=$((repetition + 1))
           done
           cat leakage-timing-profile.tsv
 
-      - name: callgrind profile
+      - name: upload timing profile artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: leakage-timing-profile-${{ matrix.target }}
+          path: leakage-timing-profile.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+  callgrind-profile:
+    name: callgrind profile (${{ matrix.workload }})
+    needs: validate-profile-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        workload: ${{ fromJson(needs.validate-profile-inputs.outputs.workloads) }}
+    env:
+      PROFILE_WORKLOAD: ${{ matrix.workload }}
+      PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
+      PROFILE_ITERS: ${{ inputs.iters }}
+      PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          determinate: false
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: "disabled"
+          use-gha-cache: "enabled"
+
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
+
+      - name: prepare leakage profile
+        run: |
+          nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
+          nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
+          : >leakage-callgrind-profile.tsv
+
+      - name: callgrind profile workload
         run: |
           first_callgrind_report=1
           repetition=1
           while [ "$repetition" -le "$PROFILE_REPETITIONS" ]; do
-            echo "[leakage-callgrind-profile] repetition=$repetition/$PROFILE_REPETITIONS"
-            callgrind_report="leakage-callgrind-profile-$repetition.tsv"
+            echo "[leakage-callgrind-profile] workload=$PROFILE_WORKLOAD repetition=$repetition/$PROFILE_REPETITIONS"
+            callgrind_report="leakage-callgrind-profile-$repetition-$PROFILE_WORKLOAD.tsv"
             LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
-              LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOAD" \
               LEAKAGE_CALLGRIND_MAX_DELTA_PCT="$PROFILE_MAX_DELTA_PCT" \
               LEAKAGE_CALLGRIND_REPORT="$callgrind_report" \
               nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/callgrind_check.sh
@@ -236,6 +409,75 @@ jobs:
             repetition=$((repetition + 1))
           done
           cat leakage-callgrind-profile.tsv
+
+      - name: upload callgrind profile artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: leakage-callgrind-profile-${{ matrix.workload }}
+          path: leakage-callgrind-profile.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+  summarize-profile:
+    name: summarize and gate leakage profile
+    needs:
+      - validate-profile-inputs
+      - dudect-profile
+      - timing-profile
+      - callgrind-profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ always() }}
+    env:
+      PROFILE_WORKLOADS: ${{ inputs.workloads }}
+      PROFILE_REPETITIONS: ${{ inputs.profile_repetitions }}
+      PROFILE_DUDECT_TARGETS: ${{ inputs.dudect_targets }}
+      PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
+      PROFILE_EVIDENCE_GATE: ${{ inputs.evidence_gate }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: fail if profile shards failed
+        run: |
+          case "${{ needs.validate-profile-inputs.result }}" in success) ;; *) exit 1 ;; esac
+          case "${{ needs.dudect-profile.result }}" in success) ;; *) exit 1 ;; esac
+          case "${{ needs.timing-profile.result }}" in success) ;; *) exit 1 ;; esac
+          case "${{ needs.callgrind-profile.result }}" in success) ;; *) exit 1 ;; esac
+
+      - name: download leakage profile artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: leakage-artifacts
+          pattern: leakage-*-profile-*
+          merge-multiple: true
+
+      - name: merge leakage profile artifacts
+        run: |
+          merge_reports() {
+            pattern="$1"
+            output="$2"
+            files="$(find leakage-artifacts -name "$pattern" -type f | sort)"
+            if [ -z "$files" ]; then
+              echo "no profile artifacts matched $pattern" >&2
+              exit 1
+            fi
+
+            first=1
+            : >"$output"
+            for file in $files; do
+              if [ "$first" -eq 1 ]; then
+                cat "$file" >"$output"
+                first=0
+              else
+                tail -n +2 "$file" >>"$output"
+              fi
+            done
+          }
+
+          merge_reports 'leakage-dudect-profile.tsv' leakage-dudect-profile.tsv
+          merge_reports 'leakage-timing-profile.tsv' leakage-timing-profile.tsv
+          merge_reports 'leakage-callgrind-profile.tsv' leakage-callgrind-profile.tsv
 
       - name: summarize leakage profile
         run: |

@@ -121,12 +121,13 @@ either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload limit in
 `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to write a
 tab-separated report with sparse/dense instruction totals, percentage delta,
 selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
-runs dudect-style profiles against caller-selected dudect targets, repeated
-timing checks against caller-selected backend targets, then the Linux-native
-callgrind checker for each repetition, and prints TSV reports without making
-normal push CI pay for full profiling. The workflow uploads the raw and
-aggregated TSV files as a GitHub Actions artifact so a passing high-sample run
-can be archived.
+shards dudect-style profiles by caller-selected dudect target, shards repeated
+timing checks by backend target, shards Linux-native callgrind checks by
+workload, then merges the TSV reports before running the evidence gate. Normal
+push CI therefore avoids full profiling cost while manual high-sample evidence
+runs expose the slow or failing shard directly. The workflow uploads the raw
+and aggregated TSV files as GitHub Actions artifacts so a passing high-sample
+run can be archived.
 `profile_summary.sh` can aggregate one or more timing / dudect / callgrind TSV
 reports by target and workload.
 `profile_evidence_gate.sh` consumes that summary and fails unless every
