@@ -171,6 +171,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add a top-level README git commit signing walkthrough that maps git
   `gpg.format=ssh/openpgp/x509` to the `ssh`, `pgp`, `cms`,
   `pkix_verify`, and `git_object` modules.
+- Extend `leakage_harness/timing_check.sh` and the manual leakage profile
+  workflow so timing smoke reports can be collected for native, JS, wasm-gc,
+  and wasm targets.
 
 ## Parser And Protocol Hardening
 

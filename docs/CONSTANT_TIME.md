@@ -62,6 +62,8 @@ bash leakage_harness/timing_check.sh
 LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
   LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
   bash leakage_harness/timing_check.sh
+LEAKAGE_TIMING_TARGET=js LEAKAGE_TIMING_WORKLOADS=crypto_bigint-pow_mod \
+  bash leakage_harness/timing_check.sh
 moon run --target native ./leakage_harness -- run p256-sign sparse 100
 moon run --target native ./leakage_harness -- run p256-sign dense 100
 bash leakage_harness/callgrind_check.sh
@@ -73,10 +75,13 @@ gh workflow run "Leakage Profile" --ref main
 ```
 
 Use `compare`, `compare-one`, or `timing_check.sh` as local dudect-style timing
-smoke tests. `timing_check.sh` builds the native harness, runs caller-selected
+smoke tests. `timing_check.sh` builds the selected harness target
+(`LEAKAGE_TIMING_TARGET=native|js|wasm-gc|wasm`), runs caller-selected
 workloads, applies either `LEAKAGE_TIMING_MAX_ABS_T` or per-workload thresholds
 from `LEAKAGE_TIMING_THRESHOLDS`, and can write a TSV report via
-`LEAKAGE_TIMING_REPORT`. Use `run` under an external profiler such as
+`LEAKAGE_TIMING_REPORT`. Non-native targets use `moon run` and should still be
+treated as smoke-only because JIT / runtime effects dominate. Use `run` under
+an external profiler such as
 `valgrind --tool=callgrind` on Linux, or a platform equivalent, to compare
 fixed class workloads without including test harness branching in the measured
 operation. `callgrind_check.sh` automates that Linux workflow by building the
@@ -86,8 +91,9 @@ either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload limit in
 `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to write a
 tab-separated report with sparse/dense instruction totals, percentage delta,
 selected threshold, and pass/fail result. The manual `Leakage Profile` workflow
-runs both timing and callgrind checkers against caller-selected workloads and
-prints TSV reports without making normal push CI pay for full profiling.
+runs timing checks against caller-selected backend targets, then runs the
+Linux-native callgrind checker, and prints TSV reports without making normal
+push CI pay for full profiling.
 
 The JWE RSA-OAEP decrypt workload deliberately uses ciphertext `1` and expects
 OAEP authentication failure. Because `1^d mod n` is `1` for both sparse and

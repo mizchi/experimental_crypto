@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET="${LEAKAGE_TIMING_TARGET:-native}"
 BIN="${LEAKAGE_TIMING_BIN:-$ROOT/_build/native/debug/build/mizchi/leakage_harness/leakage_harness.exe}"
 SAMPLES="${LEAKAGE_TIMING_SAMPLES:-8}"
 INNER="${LEAKAGE_TIMING_INNER:-1}"
@@ -40,14 +41,17 @@ if ! is_number "$MAX_ABS_T"; then
   exit 2
 fi
 
-if [ -z "${LEAKAGE_TIMING_BIN:-}" ]; then
-  moon build --target native ./leakage_harness
-elif [ ! -x "$BIN" ]; then
-  moon build --target native ./leakage_harness
-fi
+case "$TARGET" in
+  native | js | wasm-gc | wasm)
+    ;;
+  *)
+    echo "[leakage-timing] LEAKAGE_TIMING_TARGET must be native, js, wasm-gc, or wasm: $TARGET" >&2
+    exit 2
+    ;;
+esac
 
-if [ ! -x "$BIN" ]; then
-  echo "[leakage-timing] native harness binary not found: $BIN" >&2
+if [ -n "${LEAKAGE_TIMING_BIN:-}" ] && [ "$TARGET" != "native" ]; then
+  echo "[leakage-timing] LEAKAGE_TIMING_BIN is only supported with native target" >&2
   exit 2
 fi
 
@@ -82,9 +86,40 @@ threshold_for_workload() {
   ' "$THRESHOLDS_FILE" || printf '%s\n' "$MAX_ABS_T"
 }
 
+build_harness() {
+  if [ "$TARGET" = "native" ]; then
+    if [ -z "${LEAKAGE_TIMING_BIN:-}" ]; then
+      moon build --target native ./leakage_harness
+    elif [ ! -x "$BIN" ]; then
+      moon build --target native ./leakage_harness
+    fi
+
+    if [ ! -x "$BIN" ]; then
+      echo "[leakage-timing] native harness binary not found: $BIN" >&2
+      exit 2
+    fi
+  else
+    moon build --target "$TARGET" ./leakage_harness
+  fi
+}
+
+run_compare_one() {
+  local workload="$1"
+  local max_abs_t="$2"
+
+  if [ "$TARGET" = "native" ]; then
+    "$BIN" compare-one "$workload" "$SAMPLES" "$INNER" "$max_abs_t"
+  else
+    moon run --target "$TARGET" ./leakage_harness -- \
+      compare-one "$workload" "$SAMPLES" "$INNER" "$max_abs_t"
+  fi
+}
+
+build_harness
+
 if [ -n "$REPORT" ]; then
   mkdir -p "$(dirname "$REPORT")"
-  printf 'workload\tabs_t\tmax_abs_t\tresult\n' >"$REPORT"
+  printf 'target\tworkload\tabs_t\tmax_abs_t\tresult\n' >"$REPORT"
 fi
 
 failed=0
@@ -95,7 +130,7 @@ for workload in "${workloads[@]}"; do
     exit 2
   fi
   set +e
-  output="$("$BIN" compare-one "$workload" "$SAMPLES" "$INNER" "$max_abs_t" 2>&1)"
+  output="$(run_compare_one "$workload" "$max_abs_t" 2>&1)"
   rc="$?"
   set -e
   printf '%s\n' "$output"
@@ -118,10 +153,10 @@ for workload in "${workloads[@]}"; do
     exit "$rc"
   fi
   printf '[leakage-timing] %s abs_t=%s max_abs_t=%s result=%s\n' \
-    "$workload" "$abs_t" "$max_abs_t" "$result"
+    "$TARGET/$workload" "$abs_t" "$max_abs_t" "$result"
   if [ -n "$REPORT" ]; then
-    printf '%s\t%s\t%s\t%s\n' \
-      "$workload" "$abs_t" "$max_abs_t" "$result" >>"$REPORT"
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$TARGET" "$workload" "$abs_t" "$max_abs_t" "$result" >>"$REPORT"
   fi
 done
 

@@ -19,6 +19,10 @@ on:
         description: Non-gating timing threshold; keep high while calibrating
         required: true
         default: "1000000"
+      timing_targets:
+        description: Space-separated timing targets to profile (native js wasm-gc wasm)
+        required: true
+        default: "native"
       iters:
         description: Iterations per sparse/dense class under callgrind
         required: true
@@ -77,17 +81,30 @@ jobs:
           PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
           PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
           PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
+          PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
           PROFILE_ITERS: ${{ inputs.iters }}
           PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
         run: |
           nix develop --impure .#leakage --command env -u MOON_HOME bash scripts/ci_retry.sh moon update
           nix develop --impure .#leakage --command env -u MOON_HOME moon run --target native ./leakage_harness -- list
-          LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
-            LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
-            LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
-            LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
-            LEAKAGE_TIMING_REPORT=leakage-timing-profile.tsv \
-            nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
+          : >leakage-timing-profile.tsv
+          first_timing_report=1
+          for target in $PROFILE_TIMING_TARGETS; do
+            report="leakage-timing-profile-$target.tsv"
+            LEAKAGE_TIMING_TARGET="$target" \
+              LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
+              LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
+              LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
+              LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
+              LEAKAGE_TIMING_REPORT="$report" \
+              nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
+            if [ "$first_timing_report" -eq 1 ]; then
+              cat "$report" >leakage-timing-profile.tsv
+              first_timing_report=0
+            else
+              tail -n +2 "$report" >>leakage-timing-profile.tsv
+            fi
+          done
           cat leakage-timing-profile.tsv
           LEAKAGE_CALLGRIND_ITERS="$PROFILE_ITERS" \
             LEAKAGE_CALLGRIND_WORKLOADS="$PROFILE_WORKLOADS" \

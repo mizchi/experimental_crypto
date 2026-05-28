@@ -162,9 +162,10 @@ fails closed before returning authenticated / verified / trusted.
   private-operation workload at 1.0% on Linux native. Timing smoke now has
   reusable workload selection, per-workload thresholds, and TSV report
   plumbing and gates every current private-operation workload at a deliberately
-  loose `abs_t <= 20.0`; calibrated dudect-style statistical gates and
-  backend-breadth evidence are still open. Scope and acceptance criteria are
-  documented in `docs/CONSTANT_TIME.md`.
+  loose `abs_t <= 20.0`; the manual profile workflow can run timing smoke
+  against native / JS / wasm-gc / wasm targets. Calibrated dudect-style
+  statistical gates and repeated backend-breadth evidence are still open.
+  Scope and acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 

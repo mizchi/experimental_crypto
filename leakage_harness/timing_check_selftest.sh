@@ -56,7 +56,7 @@ rows="$(awk 'END { print NR }' "$report")"
 
 awk '
   BEGIN { found = 0 }
-  $1 == "beta" && $2 == "2.5" && $3 == "3.0" && $4 == "pass" { found = 1 }
+  $1 == "native" && $2 == "beta" && $3 == "2.5" && $4 == "3.0" && $5 == "pass" { found = 1 }
   END { exit(found ? 0 : 1) }
 ' "$report" || fail "beta threshold/report row was not recorded"
 
@@ -77,5 +77,49 @@ LEAKAGE_TIMING_BIN="$fake_bin" \
 rc="$?"
 set -e
 [ "$rc" -eq 2 ] || fail "expected invalid samples exit 2, got $rc"
+
+fake_moon_dir="$tmpdir/bin"
+mkdir -p "$fake_moon_dir"
+cat >"$fake_moon_dir/moon" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="$1"
+shift
+
+case "$cmd" in
+  build)
+    [ "$1" = "--target" ] || exit 2
+    [ "$2" = "js" ] || exit 2
+    [ "$3" = "./leakage_harness" ] || exit 2
+    ;;
+  run)
+    [ "$1" = "--target" ] || exit 2
+    [ "$2" = "js" ] || exit 2
+    [ "$3" = "./leakage_harness" ] || exit 2
+    [ "$4" = "--" ] || exit 2
+    shift 4
+    "$LEAKAGE_TIMING_FAKE_BIN" "$@"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$fake_moon_dir/moon"
+
+js_report="$tmpdir/js-report.tsv"
+PATH="$fake_moon_dir:$PATH" \
+  LEAKAGE_TIMING_FAKE_BIN="$fake_bin" \
+  LEAKAGE_TIMING_TARGET="js" \
+  LEAKAGE_TIMING_WORKLOADS="alpha" \
+  LEAKAGE_TIMING_REPORT="$js_report" \
+  bash "$ROOT/leakage_harness/timing_check.sh" >/dev/null
+
+awk '
+  BEGIN { found = 0 }
+  $1 == "js" && $2 == "alpha" && $5 == "pass" { found = 1 }
+  END { exit(found ? 0 : 1) }
+' "$js_report" || fail "js target report row was not recorded"
 
 echo "[timing-check-selftest] ok"
