@@ -5,69 +5,19 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
 
 ## Security Implementation Priority
 
-1. [ ] **Constant-time secret-key operations**: remove secret-dependent timing
-   from `crypto_bigint`, RSA private modexp, and ECDSA scalar multiplication.
-   - [x] Move `crypto_bigint` modular add/sub/mul/pow and Montgomery reduction
-     off the BigInt fallback onto fixed-limb code.
-   - [x] Replace `crypto_bigint.inv_mod`'s BigInt-backed extended-GCD fallback
-     with a limb-based odd-modulus binary-GCD path.
-   - [x] Replace variable-time `crypto_bigint.inv_mod` with a fixed-iteration
-     algorithm before using it on secret inverses.
-   - [x] Wire RSA PKCS#1 v1.5 / PSS sign-side private modexp to fixed-limb
-     modular exponentiation.
-   - [x] Wire JWE RSA-OAEP private decrypt modexp to fixed-limb modular
-     exponentiation.
-   - [x] Route ECDSA nonce inverses away from `@bigint.pow` and through
-     `crypto_bigint.inv_mod`.
-   - [x] Route P-256 sign-side base-point scalar multiplication through the
-     fixed-iteration complete-addition field path. This is not external
-     constant-time evidence yet.
-   - [x] Route P-384 and secp256k1 sign-side base-point scalar multiplication
-     through fixed-limb fixed-iteration complete-addition field paths. This is
-     not external constant-time evidence yet.
-   - [x] Add a native `leakage_harness` entry point with sparse-vs-dense class
-     workloads for `crypto_bigint`, RSA sign, JWE RSA-OAEP decrypt, and
-     P-256/P-384/secp256k1 ECDSA sign.
-   - [x] Add direct `crypto_bigint` add/sub/mul sparse-vs-dense workloads to
-     the leakage harness and include them in smoke / evidence profile gates.
-   - [x] Add an X25519 sparse-vs-dense scalar ECDH workload to the leakage
-     harness and include it in smoke / evidence profile gates.
-   - [x] Route Ed25519 sign-side scalar reduction / mul-add through
-     fixed-limb `crypto_bigint.Uint`, then add an `ed25519-sign`
-     sparse-vs-dense seed workload to smoke / evidence profile gates.
-   - [x] Add a CI smoke gate that builds and runs the native leakage harness.
-   - [x] Add wasm-gc / wasm in-process dudect-style CI smoke gates for every
-     current private-operation workload.
-   - [x] Integrate dudect-style profile reports into
-     `profile_summary.sh` and `profile_evidence_gate.sh` for manual repeated
-     leakage evidence.
-   - [x] Add a Linux callgrind instruction-count smoke gate for the native
-     leakage harness.
-   - [x] Add per-workload callgrind threshold and TSV report plumbing so CI
-     smoke measurements can be tightened without changing the harness code.
-   - [x] Add callgrind checker self-tests and a manual Linux profile workflow
-     for all private-operation workloads.
-   - [x] Calibrate and gate Linux-native callgrind checks with per-workload
-     thresholds for RSA/JWE private operations and ECDSA sign paths.
-     Measurement scope and terminology are in `docs/CONSTANT_TIME.md`.
-   - [x] Add stronger dudect-style statistical gates for the native timing
-     smoke path.
-   - [x] Add backend-breadth CI smoke checks for JS, wasm-gc, and wasm.
-   - [x] Add a repeated calibrated backend-breadth evidence gate before making
-     constant-time / constant-clock claims.
-2. [ ] **PGP sign-side interop**: verify generated signatures with external
+1. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
    - [ ] Add v6 sign-output verification once a v6-capable reference tool is
      available in CI.
-3. [ ] **JWT remaining algorithm / parser coverage**.
+2. [ ] **JWT remaining algorithm / parser coverage**.
    - [ ] Add `ES512` only after a P-521 implementation exists.
-4. [ ] **SSH allowed_signers feature gaps**.
+3. [ ] **SSH allowed_signers feature gaps**.
    - [ ] Add explicit SSH certificate support before accepting
      `cert-authority`.
    - [x] Add a time-aware allowed_signers API before accepting
      `valid-after` / `valid-before`.
-5. [x] **Cross-format fuzz breadth**.
+4. [x] **Cross-format fuzz breadth**.
    - [x] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
    - [x] Add OCSP / CRL -> PKIX_VERIFY fuzz.
 
@@ -146,16 +96,6 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **`age`** file encryption format.
 - [ ] **EIP-712 / EIP-191** structured Ethereum signing helpers.
 
-## Security Gaps
-
-- [ ] **ECDSA / private-operation side-channel measurement**: P-256, P-384,
-  and secp256k1 sign-side base-point scalar multiplication now use
-  fixed-iteration complete-addition field paths, and final nonce inverses no
-  longer use `@bigint.pow`. Linux-native callgrind and native timing now gate
-  the sign paths and direct nonce-inverse paths; the remaining risk is
-  producing and archiving a passing calibrated profile artifact before any
-  constant-time / constant-clock status upgrade.
-
 ## Formal Methods
 
 - [ ] Remove the `partial_prover` shim in `proofs/why3.conf` once Why3 1.7.2
@@ -167,78 +107,16 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] **JWT remaining coverage holes**: unsupported / fixture-heavy ES512
   branch after P-521 exists.
-- [ ] **Constant-time verification** via external profiler (`dudect` /
-  `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
-  operations, Ed25519 signing, and ECDSA signing. A native `leakage_harness`
-  workload entry point plus timing and callgrind CI gates exist. Callgrind
-  smoke now writes TSV measurements, supports per-workload thresholds, and
-  gates every current private-operation workload at 1.0% on Linux native,
-  including direct `crypto_bigint` add/sub/mul/pow/inv, X25519 ECDH, and
-  Ed25519 signing workloads. Timing smoke now has reusable workload
-  selection, per-workload thresholds, and TSV report plumbing. It now runs
-  three independent trials per workload, records observed max / mean `abs_t`,
-  gates the mean, and requires zero threshold failures in CI. CI also checks
-  that the harness workload registry, script defaults, threshold files, and
-  workflow defaults stay in sync. CI also runs wasm-gc / wasm in-process
-  dudect-style smoke gates for every current private-operation workload. The
-  manual profile workflow can run dudect-style
-  checks against wasm-gc / wasm plus timing checks against native / JS /
-  wasm-gc / wasm targets. Normal CI also runs loose JS / wasm-gc / wasm timing
-  smoke checks across every current private-operation workload. The manual
-  profile workflow can now repeat full profiles and gate the aggregated
-  summary with calibrated backend-breadth evidence thresholds. Scope and
-  acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
-- [ ] **Dudect evidence hardening**: normal CI now runs wasm-gc / wasm
-  dudect-style smoke gates, and the manual profile workflow now aggregates and
-  gates repeated dudect TSV rows with artifact upload. Calibrated evidence
-  still needs an actual high-sample Linux run archived from CI before
-  strengthening any constant-time / constant-clock wording. Run
-  `26566406830` produced an archived high-sample artifact, but the workflow
-  failed because `nix develop` shellHook output polluted
-  `leakage-profile-summary.tsv`; a clean replay then failed the evidence gate
-  on `wasm/p384-nonce-inv` with `max_abs_t=47.47` while `max_mean_abs_t`
-  remained below the current `10.0` mean threshold. A local macOS targeted
-  rerun did not reproduce the spike (`wasm` max `0.51`, `wasm-gc` max `2.51`);
-  cleaned Linux run `26575315231` also passed the targeted workload (`wasm`
-  max `0.66`, `wasm-gc` max `1.20`). Treat the original spike as unresolved
-  noise until a full cleaned high-sample run passes. The manual profile
-  workflow is now sharded by dudect target, timing target, and callgrind
-  workload to make that full replay complete within CI time limits. If strict
-  third-party `dudect` compatibility is required, add a vendored upstream
-  dudect adapter for the native path; wasm / wasm-gc still use the local
-  MoonBit timing harness.
-- [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
-  after repeated Linux profile runs and archive a passing backend-breadth
-  leakage evidence artifact for fixed-limb private operations.
-- [x] **ECDSA field rewrite**: keep p256/p384/secp256k1 sign-side scalar
-  multiplication off affine BigInt point formulas; verify-side multiplication
-  remains affine because inputs are public.
-  - [x] Add P-256 10-limb field I/O, canonical reduction, add/sub/neg, and
-    interim fixed-width mul/square/inversion helpers with BigInt oracle tests.
-  - [x] Add P-256 projective point conversion, double/add, and branchy scalar
-    multiplication baseline against the existing affine oracle.
-  - [x] Add P-256 field / projective point conditional-select helpers.
-  - [x] Add a P-256 fixed-256-iteration scalar multiplication skeleton. It is
-    not wired into signing because point addition still has exceptional-case
-    branches.
-  - [x] Add complete / exceptional-case-free P-256 formulas, then wire private
-    scalar multiplication away from affine `@bigint`.
-  - [x] Add a P-256 Montgomery-domain fast path to keep sign/public-key
-    derivation in the millisecond-scale band while retaining the 10-limb field
-    rewrite as an oracle path.
-  - [x] Add P-384 crypto_bigint-backed complete-addition formulas and oracle
-    tests.
-  - [x] Add a performant P-384 fixed scalar path, then wire private scalar
-    multiplication away from affine `@bigint`.
-  - [x] Add secp256k1 crypto_bigint-backed complete-addition formulas and
-    oracle tests, plus a minimal fixed-scalar oracle.
-  - [x] Add a performant secp256k1 fixed scalar path, then wire private scalar
-    multiplication away from affine `@bigint`.
+- [ ] **Leakage threshold tightening**: after additional Linux profile history,
+  tighten the conservative 1.0% callgrind thresholds and evidence timing /
+  dudect thresholds for fixed-limb private operations. Current measured status
+  and archived evidence are documented in `docs/CONSTANT_TIME.md`.
 - [ ] **`asn1` encoder** streaming with length-back-patching.
 - [ ] **AES-GCM GHASH** carry-less-multiplication path.
+
 ## Documentation
 
 - [ ] Migrate per-module quickstart blocks into generated

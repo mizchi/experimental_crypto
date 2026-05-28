@@ -232,6 +232,15 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   new private-operation workload must be present in script defaults, threshold
   files, the CI callgrind list, and the manual `Leakage Profile` default before
   leakage smoke passes.
+- Archive a passing sharded `Leakage Profile` evidence run for every current
+  private-operation workload on `main` (`26587352022`,
+  `1ff288146603df1dc9b6b1829b3b30a3dc5a81f2`). The run passed
+  `profile_evidence_gate.sh` with repeated native / JS / wasm-gc / wasm
+  timing rows, wasm-gc / wasm dudect rows, and native callgrind rows. Worst
+  observed summary values were JS `p384-nonce-inv` timing
+  `max_abs_t=12.79` / `max_mean_abs_t=7.60`, wasm `crypto_bigint-mul_mod`
+  dudect `max_abs_t=3.56`, and JWE RSA-OAEP callgrind
+  `max_delta_pct=0.036274`; artifact ID `7271878741` stores the TSVs.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets

@@ -1,32 +1,55 @@
 # Constant-Time Status
 
-This workspace uses three different levels of side-channel language:
+This workspace uses four different levels of side-channel language:
 
 - **Fixed-limb** means the arithmetic operates on caller-selected fixed-width
   limb arrays instead of runtime-sized `@bigint` values.
 - **Branchless / fixed-iteration intended** means the source avoids
   secret-dependent branches in the target loop and runs a fixed number of
   iterations for a fixed limb width.
-- **Constant-time / constant-clock proven** is stronger: generated code has
-  been checked with an external leakage harness on the relevant backend. This
-  workspace does not claim that level yet.
+- **Measured constant-time candidate** means generated code for a fixed
+  workload set passed the repository's repeated timing, dudect-style, and
+  callgrind evidence gates on the relevant backends.
+- **Constant-clock proven** is stronger: it would require a backend and
+  microarchitectural proof beyond the repository's current measurement gates.
+  This workspace does not claim that level.
 
 ## Current Status
 
 | Area | Status | Remaining risk |
 |---|---|---|
-| `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | Direct sparse/dense workloads are now included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; allocation and backend lowering are still not fully audited. |
-| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; wasm-gc / wasm dudect-style smoke gates now exist, but not calibrated proof. |
-| `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
-| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; wasm-gc / wasm dudect-style smoke gates now exist, but there is no CRT hardening or blinding. |
-| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered by direct sparse-vs-dense nonce-inverse timing workloads plus Linux native callgrind smoke gates. |
-| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; wasm-gc / wasm have dudect-style smoke gates, while JS remains smoke-only. |
-| Ed25519 | 10-limb Edwards field arithmetic with fixed-limb sign-side scalar reduction / mul-add. Public verify scalar parsing remains public `@bigint`. | `ed25519-sign` sparse/dense seed workload is included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; backend-level constant-time behavior is still not proven. |
-| X25519 | 10-limb Montgomery ladder with conditional swaps. | Sparse/dense scalar ECDH workload is included in native timing, backend smoke, callgrind smoke, and manual evidence profile gates; backend-level constant-time behavior is still not proven. |
+| `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | Measured constant-time candidate for the listed workloads in the latest evidence run; allocation and backend lowering are still not a proof. |
+| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Measured constant-time candidate for the listed workload; Linux native callgrind stays CI-gated at 1.0%. |
+| `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; measured candidate only for fixed-size invertible class workloads. |
+| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Measured constant-time candidate for private modexp workloads; there is still no CRT hardening or blinding. |
+| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Measured constant-time candidate for the direct sparse-vs-dense nonce-inverse workloads. |
+| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Measured constant-time candidate for sign-side base-point workloads; verify remains public-input variable-time. |
+| Ed25519 | 10-limb Edwards field arithmetic with fixed-limb sign-side scalar reduction / mul-add. Public verify scalar parsing remains public `@bigint`. | Measured constant-time candidate for the `ed25519-sign` sparse/dense seed workload. |
+| X25519 | 10-limb Montgomery ladder with conditional swaps. | Measured constant-time candidate for the sparse/dense scalar ECDH workload. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
 | ChaCha20-Poly1305 | Limb arithmetic, no AES tables. | Backend-level multiply timing and generated code are not audited. |
 
 ## Measurement Status
+
+### Latest Archived Evidence
+
+Manual `Leakage Profile` run
+[`26587352022`](https://github.com/mizchi/moonbit-crypto/actions/runs/26587352022)
+on head `1ff288146603df1dc9b6b1829b3b30a3dc5a81f2` passed
+`profile_evidence_gate.sh` on 2026-05-28 UTC. Artifact
+[`7271878741`](https://github.com/mizchi/moonbit-crypto/actions/runs/26587352022/artifacts/7271878741)
+archives the merged TSVs for every current private-operation workload:
+
+- timing evidence: 3 runs for native, JS, wasm-gc, and wasm targets; worst
+  row was JS `p384-nonce-inv` with `max_abs_t=12.79`,
+  `max_mean_abs_t=7.60`, and zero threshold failures;
+- dudect-style evidence: 3 runs for wasm-gc and wasm targets; worst observed
+  per-trial row was wasm `crypto_bigint-mul_mod` with `max_abs_t=3.56`,
+  while the worst mean row was wasm `crypto_bigint-inv_mod` with
+  `max_mean_abs_t=2.27`; both had zero threshold failures;
+- callgrind evidence: 3 Linux-native runs for every workload; worst
+  instruction-count delta was `jwe-rsa-oaep-decrypt` at `0.036274%`, below
+  the current 1.0% evidence threshold.
 
 The workspace now has a Linux-native callgrind instruction-count gate for the
 private-operation paths that previously relied on source inspection alone.
@@ -193,13 +216,13 @@ calibrated dudect evidence.
 The backend smoke thresholds are looser still. They exist to keep JS, wasm-gc,
 and wasm code-generation paths under sparse-vs-dense workload observation, not
 to justify a constant-time claim for those runtimes. Backend-breadth evidence
-for a future claim must come from the repeated manual profile summary passing
-`profile_evidence_gate.sh`, not from the ordinary CI smoke thresholds.
+for a measured candidate claim comes from repeated manual profile summaries
+passing `profile_evidence_gate.sh`, not from the ordinary CI smoke thresholds.
 
 ## Acceptance Criteria
 
-Before upgrading any path from "branchless / fixed-iteration intended" to
-"constant-time candidate", require:
+Before upgrading any new path from "branchless / fixed-iteration intended" to
+"measured constant-time candidate", require:
 
 - no source-level secret branches in the target path;
 - fixed input, output, and limb lengths for the measured API;
@@ -211,6 +234,8 @@ Before upgrading any path from "branchless / fixed-iteration intended" to
   wasm-gc, and wasm timing rows plus repeated wasm-gc / wasm dudect and native
   callgrind rows for every advertised private-operation workload.
 
-Until those checks exist, the correct description is:
+For the current private-operation workload set, those checks exist in run
+`26587352022`. The correct description for covered paths is:
 
-> fixed-limb / fixed-iteration, branchless-intended, not constant-time proven.
+> fixed-limb / fixed-iteration, branchless-intended, measured constant-time
+> candidate for the archived workload set, not constant-clock proven.
