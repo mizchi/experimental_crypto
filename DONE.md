@@ -178,6 +178,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets
   already existed and are documented in `proofs/README.md`.
+- Replace `DeterminateSystems/magic-nix-cache-action@v13` with a pinned
+  Node.js 24-targeting upstream commit
+  `908b263ff629f4cc17666315b7fd3ec127c6244d`, and remove the temporary
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workflow environment override.
 
 ## Parser And Protocol Hardening
 

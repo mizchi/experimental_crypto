@@ -202,9 +202,3 @@ fails closed before returning authenticated / verified / trusted.
 
 - [ ] Migrate per-module quickstart blocks into generated
   `pkg.generated.mbti` docs once moon's doc tooling catches up.
-
-## CI / Infra
-
-- [ ] Upgrade or replace `DeterminateSystems/magic-nix-cache-action@v13` once
-  a Node.js 24-targeting release exists; `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`
-  only mitigates the deprecation warning while v13 still declares `node20`.

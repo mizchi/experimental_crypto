@@ -14,9 +14,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   test:
     name: test (${{ matrix.target }}, ubuntu-latest, nix devShell)
@@ -37,7 +34,7 @@ jobs:
             accept-flake-config = true
 
       - name: Cache /nix/store
-        uses: DeterminateSystems/magic-nix-cache-action@v13
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
         with:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
@@ -87,7 +84,7 @@ jobs:
             accept-flake-config = true
 
       - name: Cache /nix/store
-        uses: DeterminateSystems/magic-nix-cache-action@v13
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
         with:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
@@ -140,7 +137,7 @@ jobs:
             accept-flake-config = true
 
       - name: Cache /nix/store
-        uses: DeterminateSystems/magic-nix-cache-action@v13
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
         with:
           use-flakehub: "disabled"
           use-gha-cache: "enabled"
