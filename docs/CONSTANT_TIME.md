@@ -86,9 +86,11 @@ CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
   secret-dependent control-flow or allocation regressions in the profiler
   path without making every CI push run the full slow workload set.
 
-Neither CI smoke threshold is calibrated leakage evidence yet. Tight,
-backend-specific thresholds need repeated Linux measurements before the checks
-can be treated as hard constant-time gates.
+The representative CI callgrind thresholds are currently 1.0%, after the first
+Linux CI report showed deltas below 0.003% for both smoke workloads. This is a
+useful regression tripwire, not calibrated leakage evidence yet. Tight,
+backend-specific thresholds still need repeated Linux measurements before the
+checks can be treated as hard constant-time gates.
 
 ## Acceptance Criteria
 

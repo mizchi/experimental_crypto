@@ -154,9 +154,10 @@ fails closed before returning authenticated / verified / trusted.
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
   operations, and ECDSA signing. A native `leakage_harness` workload entry
   point plus timing and callgrind CI smoke gates exist. Callgrind smoke now
-  writes TSV measurements and supports per-workload thresholds; calibrated
-  thresholds and hard leakage gating are still open. Scope and acceptance
-  criteria are documented in `docs/CONSTANT_TIME.md`.
+  writes TSV measurements and supports per-workload thresholds; representative
+  CI thresholds have been tightened to 1.0%, but calibrated thresholds and hard
+  leakage gating are still open. Scope and acceptance criteria are documented
+  in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 

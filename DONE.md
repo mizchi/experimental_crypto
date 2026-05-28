@@ -125,6 +125,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   `LEAKAGE_CALLGRIND_THRESHOLDS` / `LEAKAGE_CALLGRIND_REPORT` support, so CI
   emits machine-readable instruction-count measurements and thresholds can be
   tightened per workload after calibration.
+- Tighten the representative CI callgrind smoke thresholds to 1.0% after the
+  first Linux CI report showed `crypto_bigint-pow_mod` and `p256-sign` below
+  0.003% delta. This is still a regression tripwire, not calibrated leakage
+  evidence.
 
 ## Parser And Protocol Hardening
 
