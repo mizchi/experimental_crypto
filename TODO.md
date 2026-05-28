@@ -197,10 +197,12 @@ fails closed before returning authenticated / verified / trusted.
   on `wasm/p384-nonce-inv` with `max_abs_t=47.47` while `max_mean_abs_t`
   remained below the current `10.0` mean threshold. A local macOS targeted
   rerun did not reproduce the spike (`wasm` max `0.51`, `wasm-gc` max `2.51`);
-  re-run the cleaned workflow on Linux and investigate that workload before
-  tightening claims. If strict third-party `dudect` compatibility is required,
-  add a vendored upstream dudect adapter for the native path; wasm / wasm-gc
-  still use the local MoonBit timing harness.
+  cleaned Linux run `26575315231` also passed the targeted workload (`wasm`
+  max `0.66`, `wasm-gc` max `1.20`). Treat the original spike as unresolved
+  noise until a full cleaned high-sample run passes. If strict third-party
+  `dudect` compatibility is required, add a vendored upstream dudect adapter
+  for the native path; wasm / wasm-gc still use the local MoonBit timing
+  harness.
 - [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
   after repeated Linux profile runs and archive a passing backend-breadth
   leakage evidence artifact for fixed-limb private operations.
