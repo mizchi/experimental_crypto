@@ -685,15 +685,15 @@ fn normalize_args(args : Array[String]) -> Array[String] {
 fn usage() -> String {
   (
     #|usage:
-    #|  moon run --target native ./leakage_harness
-    #|  moon run --target native ./leakage_harness -- compare [samples] [inner] [max_abs_t]
-    #|  moon run --target native ./leakage_harness -- compare [samples] [inner] [max_abs_t] [workload...]
-    #|  moon run --target native ./leakage_harness -- compare-one <workload> [samples] [inner] [max_abs_t]
-    #|  moon run --target native ./leakage_harness -- dudect [measurements] [rounds] [max_abs_t]
-    #|  moon run --target native ./leakage_harness -- dudect [measurements] [rounds] [max_abs_t] [workload...]
-    #|  moon run --target native ./leakage_harness -- dudect-one <workload> [measurements] [rounds] [max_abs_t]
-    #|  moon run --target native ./leakage_harness -- list
-    #|  moon run --target native ./leakage_harness -- run <workload> <sparse|dense> [iters]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- compare [samples] [inner] [max_abs_t]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- compare [samples] [inner] [max_abs_t] [workload...]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- compare-one <workload> [samples] [inner] [max_abs_t]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- dudect [measurements] [rounds] [max_abs_t]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- dudect [measurements] [rounds] [max_abs_t] [workload...]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- dudect-one <workload> [measurements] [rounds] [max_abs_t]
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- list
+    #|  moon run --target <native|js|wasm-gc|wasm> ./leakage_harness -- run <workload> <sparse|dense> [iters]
   )
 }
 
@@ -762,7 +762,7 @@ fn main {
     let t = run_dudect_one(w, measurements, rounds)
     println("sink=" + sink.acc.to_string())
     if t < 0.0 {
-      println("dudect is only supported on native target")
+      println("dudect runner is unavailable on this target")
       @sys.exit(2)
     }
     if t > threshold {
@@ -779,7 +779,7 @@ fn main {
     for w in selected_workloads(args, 4, workloads) {
       let t = run_dudect_one(w, measurements, rounds)
       if t < 0.0 {
-        println("dudect is only supported on native target")
+        println("dudect runner is unavailable on this target")
         @sys.exit(2)
       }
       if t > worst {

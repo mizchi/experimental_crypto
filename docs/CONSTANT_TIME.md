@@ -59,14 +59,17 @@ private-operation paths that previously relied on source inspection alone.
 useful for spotting large regressions, but they are not part of the acceptance
 criteria.
 
-`leakage_harness` is the first native measurement entry point:
+`leakage_harness` is the measurement entry point used across MoonBit
+backends:
 
 ```sh
 moon run --target native ./leakage_harness -- list
 moon run --target native ./leakage_harness -- compare 8 1
 moon run --target native ./leakage_harness -- compare-one p256-sign 8 1
-moon run --target native ./leakage_harness -- dudect-one p256-sign 64 1
+moon run --target wasm-gc ./leakage_harness -- dudect-one p256-sign 64 1
 bash leakage_harness/dudect_check.sh
+LEAKAGE_DUDECT_TARGET=wasm LEAKAGE_DUDECT_WORKLOADS=p256-sign \
+  bash leakage_harness/dudect_check.sh
 bash leakage_harness/timing_check.sh
 LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
   LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
@@ -88,10 +91,11 @@ gh workflow run "Leakage Profile" --ref main
 
 Use `dudect`, `dudect-one`, or `dudect_check.sh` for in-process
 dudect-style smoke tests. Set
-`LEAKAGE_DUDECT_TARGET=native|js|wasm-gc|wasm`; the evidence defaults are
-`wasm-gc wasm` because native deployments can prefer OpenSSL / libsodium and
-JS deployments can prefer WebCrypto, while wasm / wasm-gc execute this
-MoonBit-generated code directly. The native target uses a small C stub for
+`LEAKAGE_DUDECT_TARGET=native|js|wasm-gc|wasm`; the checker default is
+`wasm-gc`, and the evidence defaults are `wasm-gc wasm` because native
+deployments can prefer OpenSSL / libsodium and JS deployments can prefer
+WebCrypto, while wasm / wasm-gc execute this MoonBit-generated code directly.
+The native target uses a small C stub for
 cycle timing; non-native targets use the MoonBit monotonic clock with balanced
 pseudo-random sparse/dense class order. This is still a CI smoke gate unless
 run with calibrated measurement counts and archived with the manual evidence

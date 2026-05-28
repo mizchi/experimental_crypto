@@ -48,6 +48,7 @@ EOF
 
 report="$tmpdir/report.tsv"
 LEAKAGE_DUDECT_BIN="$fake_bin" \
+  LEAKAGE_DUDECT_TARGET=native \
   LEAKAGE_DUDECT_WORKLOADS="alpha beta" \
   LEAKAGE_DUDECT_MEASUREMENTS=16 \
   LEAKAGE_DUDECT_ROUNDS=2 \
@@ -63,6 +64,7 @@ awk -F '\t' '
 ' "$report" || fail "alpha report row missing"
 
 LEAKAGE_DUDECT_BIN="$fake_bin" \
+  LEAKAGE_DUDECT_TARGET=native \
   LEAKAGE_DUDECT_WORKLOADS="gamma" \
   LEAKAGE_DUDECT_MEASUREMENTS=16 \
   LEAKAGE_DUDECT_ROUNDS=1 \
@@ -71,6 +73,7 @@ LEAKAGE_DUDECT_BIN="$fake_bin" \
   fail "threshold failure passed"
 
 LEAKAGE_DUDECT_BIN="$fake_bin" \
+  LEAKAGE_DUDECT_TARGET=native \
   LEAKAGE_DUDECT_WORKLOADS="alpha" \
   LEAKAGE_DUDECT_MEASUREMENTS=0 \
   bash "$ROOT/leakage_harness/dudect_check.sh" >/dev/null 2>&1 &&
