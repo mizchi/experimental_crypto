@@ -20,7 +20,7 @@ This workspace uses three different levels of side-channel language:
 | `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
 | RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but there is no CRT hardening or blinding. |
 | ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered indirectly by Linux native callgrind sign workloads; no direct inverse-only dudect-style gate yet. |
-| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; native timing has a repeated dudect-style smoke gate, while wasm / JS remain smoke-only. |
+| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; native timing has a repeated dudect-style smoke gate, while JS / wasm-gc / wasm are CI smoke-only. |
 | Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Backend-level constant-time behavior is not proven. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
@@ -43,8 +43,9 @@ private-operation paths that previously relied on source inspection alone.
    catch obvious secret-dependent control flow and allocation deltas.
 3. ECDSA signing leakage checks exist for P-256, P-384, and secp256k1 in the
    Linux-native callgrind gate.
-4. Treat JavaScript timing checks as smoke tests only. JIT, GC, and BigInt
-   lowering make JS unsuitable for strong constant-time claims.
+4. CI also runs loose timing smoke checks for JS, wasm-gc, and wasm so backend
+   lowering paths keep executing. Treat these as smoke tests only: JIT, GC,
+   and BigInt lowering make them unsuitable for strong constant-time claims.
 
 `crypto_bigint/crypto_bigint_bench_test.mbt` contains sparse-vs-dense
 `moon bench` inputs for `pow_mod` and `inv_mod`. `p256`, `p384`, and
@@ -103,13 +104,18 @@ dense private-exponent classes, the post-modexp OAEP failure path sees the
 same encoded message; the class comparison is therefore aimed at private
 modexp instruction-count differences rather than data-dependent OAEP parsing.
 
-CI runs two checks in the Linux-only `.#leakage` devShell:
+CI runs three leakage checks in the Linux-only `.#leakage` devShell:
 
 - a repeated timing smoke test (`timing_check.sh` with eight samples, three
   independent trials, `max_abs_t <= 20.0`, `mean_abs_t <= 10.0`, and zero
   tolerated threshold failures from
   `leakage_harness/timing_smoke_thresholds.tsv`), which catches sustained
   sparse/dense timing regressions and keeps report plumbing from rotting;
+- a backend-breadth timing smoke test for JS, wasm-gc, and wasm with two
+  samples, one trial, and loose `max_abs_t <= 100.0` /
+  `mean_abs_t <= 100.0` thresholds from
+  `leakage_harness/timing_backend_smoke_thresholds.tsv`, which is a
+  regression tripwire for non-native lowering paths;
 - a callgrind instruction-count gate for every current private-operation
   workload in `leakage_harness/callgrind_smoke_thresholds.tsv`, which catches
   gross secret-dependent control-flow or allocation regressions in the profiler
@@ -137,6 +143,10 @@ ordinary GitHub-hosted runners. They are stronger than a single timing sample
 because CI now requires three independent trials with `mean_abs_t <= 10.0` and
 no per-trial threshold failures, but they are still a regression tripwire, not
 calibrated dudect evidence.
+
+The backend smoke thresholds are looser still. They exist to keep JS, wasm-gc,
+and wasm code-generation paths under sparse-vs-dense workload observation, not
+to justify a constant-time claim for those runtimes.
 
 ## Acceptance Criteria
 

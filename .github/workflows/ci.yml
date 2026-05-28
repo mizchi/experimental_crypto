@@ -102,6 +102,7 @@ jobs:
 
       - name: leakage harness smoke
         run: |
+          # shellcheck disable=SC2016
           nix develop --impure .#leakage --command bash -c '
             unset MOON_HOME
             bash scripts/ci_retry.sh moon update >/dev/null
@@ -115,6 +116,25 @@ jobs:
               LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
               bash leakage_harness/timing_check.sh
             cat leakage-timing.tsv
+            : >leakage-timing-backends.tsv
+            first_backend_report=1
+            for target in js wasm-gc wasm; do
+              report="leakage-timing-$target.tsv"
+              LEAKAGE_TIMING_TARGET="$target" \
+                LEAKAGE_TIMING_SAMPLES=2 \
+                LEAKAGE_TIMING_INNER=1 \
+                LEAKAGE_TIMING_TRIALS=1 \
+                LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_backend_smoke_thresholds.tsv \
+                LEAKAGE_TIMING_REPORT="$report" \
+                bash leakage_harness/timing_check.sh
+              if [ "$first_backend_report" -eq 1 ]; then
+                cat "$report" >leakage-timing-backends.tsv
+                first_backend_report=0
+              else
+                tail -n +2 "$report" >>leakage-timing-backends.tsv
+              fi
+            done
+            cat leakage-timing-backends.tsv
             LEAKAGE_CALLGRIND_ITERS=1 \
               LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-pow_mod crypto_bigint-inv_mod rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign" \
               LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \

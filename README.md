@@ -126,9 +126,10 @@ These are intentional and called out in the source where they apply:
 
 - **Not constant-time end-to-end.** `crypto_bigint`, RSA private modexp, and
   ECDSA sign-side scalar multiplication now use fixed-limb / fixed-iteration
-  paths and Linux-native leakage smoke gates, but this is still not a
-  constant-clock proof. Ed25519 field arithmetic remains `@bigint`-backed.
-  See [docs/CONSTANT_TIME.md](docs/CONSTANT_TIME.md).
+  paths, Linux-native leakage smoke gates, and loose JS / wasm-gc / wasm
+  backend smoke checks, but this is still not a constant-clock proof. Ed25519
+  field arithmetic remains `@bigint`-backed. See
+  [docs/CONSTANT_TIME.md](docs/CONSTANT_TIME.md).
 - **Partial protocol coverage.** TLS 1.3, PKCS#12, P-521 / ES512, Ed448 /
   X448, ML-KEM / ML-DSA, AES-GCM-SIV / AES-SIV, `age`, and EIP-712 / EIP-191
   are not implemented.

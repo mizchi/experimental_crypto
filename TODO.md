@@ -40,8 +40,9 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
      Measurement scope and terminology are in `docs/CONSTANT_TIME.md`.
    - [x] Add stronger dudect-style statistical gates for the native timing
      smoke path.
-   - [ ] Add repeated backend-breadth evidence before making constant-time /
-     constant-clock claims.
+   - [x] Add backend-breadth CI smoke checks for JS, wasm-gc, and wasm.
+   - [ ] Add repeated calibrated backend-breadth evidence before making
+     constant-time / constant-clock claims.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
@@ -163,8 +164,10 @@ fails closed before returning authenticated / verified / trusted.
   plumbing. It now runs three independent trials per workload, records
   observed max / mean `abs_t`, gates the mean, and requires zero threshold
   failures in CI. The manual profile workflow can run timing checks against
-  native / JS / wasm-gc / wasm targets. Repeated backend-breadth evidence is
-  still open. Scope and acceptance criteria are documented in
+  native / JS / wasm-gc / wasm targets. Normal CI also runs loose JS /
+  wasm-gc / wasm timing smoke checks across every current private-operation
+  workload. Repeated calibrated backend-breadth evidence is still open. Scope
+  and acceptance criteria are documented in
   `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint

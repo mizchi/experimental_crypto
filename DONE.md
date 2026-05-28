@@ -179,6 +179,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   TSV reports include trial count, samples, inner iterations, observed max
   `abs_t`, mean `abs_t`, and failed trial count, and thresholds can gate both
   per-trial max and mean `abs_t` with zero tolerated CI failures.
+- Add `leakage_harness/timing_backend_smoke_thresholds.tsv` and run JS,
+  wasm-gc, and wasm timing smoke checks for every current private-operation
+  workload in normal CI. These are backend-breadth regression tripwires, not
+  calibrated constant-time evidence.
 - Add the remaining formal proof targets from the backlog: `crypto_bigint`
   byte-length to limb-count/capacity arithmetic and `totp` time-bucket
   monotonicity. The earlier `pbkdf2`, `argon2`, and `bip32` proof targets
