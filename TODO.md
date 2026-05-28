@@ -38,8 +38,10 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Calibrate and gate Linux-native callgrind checks with per-workload
      thresholds for RSA/JWE private operations and ECDSA sign paths.
      Measurement scope and terminology are in `docs/CONSTANT_TIME.md`.
-   - [ ] Add stronger dudect-style statistical gates and backend-breadth
-     evidence before making constant-time / constant-clock claims.
+   - [x] Add stronger dudect-style statistical gates for the native timing
+     smoke path.
+   - [ ] Add repeated backend-breadth evidence before making constant-time /
+     constant-clock claims.
 2. [ ] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
@@ -158,17 +160,18 @@ fails closed before returning authenticated / verified / trusted.
   TSV measurements, supports per-workload thresholds, and gates every current
   private-operation workload at 1.0% on Linux native. Timing smoke now has
   reusable workload selection, per-workload thresholds, and TSV report
-  plumbing and gates every current private-operation workload at a deliberately
-  loose `abs_t <= 20.0`; the manual profile workflow can run timing smoke
-  against native / JS / wasm-gc / wasm targets. Calibrated dudect-style
-  statistical gates and repeated backend-breadth evidence are still open.
-  Scope and acceptance criteria are documented in `docs/CONSTANT_TIME.md`.
+  plumbing. It now runs three independent trials per workload, records
+  observed max / mean `abs_t`, gates the mean, and requires zero threshold
+  failures in CI. The manual profile workflow can run timing checks against
+  native / JS / wasm-gc / wasm targets. Repeated backend-breadth evidence is
+  still open. Scope and acceptance criteria are documented in
+  `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
 - [ ] **`crypto_bigint` remaining work**: tighten external leakage thresholds
-  after repeated Linux profile runs, and add stronger statistical leakage
-  checks for fixed-limb private operations.
+  after repeated Linux profile runs and collect backend-breadth leakage
+  evidence for fixed-limb private operations.
 - [x] **ECDSA field rewrite**: keep p256/p384/secp256k1 sign-side scalar
   multiplication off affine BigInt point formulas; verify-side multiplication
   remains affine because inputs are public.

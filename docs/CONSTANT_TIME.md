@@ -16,11 +16,11 @@ This workspace uses three different levels of side-channel language:
 | Area | Status | Remaining risk |
 |---|---|---|
 | `crypto_bigint` add/sub/mul | Fixed-limb, branchless-intended source loops. | No direct per-primitive external measurement yet; allocation and backend lowering are not fully audited. |
-| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; no dudect-style statistical gate yet. |
+| `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Linux native callgrind sparse/dense workload is CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but not calibrated proof. |
 | `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; Linux native callgrind sparse/dense workload is CI-gated at 1.0%. |
-| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; no CRT hardening, blinding, or dudect-style statistical gate yet. |
+| RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Linux native callgrind sparse/dense workloads are CI-gated at 1.0%; native timing now has a repeated dudect-style smoke gate, but there is no CRT hardening or blinding. |
 | ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Covered indirectly by Linux native callgrind sign workloads; no direct inverse-only dudect-style gate yet. |
-| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; wasm / JS and dudect-style timing remain smoke-only. |
+| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Linux native callgrind sign workloads are CI-gated at 1.0%; native timing has a repeated dudect-style smoke gate, while wasm / JS remain smoke-only. |
 | Ed25519 | Still `@bigint`-backed Edwards arithmetic. | Limb rewrite pending. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Backend-level constant-time behavior is not proven. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
@@ -31,7 +31,7 @@ This workspace uses three different levels of side-channel language:
 The workspace now has a Linux-native callgrind instruction-count gate for the
 private-operation paths that previously relied on source inspection alone.
 
-1. Native dudect-style harnesses still need stronger statistical treatment for:
+1. Native dudect-style harnesses now run repeated trial aggregation for:
    - `crypto_bigint.Uint::pow_mod` with same modulus and base, split by secret
      exponent class.
    - `crypto_bigint.Uint::inv_mod` with same modulus, split by secret input
@@ -77,11 +77,13 @@ gh workflow run "Leakage Profile" --ref main
 Use `compare`, `compare-one`, or `timing_check.sh` as local dudect-style timing
 smoke tests. `timing_check.sh` builds the selected harness target
 (`LEAKAGE_TIMING_TARGET=native|js|wasm-gc|wasm`), runs caller-selected
-workloads, applies either `LEAKAGE_TIMING_MAX_ABS_T` or per-workload thresholds
-from `LEAKAGE_TIMING_THRESHOLDS`, and can write a TSV report via
-`LEAKAGE_TIMING_REPORT`. Non-native targets use `moon run` and should still be
-treated as smoke-only because JIT / runtime effects dominate. Use `run` under
-an external profiler such as
+workloads, and can repeat the Welch t-test using `LEAKAGE_TIMING_TRIALS`.
+Threshold files use `workload max_abs_t max_mean_abs_t max_failures`; older
+two-column files still mean `workload max_abs_t`. The checker gates both the
+per-trial `abs_t` and the mean `abs_t`, tracks failed trial count, and can
+write a summary TSV via `LEAKAGE_TIMING_REPORT`. Non-native targets use
+`moon run` and should still be treated as smoke-only because JIT / runtime
+effects dominate. Use `run` under an external profiler such as
 `valgrind --tool=callgrind` on Linux, or a platform equivalent, to compare
 fixed class workloads without including test harness branching in the measured
 operation. `callgrind_check.sh` automates that Linux workflow by building the
@@ -103,10 +105,11 @@ modexp instruction-count differences rather than data-dependent OAEP parsing.
 
 CI runs two checks in the Linux-only `.#leakage` devShell:
 
-- a loose timing smoke test (`timing_check.sh` with eight samples and
-  `leakage_harness/timing_smoke_thresholds.tsv`), which catches only very
-  large sparse/dense timing regressions and keeps report plumbing from
-  rotting;
+- a repeated timing smoke test (`timing_check.sh` with eight samples, three
+  independent trials, `max_abs_t <= 20.0`, `mean_abs_t <= 10.0`, and zero
+  tolerated threshold failures from
+  `leakage_harness/timing_smoke_thresholds.tsv`), which catches sustained
+  sparse/dense timing regressions and keeps report plumbing from rotting;
 - a callgrind instruction-count gate for every current private-operation
   workload in `leakage_harness/callgrind_smoke_thresholds.tsv`, which catches
   gross secret-dependent control-flow or allocation regressions in the profiler
@@ -129,9 +132,11 @@ The 1.0% gate is intentionally wider than the first profile to avoid CI noise
 while still failing closed on large instruction-count regressions. Repeated
 Linux profile runs can tighten the per-workload thresholds further.
 
-The timing smoke thresholds are deliberately loose (`abs_t <= 20.0`) because
-they run inside ordinary GitHub-hosted runners. They are a regression tripwire,
-not calibrated dudect evidence.
+The timing smoke thresholds are deliberately loose because they run inside
+ordinary GitHub-hosted runners. They are stronger than a single timing sample
+because CI now requires three independent trials with `mean_abs_t <= 10.0` and
+no per-trial threshold failures, but they are still a regression tripwire, not
+calibrated dudect evidence.
 
 ## Acceptance Criteria
 

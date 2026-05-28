@@ -15,8 +15,16 @@ on:
         description: Inner iterations per timing sample
         required: true
         default: "1"
+      timing_trials:
+        description: Independent timing trials per workload
+        required: true
+        default: "3"
       timing_max_abs_t:
-        description: Non-gating timing threshold; keep high while calibrating
+        description: Non-gating per-trial timing threshold; keep high while calibrating
+        required: true
+        default: "1000000"
+      timing_max_mean_abs_t:
+        description: Non-gating mean timing threshold; keep high while calibrating
         required: true
         default: "1000000"
       timing_targets:
@@ -77,7 +85,9 @@ jobs:
           PROFILE_WORKLOADS: ${{ inputs.workloads }}
           PROFILE_TIMING_SAMPLES: ${{ inputs.timing_samples }}
           PROFILE_TIMING_INNER: ${{ inputs.timing_inner }}
+          PROFILE_TIMING_TRIALS: ${{ inputs.timing_trials }}
           PROFILE_TIMING_MAX_ABS_T: ${{ inputs.timing_max_abs_t }}
+          PROFILE_TIMING_MAX_MEAN_ABS_T: ${{ inputs.timing_max_mean_abs_t }}
           PROFILE_TIMING_TARGETS: ${{ inputs.timing_targets }}
           PROFILE_ITERS: ${{ inputs.iters }}
           PROFILE_MAX_DELTA_PCT: ${{ inputs.max_delta_pct }}
@@ -88,11 +98,13 @@ jobs:
           first_timing_report=1
           for target in $PROFILE_TIMING_TARGETS; do
             report="leakage-timing-profile-$target.tsv"
-            LEAKAGE_TIMING_TARGET="$target" \
+              LEAKAGE_TIMING_TARGET="$target" \
               LEAKAGE_TIMING_SAMPLES="$PROFILE_TIMING_SAMPLES" \
               LEAKAGE_TIMING_INNER="$PROFILE_TIMING_INNER" \
+              LEAKAGE_TIMING_TRIALS="$PROFILE_TIMING_TRIALS" \
               LEAKAGE_TIMING_WORKLOADS="$PROFILE_WORKLOADS" \
               LEAKAGE_TIMING_MAX_ABS_T="$PROFILE_TIMING_MAX_ABS_T" \
+              LEAKAGE_TIMING_MAX_MEAN_ABS_T="$PROFILE_TIMING_MAX_MEAN_ABS_T" \
               LEAKAGE_TIMING_REPORT="$report" \
               nix develop --impure .#leakage --command env -u MOON_HOME bash leakage_harness/timing_check.sh
             if [ "$first_timing_report" -eq 1 ]; then

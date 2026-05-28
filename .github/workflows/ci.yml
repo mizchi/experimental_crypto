@@ -110,6 +110,7 @@ jobs:
             moon run --target native ./leakage_harness -- list
             LEAKAGE_TIMING_SAMPLES=8 \
               LEAKAGE_TIMING_INNER=1 \
+              LEAKAGE_TIMING_TRIALS=3 \
               LEAKAGE_TIMING_THRESHOLDS=leakage_harness/timing_smoke_thresholds.tsv \
               LEAKAGE_TIMING_REPORT=leakage-timing.tsv \
               bash leakage_harness/timing_check.sh

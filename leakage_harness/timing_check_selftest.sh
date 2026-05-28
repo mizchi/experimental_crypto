@@ -39,14 +39,15 @@ chmod +x "$fake_bin"
 
 thresholds="$tmpdir/thresholds.tsv"
 cat >"$thresholds" <<'EOF'
-# workload max_abs_t
-alpha 1.0
-beta 3.0
+# workload max_abs_t max_mean_abs_t max_failures
+alpha 1.0 1.0 0
+beta 3.0 3.0 0
 EOF
 
 report="$tmpdir/report.tsv"
 LEAKAGE_TIMING_BIN="$fake_bin" \
   LEAKAGE_TIMING_WORKLOADS="alpha beta" \
+  LEAKAGE_TIMING_TRIALS="3" \
   LEAKAGE_TIMING_THRESHOLDS="$thresholds" \
   LEAKAGE_TIMING_REPORT="$report" \
   bash "$ROOT/leakage_harness/timing_check.sh"
@@ -56,9 +57,28 @@ rows="$(awk 'END { print NR }' "$report")"
 
 awk '
   BEGIN { found = 0 }
-  $1 == "native" && $2 == "beta" && $3 == "2.5" && $4 == "3.0" && $5 == "pass" { found = 1 }
+  $1 == "native" && $2 == "beta" && $3 == "3" && $9 == "2.5" && $10 == "2.5" && $11 == "0" && $12 == "pass" { found = 1 }
   END { exit(found ? 0 : 1) }
-' "$report" || fail "beta threshold/report row was not recorded"
+' "$report" || fail "beta statistical threshold/report row was not recorded"
+
+legacy_thresholds="$tmpdir/legacy-thresholds.tsv"
+cat >"$legacy_thresholds" <<'EOF'
+# workload max_abs_t
+alpha 1.0
+EOF
+
+legacy_report="$tmpdir/legacy-report.tsv"
+LEAKAGE_TIMING_BIN="$fake_bin" \
+  LEAKAGE_TIMING_WORKLOADS="alpha" \
+  LEAKAGE_TIMING_THRESHOLDS="$legacy_thresholds" \
+  LEAKAGE_TIMING_REPORT="$legacy_report" \
+  bash "$ROOT/leakage_harness/timing_check.sh" >/dev/null
+
+awk '
+  BEGIN { found = 0 }
+  $1 == "native" && $2 == "alpha" && $6 == "1.0" && $7 == "1.0" && $8 == "0" && $12 == "pass" { found = 1 }
+  END { exit(found ? 0 : 1) }
+' "$legacy_report" || fail "legacy two-column threshold file was not preserved"
 
 set +e
 LEAKAGE_TIMING_BIN="$fake_bin" \
@@ -71,12 +91,32 @@ set -e
 
 set +e
 LEAKAGE_TIMING_BIN="$fake_bin" \
+  LEAKAGE_TIMING_WORKLOADS="beta" \
+  LEAKAGE_TIMING_TRIALS="3" \
+  LEAKAGE_TIMING_MAX_ABS_T="3.0" \
+  LEAKAGE_TIMING_MAX_MEAN_ABS_T="2.0" \
+  bash "$ROOT/leakage_harness/timing_check.sh" >/dev/null 2>&1
+rc="$?"
+set -e
+[ "$rc" -eq 1 ] || fail "expected mean threshold failure exit 1, got $rc"
+
+set +e
+LEAKAGE_TIMING_BIN="$fake_bin" \
   LEAKAGE_TIMING_SAMPLES="0" \
   LEAKAGE_TIMING_WORKLOADS="alpha" \
   bash "$ROOT/leakage_harness/timing_check.sh" >/dev/null 2>&1
 rc="$?"
 set -e
 [ "$rc" -eq 2 ] || fail "expected invalid samples exit 2, got $rc"
+
+set +e
+LEAKAGE_TIMING_BIN="$fake_bin" \
+  LEAKAGE_TIMING_TRIALS="0" \
+  LEAKAGE_TIMING_WORKLOADS="alpha" \
+  bash "$ROOT/leakage_harness/timing_check.sh" >/dev/null 2>&1
+rc="$?"
+set -e
+[ "$rc" -eq 2 ] || fail "expected invalid trials exit 2, got $rc"
 
 fake_moon_dir="$tmpdir/bin"
 mkdir -p "$fake_moon_dir"
@@ -118,7 +158,7 @@ PATH="$fake_moon_dir:$PATH" \
 
 awk '
   BEGIN { found = 0 }
-  $1 == "js" && $2 == "alpha" && $5 == "pass" { found = 1 }
+  $1 == "js" && $2 == "alpha" && $12 == "pass" { found = 1 }
   END { exit(found ? 0 : 1) }
 ' "$js_report" || fail "js target report row was not recorded"
 
