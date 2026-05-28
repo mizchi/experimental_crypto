@@ -1,0 +1,3 @@
+# workload max_delta_pct
+crypto_bigint-pow_mod 25.0
+p256-sign 25.0

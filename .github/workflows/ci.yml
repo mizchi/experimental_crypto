@@ -76,8 +76,10 @@ jobs:
             moon run --target native ./leakage_harness -- compare 2 1 1000000
             LEAKAGE_CALLGRIND_ITERS=1 \
               LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-pow_mod p256-sign" \
-              LEAKAGE_CALLGRIND_MAX_DELTA_PCT=25.0 \
+              LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
+              LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
               bash leakage_harness/callgrind_check.sh
+            cat leakage-callgrind.tsv
           '
 
   prove:

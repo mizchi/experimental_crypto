@@ -121,6 +121,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   and a loose instruction-count delta threshold. This catches profiler-path
   regressions without making every push run the full slow workload set;
   calibrated thresholds remain open.
+- Add `leakage_harness/callgrind_smoke_thresholds.tsv` plus
+  `LEAKAGE_CALLGRIND_THRESHOLDS` / `LEAKAGE_CALLGRIND_REPORT` support, so CI
+  emits machine-readable instruction-count measurements and thresholds can be
+  tightened per workload after calibration.
 
 ## Parser And Protocol Hardening
 

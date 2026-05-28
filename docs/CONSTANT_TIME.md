@@ -60,6 +60,9 @@ moon run --target native ./leakage_harness -- run p256-sign sparse 100
 moon run --target native ./leakage_harness -- run p256-sign dense 100
 bash leakage_harness/callgrind_check.sh
 nix develop --impure .#leakage --command bash leakage_harness/callgrind_check.sh
+LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
+  LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
+  bash leakage_harness/callgrind_check.sh
 ```
 
 Use `compare` as a local dudect-style timing smoke test. Use `run` under an
@@ -68,7 +71,10 @@ equivalent, to compare fixed class workloads without including test harness
 branching in the measured operation. `callgrind_check.sh` automates that Linux
 workflow by building the native harness, running each sparse/dense class under
 callgrind, parsing `summary:` instruction totals, and failing if the percentage
-delta exceeds `LEAKAGE_CALLGRIND_MAX_DELTA_PCT`.
+delta exceeds either `LEAKAGE_CALLGRIND_MAX_DELTA_PCT` or the per-workload
+limit in `LEAKAGE_CALLGRIND_THRESHOLDS`. Set `LEAKAGE_CALLGRIND_REPORT` to
+write a tab-separated report with sparse/dense instruction totals, percentage
+delta, selected threshold, and pass/fail result.
 
 CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
 
@@ -76,7 +82,7 @@ CI runs two intentionally loose checks in the Linux-only `.#leakage` devShell:
   timing harness from rotting;
 - a representative callgrind instruction-count smoke test
   (`crypto_bigint-pow_mod`, `p256-sign`) with
-  `LEAKAGE_CALLGRIND_MAX_DELTA_PCT=25.0`, which catches gross
+  `leakage_harness/callgrind_smoke_thresholds.tsv`, which catches gross
   secret-dependent control-flow or allocation regressions in the profiler
   path without making every CI push run the full slow workload set.
 

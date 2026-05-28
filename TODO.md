@@ -31,6 +31,8 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
    - [x] Add a CI smoke gate that builds and runs the native leakage harness.
    - [x] Add a Linux callgrind instruction-count smoke gate for the native
      leakage harness.
+   - [x] Add per-workload callgrind threshold and TSV report plumbing so CI
+     smoke measurements can be tightened without changing the harness code.
    - [ ] Calibrate and gate external leakage checks (`dudect` /
      callgrind-style harness) with backend-specific thresholds for RSA/JWE
      private operations and ECDSA sign paths. Measurement scope and
@@ -151,9 +153,10 @@ fails closed before returning authenticated / verified / trusted.
 - [ ] **Constant-time verification** via external profiler (`dudect` /
   `valgrind --tool=callgrind`) for `crypto_bigint`, RSA/JWE private
   operations, and ECDSA signing. A native `leakage_harness` workload entry
-  point plus timing and callgrind CI smoke gates exist; calibrated thresholds
-  and hard leakage gating are still open. Scope and acceptance criteria are
-  documented in `docs/CONSTANT_TIME.md`.
+  point plus timing and callgrind CI smoke gates exist. Callgrind smoke now
+  writes TSV measurements and supports per-workload thresholds; calibrated
+  thresholds and hard leakage gating are still open. Scope and acceptance
+  criteria are documented in `docs/CONSTANT_TIME.md`.
 
 ## Performance / Footprint
 
