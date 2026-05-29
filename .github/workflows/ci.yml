@@ -69,7 +69,7 @@ jobs:
           '
 
   pgp-gpg-interop:
-    name: pgp sign-side gpg interop (ubuntu-latest, nix devShell)
+    name: pgp sign-side OpenPGP interop (ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -105,6 +105,14 @@ jobs:
             unset MOON_HOME
             bash scripts/ci_retry.sh moon update >/dev/null
             bash pgp/gpg_interop.sh
+          '
+
+      - name: sq verifies MoonBit PGP v6 sign output
+        run: |
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            bash scripts/ci_retry.sh moon update >/dev/null
+            bash pgp/sq_v6_interop.sh
           '
 
   leakage-smoke:

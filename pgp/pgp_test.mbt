@@ -564,6 +564,37 @@ test "pgp: exported Ed25519 v4 signing key verifies generated signature" {
 }
 
 ///|
+test "pgp: exported Ed25519 v6 signing key verifies generated v6 signature" {
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let salt = pgp_salt32_for_test()
+  let key_armor = @pgp.export_ed25519_v6_public_key_armor(sk, salt~)
+  let decoded = @pgp.decode_armor(key_armor)
+  let packets = @pgp.parse_packets(decoded.data)
+  @debug.assert_eq(packets.length(), 2)
+  @debug.assert_eq(packets[0].tag, 6)
+  @debug.assert_eq(packets[1].tag, 2)
+  let pkpkt = @pgp.parse_pubkey_armor(key_armor)
+  @debug.assert_eq(pkpkt.version, 6)
+  @debug.assert_eq(pkpkt.algo, @pgp.algo_ed25519)
+  let self_sig = @pgp.parse_signature_packet(packets[1].body)
+  @debug.assert_eq(self_sig.version, 6)
+  @debug.assert_eq(self_sig.sig_type, 0x1f)
+  @debug.assert_eq(self_sig.pubkey_algo, @pgp.algo_ed25519)
+  @debug.assert_eq(self_sig.hash_algo, @pgp.hash_sha512)
+  @debug.assert_eq(self_sig.salt.length(), 32)
+  let sig_armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    b"PGP v6 sign-side interop\n",
+    version=6,
+    salt~,
+  )
+  assert_true(
+    @pgp.verify_armor(sig_armor, b"PGP v6 sign-side interop\n", pkpkt.key),
+  )
+}
+
+///|
 test "ATTACK pgp: detached signature armor rejects extra packets" {
   let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)

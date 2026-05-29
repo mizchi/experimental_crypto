@@ -24,6 +24,8 @@ pub fn decode_armor(String) -> Armored raise PgpError
 
 pub fn export_ed25519_v4_public_key_armor(@ed25519.PrivateKey, String, creation_time? : UInt) -> String raise PgpError
 
+pub fn export_ed25519_v6_public_key_armor(@ed25519.PrivateKey, creation_time? : UInt, salt? : Bytes) -> String raise PgpError
+
 pub let hash_sha256 : Int
 
 pub let hash_sha384 : Int

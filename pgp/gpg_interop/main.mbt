@@ -13,9 +13,34 @@ fn main {
   let sig_armor = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), msg) catch {
     _ => abort("failed to sign interop message")
   }
+  let v6_msg : Bytes = b"PGP v6 sign-side interop\n"
+  let v6_salt : Bytes = b"0123456789abcdefghijklmnopqrstuv"
+  let v6_pubkey_armor = @pgp.export_ed25519_v6_public_key_armor(
+    sk,
+    salt=v6_salt,
+  ) catch {
+    _ => abort("failed to export v6 public key armor")
+  }
+  let v6_sig_armor = @pgp.sign_armor(
+    @pgp.PgpPrivateKey::Ed25519(sk),
+    v6_msg,
+    version=6,
+    salt=v6_salt,
+  ) catch {
+    _ => abort("failed to sign v6 interop message")
+  }
   println("-----BEGIN PGP INTEROP MESSAGE-----")
   println("PGP sign-side interop")
   println("-----END PGP INTEROP MESSAGE-----")
   println(pubkey_armor)
   println(sig_armor)
+  println("-----BEGIN PGP V6 INTEROP MESSAGE-----")
+  println("PGP v6 sign-side interop")
+  println("-----END PGP V6 INTEROP MESSAGE-----")
+  println("-----BEGIN PGP V6 INTEROP PUBLIC KEY-----")
+  println(v6_pubkey_armor)
+  println("-----END PGP V6 INTEROP PUBLIC KEY-----")
+  println("-----BEGIN PGP V6 INTEROP SIGNATURE-----")
+  println(v6_sig_armor)
+  println("-----END PGP V6 INTEROP SIGNATURE-----")
 }
