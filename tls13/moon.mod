@@ -4,6 +4,7 @@ version = "0.1.0"
 
 import {
   "mizchi/hash@0.1.0",
+  "mizchi/aead@0.1.0",
 }
 
 readme = "README.mbt.md"

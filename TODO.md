@@ -119,8 +119,10 @@ rejects unsupported inputs before returning trusted output.
   - [x] Key schedule (RFC 8446 §7.1): HKDF-Extract/Expand, HKDF-Expand-Label,
     Derive-Secret, the full secret chain, traffic key/IV, and Finished key, for
     SHA-256 and SHA-384. Verified byte-for-byte against RFC 8448 §3.
-  - [ ] Record layer: AEAD framing (TLSCiphertext) + per-record nonce
-    (sequence number XOR write IV) + content-type padding.
+  - [x] Record layer: AEAD framing (TLSCiphertext) + per-record nonce
+    (sequence number XOR write IV) + content-type padding, for AES-128-GCM,
+    AES-256-GCM, and ChaCha20-Poly1305. Verified byte-for-byte against the
+    RFC 8448 §3 server handshake flight (`tls13/record.mbt`).
   - [ ] Handshake message parse/build (ClientHello … Finished) and the client
     state machine, wiring `pkix_verify` for certificate-chain verification.
 

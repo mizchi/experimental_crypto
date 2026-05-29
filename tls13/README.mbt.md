@@ -16,11 +16,19 @@ Implemented:
   secrets; exporter/resumption master secrets; per-record write key/IV; and the
   Finished key. SHA-256 and SHA-384 suites.
 
-Verified byte-for-byte against the RFC 8448 §3 "Simple 1-RTT Handshake" trace.
+- **Record layer** (RFC 8446 §5): `seal_record` / `open_record` for
+  TLSCiphertext framing — TLSInnerPlaintext (content || ContentType || zero
+  padding), the per-record nonce (sequence number XORed with the write IV), and
+  the record header as AEAD additional data. Cipher suites
+  `TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384`,
+  `TLS_CHACHA20_POLY1305_SHA256`.
 
-Not yet implemented (planned): record layer (AEAD framing + per-record nonce),
-handshake message parsing/building (ClientHello … Finished), the client state
-machine, and certificate-chain verification wiring (`pkix_verify`).
+Both are verified byte-for-byte against the RFC 8448 §3 "Simple 1-RTT
+Handshake" trace (key schedule + the server handshake flight record).
+
+Not yet implemented (planned): handshake message parsing/building (ClientHello …
+Finished), the client state machine, and certificate-chain verification wiring
+(`pkix_verify`).
 
 ## Example
 
