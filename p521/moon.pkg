@@ -9,4 +9,9 @@ import {
 
 import {
   "mizchi/pem",
+  "moonbitlang/core/json",
 } for "test"
+
+options(
+  targets: { "wycheproof_json_js_test.mbt": [ "js" ] },
+)

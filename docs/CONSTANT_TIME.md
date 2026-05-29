@@ -114,6 +114,7 @@ bash leakage_harness/profile_summary.sh \
   leakage-timing.tsv leakage-dudect.tsv leakage-callgrind.tsv
 bash leakage_harness/profile_evidence_gate.sh leakage-profile-summary.tsv
 gh workflow run "Leakage Profile" --ref main
+scripts/run_p521_leakage_profile.sh main
 ```
 
 Use `dudect`, `dudect-one`, or `dudect_check.sh` for in-process
@@ -152,7 +153,10 @@ workload, then merges the TSV reports before running the evidence gate. Normal
 push CI therefore avoids full profiling cost while manual high-sample evidence
 runs expose the slow or failing shard directly. The workflow uploads the raw
 and aggregated TSV files as GitHub Actions artifacts so a passing high-sample
-run can be archived.
+run can be archived. `scripts/run_p521_leakage_profile.sh` dispatches the
+same workflow for the P-521-only workload set (`p521-nonce-inv p521-sign`)
+with the evidence gate enabled; use it after the P-521 changes have been
+committed and pushed to the selected ref.
 `profile_summary.sh` can aggregate one or more timing / dudect / callgrind TSV
 reports by target and workload.
 `profile_evidence_gate.sh` consumes that summary and fails unless every
