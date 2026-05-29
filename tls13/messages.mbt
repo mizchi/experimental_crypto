@@ -110,6 +110,18 @@ fn NamedGroup::from_u16(v : Int) -> NamedGroup {
 }
 
 ///|
+pub fn NamedGroup::to_u16(self : NamedGroup) -> Int {
+  match self {
+    Secp256r1 => 0x0017
+    Secp384r1 => 0x0018
+    Secp521r1 => 0x0019
+    X25519 => 0x001d
+    X448 => 0x001e
+    Unknown(v) => v
+  }
+}
+
+///|
 /// TLS 1.3 `SignatureScheme` (RFC 8446 §4.2.3) used in CertificateVerify.
 pub(all) enum SignatureScheme {
   RsaPkcs1Sha256
@@ -141,6 +153,24 @@ fn SignatureScheme::from_u16(v : Int) -> SignatureScheme {
     0x0807 => Ed25519
     0x0808 => Ed448
     _ => Unknown(v)
+  }
+}
+
+///|
+pub fn SignatureScheme::to_u16(self : SignatureScheme) -> Int {
+  match self {
+    RsaPkcs1Sha256 => 0x0401
+    RsaPkcs1Sha384 => 0x0501
+    RsaPkcs1Sha512 => 0x0601
+    EcdsaSecp256r1Sha256 => 0x0403
+    EcdsaSecp384r1Sha384 => 0x0503
+    EcdsaSecp521r1Sha512 => 0x0603
+    RsaPssRsaeSha256 => 0x0804
+    RsaPssRsaeSha384 => 0x0805
+    RsaPssRsaeSha512 => 0x0806
+    Ed25519 => 0x0807
+    Ed448 => 0x0808
+    Unknown(v) => v
   }
 }
 

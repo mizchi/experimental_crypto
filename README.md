@@ -36,7 +36,7 @@ For API-level detail, see [docs/MODULES.md](docs/MODULES.md) and
 | Signature and key-exchange primitives | `ed25519`, `x25519`, `p256`, `p384`, `p521`, `secp256k1`, `rsa` | Ed/X25519, NIST ECDSA, secp256k1, and RSA PKCS#1 v1.5/PSS. |
 | JOSE, COSE, SSH, PGP, and git formats | `jwt`, `jwe`, `jwk`, `cose`, `ssh`, `pgp`, `git_object` | Strict parsers/verifiers for compact JOSE, COSE_Sign1, SSHSIG-style signatures, OpenPGP detached signatures, and git signed-object bytes. |
 | Wallet, box, and OTP protocols | `bip39`, `bip32`, `hpke`, `naclbox`, `totp` | BIP mnemonic/HD wallet helpers, HPKE base mode, libsodium-style box, and HOTP/TOTP. |
-| Transport | `tls13` | TLS 1.3 (RFC 8446) key schedule, record layer, handshake framing, server-flight parsers, and server authentication (Finished MAC + CertificateVerify signature dispatch); ClientHello builder + client state machine WIP. |
+| Transport | `tls13` | TLS 1.3 (RFC 8446) key schedule, record layer, handshake framing, ClientHello builder, server-flight parsers, and server authentication (Finished MAC + CertificateVerify signature dispatch); client state machine WIP. |
 | Sidecar tooling | `proofs`, `leakage_harness` | SMT proof leaves and native sparse-vs-dense leakage measurement harnesses. |
 
 `moon test` from the workspace root runs the full suite (currently 1369

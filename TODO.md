@@ -137,8 +137,10 @@ rejects unsupported inputs before returning trusted output.
     over `certificate_verify_content` against the leaf certificate's key, bound
     to the key type, refusing PKCS#1 v1.5. Verified end-to-end against RFC 8448
     §3 (rsa_pss_rsae_sha256).
-  - [ ] ClientHello builder (extensions: supported_versions, supported_groups,
-    key_share, signature_algorithms, server_name).
+  - [x] ClientHello builder + parser (`tls13/client_hello.mbt`): emits a
+    spec-compliant first flight with supported_versions, supported_groups,
+    signature_algorithms, key_share, and optional SNI; round-trips through
+    `parse_client_hello`.
   - [ ] Client state machine driving the flights and wiring `pkix_verify` for
     certificate-chain trust (leaf → anchor) on top of the CertificateVerify
     possession check.

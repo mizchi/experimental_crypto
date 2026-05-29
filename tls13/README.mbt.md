@@ -46,9 +46,14 @@ including end-to-end checks that reconstruct the transcript and confirm both the
 server Finished MAC and the server CertificateVerify signature (the full
 verify-side of server authentication).
 
-Not yet implemented (planned): the ClientHello builder, and the client state
-machine — which drives the flights and layers `pkix_verify` certificate-chain
-trust (leaf → anchor) on top of this CertificateVerify possession check.
+- **ClientHello** (`client_hello.mbt`): `build_client_hello` emits a
+  spec-compliant first flight (supported_versions, supported_groups,
+  signature_algorithms, key_share, optional SNI); `parse_client_hello` is the
+  symmetric reader. The caller supplies the random and key-share public keys.
+
+Not yet implemented (planned): the client state machine — which drives the
+flights and layers `pkix_verify` certificate-chain trust (leaf → anchor) on top
+of this CertificateVerify possession check.
 
 ## Example
 

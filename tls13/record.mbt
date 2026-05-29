@@ -76,6 +76,27 @@ pub fn CipherSuite::key_len(self : CipherSuite) -> Int {
 }
 
 ///|
+/// The 2-byte cipher-suite code point (RFC 8446 §B.4).
+pub fn CipherSuite::to_u16(self : CipherSuite) -> Int {
+  match self {
+    Aes128GcmSha256 => 0x1301
+    Aes256GcmSha384 => 0x1302
+    ChaCha20Poly1305Sha256 => 0x1303
+  }
+}
+
+///|
+/// Map a cipher-suite code point to a known suite, if supported.
+pub fn CipherSuite::from_u16(v : Int) -> CipherSuite? {
+  match v {
+    0x1301 => Some(Aes128GcmSha256)
+    0x1302 => Some(Aes256GcmSha384)
+    0x1303 => Some(ChaCha20Poly1305Sha256)
+    _ => None
+  }
+}
+
+///|
 pub suberror RecordError {
   ShortRecord
   // Encrypted records use outer opaque_type = application_data(23); anything
