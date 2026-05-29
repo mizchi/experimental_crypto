@@ -37,6 +37,9 @@ pub suberror ClientError {
   CipherSuiteMismatch(Int)
   // The ServerHello carried no key_share, so the ECDHE secret is unanchored.
   MissingKeyShare
+  // The supplied (EC)DHE shared secret is empty or all-zero — the contributory-
+  // behaviour / small-order-point abort condition (RFC 7748 §6.1).
+  WeakSharedSecret
   // The server's CertificateVerify signature did not validate.
   CertificateVerifyFailed
   // The server's Finished MAC did not validate.
@@ -133,6 +136,19 @@ fn validate_server_hello(
 }
 
 ///|
+fn is_all_zero(b : Bytes) -> Bool {
+  if b.length() == 0 {
+    return true
+  }
+  for i in 0..<b.length() {
+    if b[i] != b'\x00' {
+      return false
+    }
+  }
+  true
+}
+
+///|
 // Hash(client_hello || server_hello || server_flight[0:end]).
 fn transcript_upto(
   suite : CipherSuite,
@@ -164,6 +180,12 @@ pub fn client_handshake_1rtt(
   // Reject downgrade / HRR / suite-confusion before deriving anything from the
   // ServerHello. (The transcript still uses the raw ServerHello bytes.)
   validate_server_hello(suite, server_hello)
+
+  // Defence in depth (RFC 7748 §6.1): an empty or all-zero (EC)DHE secret means
+  // the peer's key share was a small-order point / contributory failure.
+  if is_all_zero(ecdhe_shared_secret) {
+    raise WeakSharedSecret
+  }
 
   // Handshake-stage secrets and keys (transcript = ClientHello..ServerHello).
   let th_ch_sh = h.transcript_hash(concat_bytes([client_hello, server_hello]))

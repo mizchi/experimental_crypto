@@ -276,6 +276,11 @@ pub fn parse_certificate(body : Bytes) -> Array[Bytes] raise MessageError {
   let certs : Array[Bytes] = []
   while !r.is_empty() {
     let cert_len = r.u24("CertificateEntry.cert_data length")
+    // RFC 8446 §4.4.2: cert_data is opaque<1..2^24-1>; an empty entry is
+    // malformed and must not reach the certificate-key extraction.
+    if cert_len == 0 {
+      raise Malformed("CertificateEntry.cert_data must be non-empty")
+    }
     let cert = r.take(cert_len, "CertificateEntry.cert_data")
     let ext_len = r.u16("CertificateEntry.extensions length")
     let _ = r.take(ext_len, "CertificateEntry.extensions")

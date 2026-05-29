@@ -91,4 +91,14 @@ test "parsers fail closed on truncation and trailing data" {
   } noraise {
     _ => abort("accepted non-empty certificate_request_context")
   }
+  // Certificate with a zero-length cert_data entry (RFC 8446 §4.4.2 forbids).
+  // ctx_len=0, list_len=5, entry: cert_len=0 (3 bytes) + ext_len=0 (2 bytes).
+  let zero_cert = msg_hex("00" + "000005" + "000000" + "0000")
+  try @tls13.parse_certificate(zero_cert) |> ignore catch {
+    Malformed(_) => ()
+    other =>
+      abort("expected Malformed for zero-length cert, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a zero-length certificate entry")
+  }
 }

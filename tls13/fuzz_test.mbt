@@ -133,6 +133,96 @@ test "fuzz: parsers and record-open fail closed on random input" {
 }
 
 ///|
+fn fz_slice(b : Bytes, start : Int, len : Int) -> Bytes {
+  Bytes::makei(len, fn(i) { b[start + i] })
+}
+
+///|
+fn fz_concat2(a : Bytes, b : Bytes) -> Bytes {
+  Bytes::makei(a.length() + b.length(), fn(i) {
+    if i < a.length() {
+      a[i]
+    } else {
+      b[i - a.length()]
+    }
+  })
+}
+
+///|
+test "fuzz: structural attacks on the server flight are rejected" {
+  let suite = @tls13.CipherSuite::Aes128GcmSha256
+  let ch = hs_hex(hs_client_hello)
+  let sh = hs_hex(hs_server_hello)
+  let flight = hs_hex(hs_server_flight)
+  let ecdhe = hs_hex(
+    "8bd4054fb55b9d63fdfbacf9f04b9f0d35e6d63f537563efd46272900f89492d",
+  )
+  let attempt = fn(bad : Bytes, what : String) {
+    try
+      @tls13.client_handshake_1rtt(suite, ch, sh, ecdhe, bad) |> ignore
+    catch {
+      _ => ()
+    } noraise {
+      _ => abort("FALSE ACCEPT: " + what)
+    }
+  }
+
+  // (a) Every truncation of the flight.
+  for n = 0; n < flight.length(); n = n + 1 {
+    attempt(fz_slice(flight, 0, n), "truncated flight len " + n.to_string())
+  }
+
+  // (b) Trailing garbage after the (valid) flight.
+  attempt(fz_concat2(flight, b"\x00"), "flight + trailing 0x00")
+  attempt(fz_concat2(flight, flight), "flight doubled")
+
+  // (c) Reordered messages (CertificateVerify before Certificate).
+  let msgs = @tls13.parse_handshake_flight(flight)
+  let ends : Array[Int] = []
+  let mut off = 0
+  for m in msgs {
+    let (_, body) = m
+    off = off + 4 + body.length()
+    ends.push(off)
+  }
+  let ee = fz_slice(flight, 0, ends[0])
+  let cert = fz_slice(flight, ends[0], ends[1] - ends[0])
+  let cv = fz_slice(flight, ends[1], ends[2] - ends[1])
+  let fin = fz_slice(flight, ends[2], ends[3] - ends[2])
+  attempt(
+    fz_concat2(fz_concat2(ee, cv), fz_concat2(cert, fin)),
+    "Cert/CertVerify swapped",
+  )
+  attempt(
+    fz_concat2(fz_concat2(cert, cv), fz_concat2(ee, fin)),
+    "EE/Cert swapped",
+  )
+  // (d) Dropped CertificateVerify (3 messages).
+  attempt(fz_concat2(fz_concat2(ee, cert), fin), "CertificateVerify dropped")
+  // (e) Duplicated Finished (5 messages).
+  attempt(fz_concat2(flight, fin), "Finished duplicated")
+
+  // (f) Many multi-byte random mutations.
+  for trial = 0; trial < 150; trial = trial + 1 {
+    let mask = fz_bytes(
+      0xdead0000UL + trial.to_uint64() * 99991UL,
+      flight.length(),
+    )
+    // Sparse mutation: flip ~1/16 of bytes.
+    let bad = Bytes::makei(flight.length(), fn(i) {
+      if (mask[i].to_int() & 0x0f) == 0 {
+        (flight[i].to_int() ^ mask[i].to_int()).to_byte()
+      } else {
+        flight[i]
+      }
+    })
+    if bad != flight {
+      attempt(bad, "multi-byte mutation trial " + trial.to_string())
+    }
+  }
+}
+
+///|
 test "fuzz: tampering the RFC record is always rejected by open_record" {
   // The RFC 8448 §3 server flight record (server hs key/iv, seq 0).
   let suite = @tls13.CipherSuite::Aes128GcmSha256

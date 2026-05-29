@@ -155,9 +155,27 @@ test "client_handshake_1rtt fails closed on a tampered server flight" {
     _ => abort("accepted a tampered CertificateVerify")
   }
 
-  // A wrong ECDHE secret leaves CertificateVerify intact (it does not depend on
-  // it) but desynchronises the server Finished MAC -> ServerFinishedFailed.
-  let wrong_ecdhe = Bytes::makei(32, fn(_) { b'\x00' })
+  // An all-zero ECDHE secret (small-order point / contributory failure,
+  // RFC 7748 §6.1) is rejected up front, before any key derivation.
+  let zero_ecdhe = Bytes::makei(32, fn(_) { b'\x00' })
+  try
+    @tls13.client_handshake_1rtt(suite, ch, sh, zero_ecdhe, flight) |> ignore
+  catch {
+    WeakSharedSecret => ()
+    other => abort("expected WeakSharedSecret, got " + repr(other))
+  } noraise {
+    _ => abort("accepted an all-zero ECDHE secret")
+  }
+
+  // A merely wrong (non-zero) ECDHE secret desynchronises the server Finished
+  // MAC -> ServerFinishedFailed.
+  let wrong_ecdhe = Bytes::makei(32, fn(i) {
+    if i == 0 {
+      b'\x01'
+    } else {
+      b'\x00'
+    }
+  })
   try
     @tls13.client_handshake_1rtt(suite, ch, sh, wrong_ecdhe, flight) |> ignore
   catch {
