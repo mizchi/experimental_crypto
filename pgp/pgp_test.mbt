@@ -610,6 +610,24 @@ test "ATTACK pgp: verify_armor rejects non-signature armor label" {
 }
 
 ///|
+test "ATTACK pgp: detached signature armor rejects trailing text after END" {
+  let seed = Bytes::makei(32, fn(i) { (i + 45).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let pk_pgp = @pgp.PgpPublicKey::Ed25519(sk.public_key())
+  let msg : Bytes = b"pgp trailing armor text"
+  let armor = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), msg)
+  try
+    @pgp.verify_armor(armor + "unverified trailing text\n", msg, pk_pgp)
+  catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    true => abort("accepted PGP armor with trailing text")
+    false => abort("signature verified false before trailing-text rejection")
+  }
+}
+
+///|
 test "ATTACK pgp: parse_pubkey_armor rejects non-public-key armor label" {
   let decoded = @pgp.decode_armor(pubkey_armor)
   let mislabeled = armor_block_no_crc("SIGNATURE", decoded.data)
@@ -618,6 +636,79 @@ test "ATTACK pgp: parse_pubkey_armor rejects non-public-key armor label" {
     other => abort("expected ArmorMalformed, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted public-key packet under non-public-key armor")
+  }
+}
+
+///|
+test "ATTACK pgp: public-key armor must start with a Public-Key packet" {
+  let seed = Bytes::makei(32, fn(i) { (i + 46).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let sig = @pgp.sign_armor(@pgp.PgpPrivateKey::Ed25519(sk), b"leading sig")
+  let sig_data = @pgp.decode_armor(sig).data
+  let key_armor = @pgp.export_ed25519_v4_public_key_armor(
+    sk, "Leading Packet <leading@example.invalid>",
+  )
+  let key_packets = @pgp.parse_packets(@pgp.decode_armor(key_armor).data)
+  let key_packet = wrap_new_format_packet_for_test(6, key_packets[0].body)
+  let mixed = armor_block_no_crc(
+    "PUBLIC KEY BLOCK",
+    concat_bytes(sig_data, key_packet),
+  )
+  try @pgp.parse_pubkey_armor(mixed) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted public-key armor with leading non-key packet")
+  }
+}
+
+///|
+test "ATTACK pgp: public-key armor rejects multiple primary keys" {
+  let seed1 = Bytes::makei(32, fn(i) { (i + 47).to_byte() })
+  let seed2 = Bytes::makei(32, fn(i) { (i + 79).to_byte() })
+  let sk1 = @ed25519.PrivateKey::from_seed(seed1)
+  let sk2 = @ed25519.PrivateKey::from_seed(seed2)
+  let key1 = @pgp.export_ed25519_v4_public_key_armor(
+    sk1, "First Key <first@example.invalid>",
+  )
+  let key2 = @pgp.export_ed25519_v4_public_key_armor(
+    sk2, "Second Key <second@example.invalid>",
+  )
+  let p1 = @pgp.parse_packets(@pgp.decode_armor(key1).data)[0]
+  let p2 = @pgp.parse_packets(@pgp.decode_armor(key2).data)[0]
+  let block = armor_block_no_crc(
+    "PUBLIC KEY BLOCK",
+    concat_bytes(
+      wrap_new_format_packet_for_test(6, p1.body),
+      wrap_new_format_packet_for_test(6, p2.body),
+    ),
+  )
+  try @pgp.parse_pubkey_armor(block) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted public-key armor with multiple primary keys")
+  }
+}
+
+///|
+test "ATTACK pgp: public-key armor rejects unexpected packet types" {
+  let seed = Bytes::makei(32, fn(i) { (i + 97).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let key_armor = @pgp.export_ed25519_v4_public_key_armor(
+    sk, "Unexpected Packet <unexpected@example.invalid>",
+  )
+  let decoded = @pgp.decode_armor(key_armor)
+  let literal_data_packet = wrap_new_format_packet_for_test(11, b"bad")
+  let mixed = armor_block_no_crc(
+    "PUBLIC KEY BLOCK",
+    concat_bytes(decoded.data, literal_data_packet),
+  )
+  try @pgp.parse_pubkey_armor(mixed) catch {
+    ArmorMalformed(_) => ()
+    other => abort("expected ArmorMalformed, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted public-key armor with unexpected packet")
   }
 }
 

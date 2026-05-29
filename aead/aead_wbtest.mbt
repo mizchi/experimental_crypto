@@ -132,6 +132,66 @@ test "gf128_mul X_1 NIST SP 800-38D Test Case 3 intermediate" {
 }
 
 ///|
+fn wb_next_u64(x : UInt64) -> UInt64 {
+  let mut y = x
+  y = y ^ (y >> 12)
+  y = y ^ (y << 25)
+  y = y ^ (y >> 27)
+  y * 0x2545f4914f6cdd1dUL
+}
+
+///|
+fn gf128_mul_bit_reference(
+  h_hi : UInt64,
+  h_lo : UInt64,
+  y_hi : UInt64,
+  y_lo : UInt64,
+) -> (UInt64, UInt64) {
+  let mut z_hi : UInt64 = 0UL
+  let mut z_lo : UInt64 = 0UL
+  let mut v_hi = h_hi
+  let mut v_lo = h_lo
+  for i = 0; i < 128; i = i + 1 {
+    let bit = if i < 64 {
+      (y_hi >> (63 - i)) & 1UL
+    } else {
+      (y_lo >> (127 - i)) & 1UL
+    }
+    if bit == 1UL {
+      z_hi = z_hi ^ v_hi
+      z_lo = z_lo ^ v_lo
+    }
+    let carry = v_lo & 1UL
+    v_lo = (v_lo >> 1) | (v_hi << 63)
+    v_hi = v_hi >> 1
+    if carry == 1UL {
+      v_hi = v_hi ^ 0xe100000000000000UL
+    }
+  }
+  (z_hi, z_lo)
+}
+
+///|
+test "gf128_mul table matches bit reference on generated samples" {
+  let mut seed : UInt64 = 0x6a09e667f3bcc909UL
+  for i in 0..<32 {
+    seed = wb_next_u64(seed + i.to_uint64())
+    let h_hi = seed
+    seed = wb_next_u64(seed)
+    let h_lo = seed
+    seed = wb_next_u64(seed)
+    let y_hi = seed
+    seed = wb_next_u64(seed)
+    let y_lo = seed
+    let table = build_ghash_table(h_hi, h_lo)
+    let (got_hi, got_lo) = gf128_mul_table(table, y_hi, y_lo)
+    let (want_hi, want_lo) = gf128_mul_bit_reference(h_hi, h_lo, y_hi, y_lo)
+    assert_eq(got_hi, want_hi)
+    assert_eq(got_lo, want_lo)
+  }
+}
+
+///|
 test "GHASH empty empty = 0" {
   let h_hi : UInt64 = 0x12345678abcdef00UL
   let h_lo : UInt64 = 0xdeadbeefcafebabeUL

@@ -9,20 +9,17 @@
 //   "moonbitlang/x@0.4.6",
 // }
 
-name = "mizchi/jwt"
+name = "mizchi/p521"
 
 version = "0.1.0"
 
 import {
-  "mizchi/ed25519@0.1.0",
-  "mizchi/rsa@0.1.0",
-  "mizchi/p256@0.1.0",
-  "mizchi/p384@0.1.0",
-  "mizchi/p521@0.1.0",
-  "mizchi/secp256k1@0.1.0",
+  "mizchi/asn1@0.1.0",
+  "mizchi/crypto_bigint@0.1.0",
   "mizchi/hash@0.1.0",
-  "mizchi/jwk@0.1.0",
-  "mizchi/jwe@0.1.0",
+  "mizchi/pkcs8@0.1.0",
+  "mizchi/pem@0.1.0",
+  "mizchi/pkix@0.1.0",
 }
 
 readme = "README.mbt.md"
@@ -33,4 +30,4 @@ license = "Apache-2.0"
 
 keywords = [ ]
 
-description = "EXPERIMENTAL — jwt: not production-grade. Audit before use. No warranty."
+description = "EXPERIMENTAL — p521: not production-grade. Audit before use. No warranty."

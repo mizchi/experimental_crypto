@@ -7,7 +7,7 @@ See per-module source for full details.
 ## Encoding / foundations
 
 ### `mizchi/asn1`
-**RFC**: X.690 DER + X.680 ASN.1. **Tests**: 92.
+**RFC**: X.690 DER + X.680 ASN.1. **Tests**: 94.
 
 ```moonbit
 @asn1.decode_der(bytes : Bytes) -> Element raise Asn1Error
@@ -177,8 +177,8 @@ sk.sign(message)
 **RFC**: 7748. **Tests**: 30+. 10-limb radix-2^25.5 Montgomery ladder.
 Small-subgroup defence (all-zero shared secret raises).
 
-### `mizchi/p256`, `mizchi/p384`
-**RFC**: FIPS 186-5, SEC 1, RFC 6979. **Tests**: 19/17.
+### `mizchi/p256`, `mizchi/p384`, `mizchi/p521`
+**RFC**: FIPS 186-5, SEC 1, RFC 6979.
 
 ```moonbit
 @p256.PublicKey::from_uncompressed / from_spki_der
@@ -187,19 +187,22 @@ sk.sign(message, format=Raw | Der)                     // RFC 6979 deterministic
 @p256.verify(pk, message, sig, format)
 ```
 
-P-256 with SHA-256, P-384 with SHA-384. Sign-side base-point multiplication
-and final nonce inverse use fixed-limb / fixed-iteration paths; public verify
-remains affine `@bigint` because inputs are public. See `CONSTANT_TIME.md` for
-the measurement caveat.
+P-256 with SHA-256, P-384 with SHA-384, and P-521 with SHA-512. Sign-side
+base-point multiplication and final nonce inverse use fixed-limb /
+fixed-iteration paths; public verify remains affine `@bigint` because inputs
+are public. See `CONSTANT_TIME.md` for the measurement caveat. P-521 is wired
+into the leakage harness, but it still needs repeated calibrated evidence
+before measured-candidate claims.
 
 ### `mizchi/secp256k1`
-**Spec**: SEC 2 §2.4.1. **Tests**: 25.
+**Spec**: SEC 2 §2.4.1. **Tests**: 32.
 
 ```moonbit
 @secp256k1.PrivateKey::from_bytes(b)
 sk.sign(message)                                       // RFC 6979 + BIP-62 low-s default
 sk.sign_no_low_s(message)
 @secp256k1.PublicKey::to_compressed(self) -> Bytes     // 33-byte 02/03||X
+@secp256k1.PublicKey::add_generator_mul(self, scalar)  // scalar*G + K
 ```
 
 Sign-side base-point multiplication and final nonce inverse use fixed-limb /
@@ -263,10 +266,11 @@ BIP-39 mnemonic + BIP-32 HD wallet on secp256k1.
 @bip39.mnemonic_to_seed(mnemonic, passphrase="")
 @bip32.master_from_seed(seed)
 @bip32.derive_path(parent, "m/44'/0'/0'/0/0")
+@bip32.derive_public(xpub, index)                      // non-hardened only
 ```
 
-BIP-32 CKDpub for non-hardened indices is a stub; needs a public
-point-add on `@secp256k1.PublicKey`.
+CKDpriv supports hardened and non-hardened derivation. CKDpub supports
+non-hardened indices and rejects hardened public derivation fail-closed.
 
 ### `mizchi/cose`
 **RFC**: 9052 minimum-viable. **Tests**: 11.
@@ -282,7 +286,7 @@ Reuses the wire bytes of `protected` per RFC 9052 §4.4 step 4.
 ## Application formats
 
 ### `mizchi/jwt`
-**RFC**: 7515 / 7518 / 7519. **Tests**: 36.
+**RFC**: 7515 / 7518 / 7519. **Tests**: 202.
 
 Supported algorithms: HS256, EdDSA, RS256, ES256, ES384,
 PS256/384/512. Rejects `alg:none`, `crit`, `b64` headers.
@@ -335,7 +339,7 @@ parameters: digits outside 6..8, non-positive step, `now < T0`, or skew above
 v4 + v6 packets. Ed25519 (algo 22 v4 + algo 27 v6), RSA, ECDSA P-256/384.
 
 ### `mizchi/ssh`
-**Format**: SSHSIG-style subset. **Tests**: 34.
+**Format**: SSHSIG-style subset. **Tests**: 47.
 
 ```moonbit
 @ssh.parse_ssh_pubkey_text(line)

@@ -4,6 +4,7 @@ import {
   "mizchi/jwe",
   "mizchi/p256",
   "mizchi/p384",
+  "mizchi/p521",
   "mizchi/rsa",
   "mizchi/secp256k1",
   "mizchi/x25519",

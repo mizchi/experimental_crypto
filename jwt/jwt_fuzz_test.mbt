@@ -212,7 +212,10 @@ test "fuzz jwt kid: signed control-data kids reject at verify boundary" {
 test "fuzz jwks kid: duplicate kid never selects a first matching key" {
   for raw in (@quickcheck.samples(80) : Array[Bytes]) {
     let kid = fuzz_safe_kid(raw)
-    let set = @jwk.parse_set(fuzz_jwks_two_same_kid(kid))
+    let set = @jwk.parse_set(fuzz_jwks_two_same_kid(kid)) catch {
+      @jwk.InvalidJson(_) => continue
+      _ => abort("unexpected duplicate-kid JWKS parse error")
+    }
     let header = fuzz_hs256_header(kid)
     let rejected = try {
       let _ = @jwt.select_verify_key(set, header)

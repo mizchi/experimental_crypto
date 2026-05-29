@@ -8,6 +8,7 @@ import {
   "mizchi/jwe@0.1.0",
   "mizchi/p256@0.1.0",
   "mizchi/p384@0.1.0",
+  "mizchi/p521@0.1.0",
   "mizchi/rsa@0.1.0",
   "mizchi/secp256k1@0.1.0",
   "mizchi/x25519@0.1.0",

@@ -36,6 +36,22 @@ test "ssh: parse pubkey text" {
 }
 
 ///|
+test "ATTACK: SSH certificate public-key text fails closed" {
+  let cert_algo = "ssh-ed25519-cert-v01@openssh.com"
+  let w = @ssh.WireWriter::new()
+  w.write_string_ascii(cert_algo)
+  w.write_string(b"not-a-real-cert")
+  let cert_line = cert_algo + " " + @base64.encode(w.to_bytes()[:])
+  try @ssh.parse_ssh_pubkey_text(cert_line) catch {
+    UnsupportedAlgorithm(_) => ()
+    InvalidEncoding(_) => ()
+    e => abort("expected SSH cert rejection, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted SSH certificate public key without cert validation")
+  }
+}
+
+///|
 test "ssh: verify_armor against real ssh-keygen signature" {
   let parsed = @ssh.parse_ssh_pubkey_text(pubkey_text)
   let pk = @ssh.parse_ed25519_pubkey(parsed.blob)

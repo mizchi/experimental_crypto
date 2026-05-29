@@ -54,6 +54,45 @@ test "secp256k1: PrivateKey(1).public_key == G" {
   }
 }
 
+///|
+test "secp256k1: public generator tweak matches private scalar addition" {
+  let one = Bytes::makei(32, fn(i) { if i == 31 { b'\x01' } else { b'\x00' } })
+  let two = Bytes::makei(32, fn(i) { if i == 31 { b'\x02' } else { b'\x00' } })
+  let pk1 = @secp256k1.PrivateKey::from_bytes(one).public_key()
+  let pk2 = @secp256k1.PrivateKey::from_bytes(two).public_key()
+  let tweaked = pk1.add_generator_mul(one)
+  @debug.assert_eq(tweaked.to_compressed(), pk2.to_compressed())
+
+  let zero = Bytes::makei(32, fn(_) { b'\x00' })
+  let unchanged = pk1.add_generator_mul(zero)
+  @debug.assert_eq(unchanged.to_compressed(), pk1.to_compressed())
+}
+
+///|
+test "ATTACK secp256k1: public generator tweak rejects invalid child points" {
+  let one = Bytes::makei(32, fn(i) { if i == 31 { b'\x01' } else { b'\x00' } })
+  let pk1 = @secp256k1.PrivateKey::from_bytes(one).public_key()
+  let n = hex(
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141",
+  )
+  try pk1.add_generator_mul(n) catch {
+    @secp256k1.InvalidPrivateKey(_) => ()
+    e => abort("expected invalid scalar rejection, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted generator tweak scalar >= n")
+  }
+
+  let n_minus_one = hex(
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140",
+  )
+  try pk1.add_generator_mul(n_minus_one) catch {
+    @secp256k1.InvalidPointEncoding(_) => ()
+    e => abort("expected infinity rejection, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted generator tweak that produced infinity")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Sign + verify roundtrip (RFC 6979 deterministic ECDSA, BIP-62 low-s).
 // -----------------------------------------------------------------------------

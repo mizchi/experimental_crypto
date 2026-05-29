@@ -230,19 +230,42 @@ fn is_p384_oid(b : Bytes) -> Bool {
 }
 
 ///|
-/// Parse a `-----BEGIN PGP PUBLIC KEY BLOCK-----` armor and return the
-/// first Public-Key Packet's parsed contents. Sub-keys (algorithm 14
-/// packets) and user IDs are skipped.
+/// Parse a `-----BEGIN PGP PUBLIC KEY BLOCK-----` armor and return the primary
+/// Public-Key Packet's parsed contents. This is not a trust-management API:
+/// self-signatures, revocations, user IDs, and subkey binding signatures are
+/// not evaluated. The transferable-key packet envelope is still checked
+/// strictly enough to avoid first-match ambiguity.
 pub fn parse_pubkey_armor(armor : String) -> PgpPublicKeyPacket raise PgpError {
   let a = decode_armor(armor)
   if a.label != "PUBLIC KEY BLOCK" {
     raise ArmorMalformed("expected PGP PUBLIC KEY BLOCK armor")
   }
   let packets = parse_packets(a.data)
-  for p in packets {
-    if p.tag == 6 {
-      return parse_public_key_packet(p.body)
+  if packets.length() == 0 {
+    raise ArmorMalformed("empty PGP PUBLIC KEY BLOCK")
+  }
+  if packets[0].tag != 6 {
+    raise ArmorMalformed("PGP PUBLIC KEY BLOCK must start with Public-Key")
+  }
+  for i = 1; i < packets.length(); i = i + 1 {
+    let tag = packets[i].tag
+    if tag == 6 {
+      raise ArmorMalformed("multiple Public-Key packets in one block")
+    }
+    if !is_allowed_transferable_public_key_packet(tag) {
+      raise ArmorMalformed(
+        "unexpected packet in PGP PUBLIC KEY BLOCK: " + tag.to_string(),
+      )
     }
   }
-  raise ArmorMalformed("no Public-Key packet in PGP PUBLIC KEY BLOCK")
+  parse_public_key_packet(packets[0].body)
+}
+
+///|
+fn is_allowed_transferable_public_key_packet(tag : Int) -> Bool {
+  // Signature, User ID, Public Subkey, and User Attribute packets are the
+  // packet classes we can safely ignore while returning only the primary key
+  // material. Anything else is rejected so it cannot hide alternate key
+  // material or unrelated signed data behind the first primary key.
+  tag == 2 || tag == 13 || tag == 14 || tag == 17
 }

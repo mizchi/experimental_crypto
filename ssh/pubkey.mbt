@@ -38,6 +38,14 @@ pub let rsa_sha256_algo : String = "rsa-sha2-256"
 pub let rsa_sha512_algo : String = "rsa-sha2-512"
 
 ///|
+fn is_supported_pubkey_text_algorithm(algorithm : String) -> Bool {
+  algorithm == ed25519_algo ||
+  algorithm == ecdsa_p256_algo ||
+  algorithm == ecdsa_p384_algo ||
+  algorithm == "ssh-rsa"
+}
+
+///|
 // SSH `mpint` (RFC 4251 §5): two's-complement BE, no redundant leading
 // bytes. For non-negative integers with high-bit set, a single 0x00
 // sign byte is prepended. Returns the magnitude as a positive byte
@@ -96,6 +104,9 @@ pub fn parse_ssh_pubkey_text(line : String) -> SshPublicKeyText raise SshError {
     raise InvalidEncoding("expected `algorithm base64 [comment]`")
   }
   let algorithm = parts[0]
+  if !is_supported_pubkey_text_algorithm(algorithm) {
+    raise UnsupportedAlgorithm(algorithm)
+  }
   let base64_blob = parts[1]
   let blob = @base64.decode(base64_blob) catch {
     _ => raise InvalidEncoding("pubkey base64")

@@ -136,6 +136,23 @@ test "EC P-256 private roundtrip from RFC 7515 A.3" {
   @debug.assert_eq(t1, t2)
 }
 
+///|
+test "EC P-521 public/private roundtrip from openssl secp521r1 vector" {
+  let json =
+    #|{"kty":"EC","crv":"P-521",
+    #| "x":"AOxvuKZc5P1qI5IbWuhzWkLfOZ_wrBrq8ufYyFiHLxDmC9pRPoAHXuGNdMsC_Y3Bx9t0aYfvt8olX_95VodMxx67",
+    #| "y":"ALrdkc_8mhZxzxWp-wx8FyivgrhY7taLOmiOFafIIIwaIx5RH58JWn-p7g3itSHWxR-rk3hkEkNrd4aiBRrl_6tL",
+    #| "d":"AQJvMpaEDLUS1N3yka77CTmde6aoftCNBYr7MApb8LmD5RYu_mvA4EIHOin4MHoT7p7NqNGot1OIRaUE2g1tS5Ki"}
+
+  let jwk = @jwk.parse_private(json)
+  let re = @jwk.serialise_private(jwk)
+  let jwk2 = @jwk.parse_private(re)
+  let t1 = @jwk.thumbprint_base64url(jwk)
+  let t2 = @jwk.thumbprint_base64url(jwk2)
+  @debug.assert_eq(t1, t2)
+  @debug.assert_eq(t1.length(), 43)
+}
+
 // -----------------------------------------------------------------------------
 // secp256k1 — BIP-32 test vector (the well-known "abandon abandon ..." seed
 // derives an account key at m/0' whose public key is widely tabulated).
@@ -265,6 +282,39 @@ test "ATTACK jwk: duplicate JWKS top-level members are rejected" {
 }
 
 ///|
+test "ATTACK jwk: duplicate JWKS kid values are rejected at parse time" {
+  let json =
+    #|{"keys":[
+    #|  {"kty":"oct","kid":"dup","alg":"HS256","k":"YXR0YWNrZXI"},
+    #|  {"kty":"oct","kid":"dup","alg":"HS256","k":"bGVnaXQ"}
+    #|]}
+  try @jwk.parse_set(json) catch {
+    @jwk.InvalidJson(_) => ()
+    e => abort("expected InvalidJson, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JWKS with duplicate kid values")
+  }
+}
+
+///|
+test "ATTACK jwk: JWKS metadata strings reject malformed values" {
+  let bad_kid =
+    #|{"keys":[{"kty":"oct","kid":42,"alg":"HS256","k":"c2VjcmV0"}]}
+  let bad_alg =
+    #|{"keys":[{"kty":"oct","kid":"k1","alg":42,"k":"c2VjcmV0"}]}
+  let bad_use =
+    #|{"keys":[{"kty":"oct","kid":"k1","alg":"HS256","use":42,"k":"c2VjcmV0"}]}
+  for json in [bad_kid, bad_alg, bad_use] {
+    try @jwk.parse_set(json) catch {
+      @jwk.InvalidJson(_) => ()
+      e => abort("expected InvalidJson, got " + @debug.to_string(e))
+    } noraise {
+      _ => abort("accepted malformed JWKS metadata string")
+    }
+  }
+}
+
+///|
 test "unsupported kty is rejected" {
   let json =
     #|{"kty":"DSA","y":"AQAB"}
@@ -297,6 +347,19 @@ test "RSA JWK rejects non-positive or even public parameters" {
   assert_parse_public_raises(zero_n)
   assert_parse_public_raises(one_e)
   assert_parse_public_raises(even_e)
+}
+
+///|
+test "ATTACK jwk: RSA integer fields reject non-minimal leading zeroes" {
+  let leading_zero_n =
+    #|{"kty":"RSA","n":"AAM","e":"AQAB"}
+  let leading_zero_e =
+    #|{"kty":"RSA","n":"Aw","e":"AAEAAQ"}
+  let leading_zero_d =
+    #|{"kty":"RSA","n":"Aw","e":"Aw","d":"AAM"}
+  assert_parse_public_raises(leading_zero_n)
+  assert_parse_public_raises(leading_zero_e)
+  assert_parse_private_raises(leading_zero_d)
 }
 
 ///|
@@ -336,7 +399,7 @@ test "serialise_private without private key raises" {
 ///|
 test "unsupported curve is rejected" {
   let json =
-    #|{"kty":"EC","crv":"P-521","x":"AAAA","y":"AAAA"}
+    #|{"kty":"EC","crv":"P-224","x":"AAAA","y":"AAAA"}
   let mut raised = false
   let _ = @jwk.parse_public(json) catch {
     _ => {

@@ -74,6 +74,7 @@
         });
         devShellPackages = [
           moonbit
+          pkgs.gnupg
 
           # Why3 1.7.2 (the only version `moon prove` accepts) + Alt-Ergo
           # 2.5.4 (which Why3 1.7.2 recognizes natively). Both from

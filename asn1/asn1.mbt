@@ -908,13 +908,21 @@ pub fn Decoder::expect_tag(
 }
 
 ///|
+priv struct DerLengthPatch {
+  start : Int
+  payload_start : Int
+  mut payload_end : Int
+}
+
+///|
 pub struct Encoder {
   buf : Buffer
+  priv length_patches : Array[DerLengthPatch]
 }
 
 ///|
 pub fn Encoder::new() -> Encoder {
-  { buf: Buffer() }
+  { buf: Buffer(), length_patches: [] }
 }
 
 ///|
@@ -940,13 +948,11 @@ fn write_element_at(enc : Encoder, element : Element, depth : Int) -> Unit {
   // compute it cheaply and avoid the child-buffer allocation entirely.
   match element.value {
     Sequence(items) => {
-      let child = Encoder::new()
+      let patch = reserve_der_length_patch(enc)
       for item in items {
-        write_element_at(child, item, depth + 1)
+        write_element_at(enc, item, depth + 1)
       }
-      let body = child.finish()
-      write_length(enc, body.length())
-      enc.buf.write_bytes(body)
+      finish_der_length_patch(enc, patch)
     }
     Set(items) => {
       // DER SET: encode each item to its own Bytes, sort lexicographically,
@@ -968,6 +974,36 @@ fn write_element_at(enc : Encoder, element : Element, depth : Int) -> Unit {
       encode_value_at(enc, element.value, depth)
     }
   }
+}
+
+///|
+const DER_LENGTH_PLACEHOLDER_SIZE : Int = 5
+
+///|
+fn reserve_der_length_patch(enc : Encoder) -> Int {
+  let start = enc.buf.length()
+  for _ in 0..<DER_LENGTH_PLACEHOLDER_SIZE {
+    enc.buf.write_byte(b'\x00')
+  }
+  enc.length_patches.push({
+    start,
+    payload_start: start + DER_LENGTH_PLACEHOLDER_SIZE,
+    payload_end: -1,
+  })
+  enc.length_patches.length() - 1
+}
+
+///|
+fn finish_der_length_patch(enc : Encoder, patch_index : Int) -> Unit {
+  if patch_index < 0 || patch_index >= enc.length_patches.length() {
+    abort("asn1 encoder: invalid length patch index")
+  }
+  let patch = enc.length_patches[patch_index]
+  if patch.payload_end >= 0 {
+    abort("asn1 encoder: length patch already finished")
+  }
+  patch.payload_end = enc.buf.length()
+  enc.length_patches[patch_index] = patch
 }
 
 ///|
@@ -1015,82 +1051,12 @@ fn primitive_value_size(value : Value) -> Int {
 }
 
 ///|
-fn value_encoded_size_at(value : Value, depth : Int) -> Int {
-  if depth > MAX_DEPTH {
-    abort("asn1 encoder: depth exceeds MAX_DEPTH")
-  }
-  match value {
-    Null => 0
-    Boolean(_) => 1
-    Integer(b) => b.length()
-    OctetString(b) => b.length()
-    Utf8String(s) => utf8_byte_count(s)
-    PrintableString(s) => {
-      validate_printable_string(s) catch {
-        e => abort("encode PrintableString: " + repr(e))
-      }
-      utf8_byte_count(s)
-    }
-    Ia5String(s) => {
-      validate_ascii_string(s) catch {
-        e => abort("encode IA5String: " + repr(e))
-      }
-      utf8_byte_count(s)
-    }
-    UtcTime(s) => {
-      validate_time_string(s, tag_utc_time) catch {
-        e => abort("encode UTCTime: " + repr(e))
-      }
-      utf8_byte_count(s)
-    }
-    GeneralizedTime(s) => {
-      validate_time_string(s, tag_generalized_time) catch {
-        e => abort("encode GeneralizedTime: " + repr(e))
-      }
-      utf8_byte_count(s)
-    }
-    BitString(bs) => {
-      validate_bit_string_for_encode(bs)
-      1 + bs.bytes.length()
-    }
-    Oid(oid) => oid_encoded_size(oid)
-    Sequence(items) | Set(items) => {
-      let mut total = 0
-      for item in items {
-        total = total + element_encoded_size_at(item, depth + 1)
-      }
-      total
-    }
-    Unknown(b) => b.length()
-  }
-}
-
-///|
-fn element_encoded_size_at(elem : Element, depth : Int) -> Int {
-  let payload = value_encoded_size_at(elem.value, depth)
-  tag_encoded_size(elem.tag) + length_encoded_size(payload) + payload
-}
 
 ///|
 fn element_to_bytes_at(elem : Element, depth : Int) -> Bytes {
   let enc = Encoder::new()
   write_element_at(enc, elem, depth)
   enc.finish()
-}
-
-///|
-fn tag_encoded_size(tag : Tag) -> Int {
-  if tag.number < 31U {
-    1
-  } else {
-    let mut count = 1
-    let mut tmp = tag.number
-    while tmp > 0U {
-      count = count + 1
-      tmp = tmp >> 7
-    }
-    count
-  }
 }
 
 ///|
@@ -1218,5 +1184,80 @@ fn encode_ascii_string(enc : Encoder, s : String) -> Unit {
 
 ///|
 pub fn Encoder::finish(self : Encoder) -> Bytes {
-  self.buf.to_bytes()
+  if self.length_patches.length() == 0 {
+    return self.buf.to_bytes()
+  }
+  let final_lengths = compute_final_patch_lengths(self.length_patches)
+  let source = self.buf.view()
+  let out = Buffer()
+  let mut pos = 0
+  for i in 0..<self.length_patches.length() {
+    let patch = self.length_patches[i]
+    if patch.start < pos {
+      abort("asn1 encoder: overlapping length patches")
+    }
+    write_buffer_slice(out, source, pos, patch.start)
+    write_length_to_buffer(out, final_lengths[i])
+    pos = patch.start + DER_LENGTH_PLACEHOLDER_SIZE
+  }
+  write_buffer_slice(out, source, pos, source.length())
+  out.to_bytes()
+}
+
+///|
+fn compute_final_patch_lengths(
+  patches : Array[DerLengthPatch],
+) -> FixedArray[Int] {
+  let final_lengths = FixedArray::make(patches.length(), 0)
+  for i = patches.length() - 1; i >= 0; i = i - 1 {
+    let patch = patches[i]
+    if patch.payload_end < 0 {
+      abort("asn1 encoder: unfinished length patch")
+    }
+    let mut shrink = 0
+    let mut j = i + 1
+    while j < patches.length() {
+      let nested = patches[j]
+      if nested.start >= patch.payload_start && nested.start < patch.payload_end {
+        shrink = shrink +
+          (DER_LENGTH_PLACEHOLDER_SIZE - length_encoded_size(final_lengths[j]))
+      }
+      j = j + 1
+    }
+    final_lengths[i] = patch.payload_end - patch.payload_start - shrink
+  }
+  final_lengths
+}
+
+///|
+fn write_buffer_slice(
+  out : Buffer,
+  source : ArrayView[Byte],
+  start : Int,
+  end : Int,
+) -> Unit {
+  for i in start..<end {
+    out.write_byte(source[i])
+  }
+}
+
+///|
+fn write_length_to_buffer(out : Buffer, length : Int) -> Unit {
+  if length < 0 {
+    abort("write_length_to_buffer: negative length")
+  }
+  if length < 128 {
+    out.write_byte(length.to_byte())
+  } else {
+    let mut tmp = length
+    let mut nbytes = 0
+    while tmp > 0 {
+      nbytes = nbytes + 1
+      tmp = tmp >> 8
+    }
+    out.write_byte((0x80 | nbytes).to_byte())
+    for i = nbytes - 1; i >= 0; i = i - 1 {
+      out.write_byte(((length >> (i * 8)) & 0xFF).to_byte())
+    }
+  }
 }

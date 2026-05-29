@@ -68,6 +68,45 @@ jobs:
             bash scripts/ci_retry.sh moon test --target "${{ matrix.target }}"
           '
 
+  pgp-gpg-interop:
+    name: pgp sign-side gpg interop (ubuntu-latest, nix devShell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          determinate: false
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: "disabled"
+          use-gha-cache: "enabled"
+
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
+
+      - name: gpg verifies MoonBit PGP sign output
+        run: |
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            bash scripts/ci_retry.sh moon update >/dev/null
+            bash pgp/gpg_interop.sh
+          '
+
   leakage-smoke:
     name: leakage harness smoke (native, ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest
@@ -159,7 +198,7 @@ jobs:
             done
             cat leakage-timing-backends.tsv
             LEAKAGE_CALLGRIND_ITERS=1 \
-              LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman ed25519-sign rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign" \
+              LEAKAGE_CALLGRIND_WORKLOADS="crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv p521-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman ed25519-sign rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign p521-sign secp256k1-sign" \
               LEAKAGE_CALLGRIND_THRESHOLDS=leakage_harness/callgrind_smoke_thresholds.tsv \
               LEAKAGE_CALLGRIND_REPORT=leakage-callgrind.tsv \
               bash leakage_harness/callgrind_check.sh

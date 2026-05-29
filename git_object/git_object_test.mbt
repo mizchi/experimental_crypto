@@ -297,3 +297,29 @@ test "ATTACK: empty gpgsig first line is malformed" {
     other => abort("empty gpgsig first line NOT rejected: " + repr(other) + "")
   }
 }
+
+///|
+test "ATTACK: gpgsig first line with extra leading space is malformed" {
+  let bad : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\ngpgsig  -----BEGIN PGP SIGNATURE-----\n line1\n -----END PGP SIGNATURE-----\n\nhi\n"
+  try @git_object.parse_signed_commit(bad) catch {
+    Malformed(_) => ()
+    other =>
+      abort("ambiguous gpgsig first line NOT rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("ambiguous gpgsig first line NOT rejected: " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK: gpgsig continuation with extra leading space is malformed" {
+  let bad : Bytes = b"tree 0000000000000000000000000000000000000000\nauthor x <x@x> 0 +0000\ncommitter x <x@x> 0 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n  line1\n -----END PGP SIGNATURE-----\n\nhi\n"
+  try @git_object.parse_signed_commit(bad) catch {
+    Malformed(_) => ()
+    other =>
+      abort("ambiguous gpgsig continuation NOT rejected: " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("ambiguous gpgsig continuation NOT rejected: " + repr(other) + "")
+  }
+}

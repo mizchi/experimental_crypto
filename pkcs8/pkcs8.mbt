@@ -367,6 +367,8 @@ fn validate_ec_public_key_shape(
       require_uncompressed_ec_public_key(bs, 32, "secp256r1")
     Some("1.3.132.0.34") =>
       require_uncompressed_ec_public_key(bs, 48, "secp384r1")
+    Some("1.3.132.0.35") =>
+      require_uncompressed_ec_public_key(bs, 66, "secp521r1")
     Some("1.3.132.0.10") =>
       require_uncompressed_ec_public_key(bs, 32, "secp256k1")
     _ => ()
@@ -561,7 +563,7 @@ fn serialize_encrypted_der_checked(
 
 ///|
 pub fn parse_pem(pem_str : String) -> PrivateKeyInfo raise Pkcs8Error {
-  let block = @pem.decode(pem_str) catch { e => raise Pem(e) }
+  let block = @pem.decode_strict(pem_str) catch { e => raise Pem(e) }
   if block.label != label_private_key {
     raise UnexpectedStructure(
       "expected '" +
@@ -584,7 +586,7 @@ pub fn serialize_pem(info : PrivateKeyInfo) -> String {
 pub fn parse_encrypted_pem(
   pem_str : String,
 ) -> EncryptedPrivateKeyInfo raise Pkcs8Error {
-  let block = @pem.decode(pem_str) catch { e => raise Pem(e) }
+  let block = @pem.decode_strict(pem_str) catch { e => raise Pem(e) }
   if block.label != label_encrypted_private_key {
     raise UnexpectedStructure(
       "expected '" +

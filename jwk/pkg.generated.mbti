@@ -5,6 +5,7 @@ import {
   "mizchi/ed25519",
   "mizchi/p256",
   "mizchi/p384",
+  "mizchi/p521",
   "mizchi/rsa",
   "mizchi/secp256k1",
   "moonbitlang/core/debug",
@@ -44,6 +45,7 @@ pub(all) enum Jwk {
   Rsa(pubkey~ : @rsa.RsaPublicKey, privkey~ : @rsa.RsaPrivateKey?)
   EcP256(pubkey~ : @p256.PublicKey, privkey~ : @p256.PrivateKey?)
   EcP384(pubkey~ : @p384.PublicKey, privkey~ : @p384.PrivateKey?)
+  EcP521(pubkey~ : @p521.PublicKey, privkey~ : @p521.PrivateKey?)
   EcSecp256k1(pubkey~ : @secp256k1.PublicKey, privkey~ : @secp256k1.PrivateKey?)
   OkpEd25519(pubkey~ : @ed25519.PublicKey, privkey~ : @ed25519.PrivateKey?)
   Hmac(secret~ : Bytes)

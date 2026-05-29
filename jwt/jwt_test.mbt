@@ -807,6 +807,44 @@ test "ES384: tampered signature fails" {
 }
 
 // -----------------------------------------------------------------------------
+// ES512: end-to-end (token + key generated via openssl secp521r1 + SHA-512)
+// -----------------------------------------------------------------------------
+
+///|
+fn es512_pubkey() -> @p521.PublicKey raise {
+  let spki = hex_to_bytes(
+    "30819b301006072a8648ce3d020106052b81040023038186000400ec6fb8a65ce4fd6a23921b5ae8735a42df399ff0ac1aeaf2e7d8c858872f10e60bda513e80075ee18d74cb02fd8dc1c7db746987efb7ca255fff7956874cc71ebb00badd91cffc9a1671cf15a9fb0c7c1728af82b858eed68b3a688e15a7c8208c1a231e511f9f095a7fa9ee0de2b521d6c51fab93786412436b7786a2051ae5ffab4b",
+  )
+  @p521.PublicKey::from_spki_der(spki)
+}
+
+///|
+test "ES512: token signed by openssl verifies" {
+  let token = "eyJhbGciOiJFUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.AeZDRUodvxfBoQLCzSs77adh1RMWZIxeF9t54DULpsa61Pj7XnEmD-f4rZfuiY-K-FNM6ttx498SlfwwXMt8rHUmAaZWrazReu5_bL6wcg_wOtjXxLDEZaHJDzXVlndKMEip30qUo5xe8rrjgZX0vy_JYBXIfjwDLhiLVFNFhQwFzUrN"
+  let pk = es512_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(token, @jwt.VerifyKey::Es512(pubkey=pk), opts)
+  @debug.assert_eq(v.alg, @jwt.Algorithm::ES512)
+  match v.claims.get("sub") {
+    Some(String(s)) => @debug.assert_eq(s, "mizchi")
+    _ => abort("missing sub")
+  }
+}
+
+///|
+test "ES512: tampered signature fails" {
+  let bad = "eyJhbGciOiJFUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtaXpjaGkiLCJpc3MiOiJ0ZXN0In0.BeZDRUodvxfBoQLCzSs77adh1RMWZIxeF9t54DULpsa61Pj7XnEmD-f4rZfuiY-K-FNM6ttx498SlfwwXMt8rHUmAaZWrazReu5_bL6wcg_wOtjXxLDEZaHJDzXVlndKMEip30qUo5xe8rrjgZX0vy_JYBXIfjwDLhiLVFNFhQwFzUrN"
+  let pk = es512_pubkey()
+  let opts = @jwt.VerifyOptions::default(0L)
+  try @jwt.verify(bad, @jwt.VerifyKey::Es512(pubkey=pk), opts) catch {
+    InvalidSignature => ()
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
+  } noraise {
+    other => abort("expected InvalidSignature, got " + repr(other) + "")
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Security attack tests — these are exploits from well-known JWT CVEs.
 // Each test asserts the implementation REJECTS the attack. A passing test
 // means the attack was successfully blocked.
@@ -1161,6 +1199,24 @@ test "JWT ES384 sign + verify roundtrip" {
   @debug.assert_eq(v.alg, @jwt.Algorithm::ES384)
 }
 
+///|
+test "JWT ES512 sign + verify roundtrip" {
+  let scalar = hex_to_bytes(
+    "01026f3296840cb512d4ddf291aefb09399d7ba6a87ed08d058afb300a5bf0b983e5162efe6bc0e042073a29f8307a13ee9ecda8d1a8b7538845a504da0d6d4b92a2",
+  )
+  let sk = @p521.PrivateKey::from_bytes(scalar)
+  let claims = Map([])
+  claims["sub"] = Json::string("es512-roundtrip")
+  let token = @jwt.sign(Json::object(claims), @jwt.Key::Es512(privkey=sk))
+  let opts = @jwt.VerifyOptions::default(0L)
+  let v = @jwt.verify(
+    token,
+    @jwt.VerifyKey::Es512(pubkey=sk.public_key()),
+    opts,
+  )
+  @debug.assert_eq(v.alg, @jwt.Algorithm::ES512)
+}
+
 // -----------------------------------------------------------------------------
 // Header-level RFC compliance attacks
 // -----------------------------------------------------------------------------
@@ -1393,7 +1449,10 @@ test "ATTACK jwks: duplicate kid entries are ambiguous, not first-match-wins" {
     #|  { "kty": "oct", "k": "YXR0YWNrZXItc2VjcmV0", "kid": "dup", "alg": "HS256" },
     #|  { "kty": "oct", "k": "bGVnaXQtc2VjcmV0", "kid": "dup", "alg": "HS256" }
     #|] }
-  let set = @jwk.parse_set(jwk_doc)
+  let set = @jwk.parse_set(jwk_doc) catch {
+    @jwk.InvalidJson(_) => return
+    e => abort("expected InvalidJson for duplicate kid, got " + repr(e) + "")
+  }
   let header : Map[String, Json] = Map([])
   header["alg"] = Json::string("HS256")
   header["kid"] = Json::string("dup")
@@ -1455,6 +1514,27 @@ test "select_verify_key: RSA JWKS maps RS384/RS512/PS384/PS512" {
   match select_rsa_jwks_verify_key("PS512") {
     Ps512(_) => ()
     _ => abort("expected Ps512 VerifyKey")
+  }
+}
+
+///|
+test "select_verify_key: EC P-521 JWKS maps ES512" {
+  let jwk_doc =
+    #|{ "keys": [ {
+    #|  "kty":"EC",
+    #|  "crv":"P-521",
+    #|  "x":"AOxvuKZc5P1qI5IbWuhzWkLfOZ_wrBrq8ufYyFiHLxDmC9pRPoAHXuGNdMsC_Y3Bx9t0aYfvt8olX_95VodMxx67",
+    #|  "y":"ALrdkc_8mhZxzxWp-wx8FyivgrhY7taLOmiOFafIIIwaIx5RH58JWn-p7g3itSHWxR-rk3hkEkNrd4aiBRrl_6tL",
+    #|  "kid":"p521-kid",
+    #|  "alg":"ES512"
+    #|} ] }
+  let set = @jwk.parse_set(jwk_doc)
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("ES512")
+  header["kid"] = Json::string("p521-kid")
+  match @jwt.select_verify_key(set, header) {
+    Es512(_) => ()
+    _ => abort("expected Es512 VerifyKey")
   }
 }
 
@@ -1741,6 +1821,53 @@ test "rfc9068: scalar cnf is rejected" {
 }
 
 ///|
+test "ATTACK rfc9068: malformed cnf members are rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068"
+  fn base_claims(cnf : Map[String, Json]) -> Json {
+    let m : Map[String, Json] = Map([])
+    m["iss"] = Json::string("https://as.example.com/")
+    m["sub"] = Json::string("user-42")
+    m["aud"] = Json::string("https://rs.example.com/")
+    m["exp"] = Json::number((now + 600L).to_double())
+    m["iat"] = Json::number(now.to_double())
+    m["jti"] = Json::string("c0ffee-id")
+    m["client_id"] = Json::string("s6BhdRkqt3")
+    m["cnf"] = Json::object(cnf)
+    Json::object(m)
+  }
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now, "https://as.example.com/", "https://rs.example.com/",
+  )
+  let cases : Array[Map[String, Json]] = []
+  let bad_jwk : Map[String, Json] = Map([])
+  bad_jwk["jwk"] = Json::string("not-an-object")
+  cases.push(bad_jwk)
+  let bad_jkt : Map[String, Json] = Map([])
+  bad_jkt["jkt"] = Json::number(42.0)
+  cases.push(bad_jkt)
+  let bad_x5t : Map[String, Json] = Map([])
+  bad_x5t["x5t#S256"] = Json::array([])
+  cases.push(bad_x5t)
+  let unknown : Map[String, Json] = Map([])
+  unknown["kid"] = Json::string("unimplemented-confirmation-method")
+  cases.push(unknown)
+  for cnf in cases {
+    let token = @jwt.sign(
+      base_claims(cnf),
+      @jwt.Key::Hs256(secret~),
+      typ="at+jwt",
+    )
+    try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+      ClaimsParseError(_) => ()
+      e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+    } noraise {
+      _ => abort("accepted malformed cnf member")
+    }
+  }
+}
+
+///|
 test "rfc9068: aud as JSON array containing the resource indicator" {
   let now = 1_700_000_000L
   let secret : Bytes = b"hs256-test-secret-for-9068"
@@ -1934,7 +2061,10 @@ test "ATTACK rfc9068_jwks: duplicate kid cannot pick attacker-controlled first k
     #|  { "kty": "oct", "kid": "dup", "alg": "HS256", "k": "YXR0YWNrZXItc2VjcmV0" },
     #|  { "kty": "oct", "kid": "dup", "alg": "HS256", "k": "bGVnaXQtc2VjcmV0" }
     #|] }
-  let set = @jwk.parse_set(jwks)
+  let set = @jwk.parse_set(jwks) catch {
+    @jwk.InvalidJson(_) => return
+    e => abort("expected InvalidJson for duplicate kid, got " + repr(e) + "")
+  }
   let opts = @jwt.Rfc9068VerifyOptions::default(
     now, "https://as.example.com/", "https://rs.example.com/",
   )
@@ -2217,6 +2347,59 @@ test "oidc: strict options require and verify nonce" {
     opts,
   )
   @debug.assert_eq(id.nonce, Some("fresh-nonce"))
+}
+
+///|
+test "ATTACK oidc: malformed amr array is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-amr-shape"
+  let extra : Map[String, Json] = Map([])
+  extra["amr"] = Json::array([Json::string("pwd"), Json::number(42.0)])
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    extra,
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted ID token with malformed amr array")
+  }
+}
+
+///|
+test "ATTACK oidc: malformed email_verified is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-email-verified-shape"
+  let extra : Map[String, Json] = Map([])
+  extra["email"] = Json::string("user@example.com")
+  extra["email_verified"] = Json::string("true")
+  let payload = oidc_id_token_claims(
+    now,
+    "https://accounts.example.com/",
+    Json::string("client-abc"),
+    extra,
+  )
+  let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  try
+    @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted ID token with malformed email_verified")
+  }
 }
 
 ///|
@@ -2997,6 +3180,31 @@ test "ATTACK dpop: duplicate embedded jwk members reject before map collapse" {
 }
 
 ///|
+test "ATTACK dpop: embedded public jwk rejects private key material" {
+  let seed = Bytes::makei(32, fn(i) { (i + 21).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let x = b64u_encode(sk.public_key().to_bytes())
+  let d = b64u_encode(seed)
+  let now = 1_700_000_000L
+  let header_json = "{\"alg\":\"EdDSA\",\"typ\":\"dpop+jwt\",\"jwk\":{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"" +
+    x +
+    "\",\"d\":\"" +
+    d +
+    "\"}}"
+  let payload_json = "{\"htm\":\"POST\",\"htu\":\"https://rs.example.com/resource\",\"iat\":1700000000,\"jti\":\"private-jwk\"}"
+  let proof = sign_ed25519_token_with_raw_json(header_json, payload_json, sk)
+  try @jwt.verify_dpop_proof(proof, dpop_opts_for_test(now)) catch {
+    InvalidDpopProof(_) => ()
+    other => abort("expected InvalidDpopProof, got " + repr(other) + "")
+  } noraise {
+    _ =>
+      abort(
+        "accepted DPoP proof whose inline jwk contained private key material",
+      )
+  }
+}
+
+///|
 test "ATTACK dpop: malformed jwk header shape is rejected" {
   let seed = Bytes::makei(32, fn(i) { (i + 13).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
@@ -3625,6 +3833,35 @@ test "userinfo-jws: matching sub verifies and surfaces profile claims" {
 }
 
 ///|
+test "ATTACK userinfo-jws: malformed email_verified is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"userinfo-email-verified-shape"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["sub"] = Json::string("user-42")
+  m["email"] = Json::string("u@example.com")
+  m["email_verified"] = Json::string("true")
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.UserInfoVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_sub: "user-42",
+    allowed_algorithms: None,
+  }
+  try
+    @jwt.verify_userinfo_jws(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted UserInfo with malformed email_verified")
+  }
+}
+
+///|
 test "userinfo-jws: jwks path and algorithm allow-list" {
   let now = 1_700_000_000L
   let secret : Bytes = b"userinfo-jwks-secret"
@@ -3825,6 +4062,36 @@ test "ATTACK JAR: embedded client_id substitution rejected" {
     e => abort("expected ClientIdMismatch, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected ClientIdMismatch, got Ok")
+  }
+}
+
+///|
+test "ATTACK JAR: malformed embedded client_id is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jar-client-shape"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("client-abc")
+  m["aud"] = Json::string("https://as.example.com/")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["response_type"] = Json::string("code")
+  m["client_id"] = Json::number(42.0)
+  m["redirect_uri"] = Json::string("https://client.example/cb")
+  let token = @jwt.sign(
+    Json::object(m),
+    @jwt.Key::Hs256(secret~),
+    typ="oauth-authz-req+jwt",
+  )
+  let opts = @jwt.RequestObjectVerifyOptions::default(
+    now, "client-abc", "https://as.example.com/",
+  )
+  try
+    @jwt.verify_request_object(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted request object with malformed client_id")
   }
 }
 
@@ -4402,49 +4669,67 @@ test "aggregated-distributed: parser extracts sources and names" {
 }
 
 ///|
-test "aggregated-distributed: absent and malformed metadata are handled" {
+test "aggregated-distributed: absent metadata returns None" {
   let empty : Map[String, Json] = Map([])
   match @jwt.extract_aggregated_distributed_claims(empty) {
     None => ()
     Some(_) => abort("expected no aggregated/distributed metadata")
   }
+}
 
+///|
+test "ATTACK aggregated-distributed: malformed metadata is rejected" {
   let claims : Map[String, Json] = Map([])
   let sources : Map[String, Json] = Map([])
   sources["scalar"] = Json::string("not-an-object")
-  let malformed : Map[String, Json] = Map([])
-  malformed["unexpected"] = Json::string("ignored")
-  sources["malformed"] = Json::object(malformed)
   let dist : Map[String, Json] = Map([])
   dist["endpoint"] = Json::string("https://claims.example.com/email")
   sources["dist"] = Json::object(dist)
   claims["_claim_sources"] = Json::object(sources)
   let names : Map[String, Json] = Map([])
   names["email"] = Json::string("dist")
-  names["ignored"] = Json::number(1.0)
   claims["_claim_names"] = Json::object(names)
-  let ad = @jwt.extract_aggregated_distributed_claims(claims)
-  match ad {
-    Some(a) => {
-      @debug.assert_eq(a.names.get("email"), Some("dist"))
-      @debug.assert_eq(a.names.get("ignored"), None)
-      match a.sources.get("dist") {
-        Some(Distributed(endpoint~, access_token~)) => {
-          @debug.assert_eq(endpoint, "https://claims.example.com/email")
-          @debug.assert_eq(access_token, None)
-        }
-        _ => abort("expected Distributed without access token")
-      }
-      match a.sources.get("scalar") {
-        None => ()
-        Some(_) => abort("expected scalar source to be ignored")
-      }
-      match a.sources.get("malformed") {
-        None => ()
-        Some(_) => abort("expected malformed source to be ignored")
-      }
-    }
-    None => abort("expected aggregated/distributed metadata")
+  try @jwt.extract_aggregated_distributed_claims(claims) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted malformed claim source")
+  }
+}
+
+///|
+test "ATTACK aggregated-distributed: ambiguous and dangling metadata is rejected" {
+  let ambiguous : Map[String, Json] = Map([])
+  let sources1 : Map[String, Json] = Map([])
+  let src1 : Map[String, Json] = Map([])
+  src1["JWT"] = Json::string("aggregated.jwt")
+  src1["endpoint"] = Json::string("https://claims.example.com")
+  sources1["src1"] = Json::object(src1)
+  ambiguous["_claim_sources"] = Json::object(sources1)
+  let names1 : Map[String, Json] = Map([])
+  names1["email"] = Json::string("src1")
+  ambiguous["_claim_names"] = Json::object(names1)
+  try @jwt.extract_aggregated_distributed_claims(ambiguous) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted claim source with both JWT and endpoint")
+  }
+
+  let dangling : Map[String, Json] = Map([])
+  let sources2 : Map[String, Json] = Map([])
+  let src2 : Map[String, Json] = Map([])
+  src2["endpoint"] = Json::string("https://claims.example.com/email")
+  sources2["src2"] = Json::object(src2)
+  dangling["_claim_sources"] = Json::object(sources2)
+  let names2 : Map[String, Json] = Map([])
+  names2["email"] = Json::string("missing-src")
+  dangling["_claim_names"] = Json::object(names2)
+  try @jwt.extract_aggregated_distributed_claims(dangling) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted _claim_names reference to missing source")
   }
 }
 
@@ -4538,6 +4823,78 @@ test "discovery: required metadata arrays are enforced" {
     e => abort("expected MissingRequiredClaim, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected MissingRequiredClaim, got Ok")
+  }
+}
+
+///|
+test "ATTACK discovery: malformed string arrays are rejected" {
+  let doc =
+    #|{
+    #|  "issuer": "https://issuer.example/",
+    #|  "authorization_endpoint": "https://issuer.example/authorize",
+    #|  "jwks_uri": "https://issuer.example/jwks.json",
+    #|  "response_types_supported": ["code", 42],
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(doc) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted malformed discovery string array")
+  }
+}
+
+///|
+test "ATTACK discovery: malformed string endpoints are rejected" {
+  let doc =
+    #|{
+    #|  "issuer": "https://issuer.example/",
+    #|  "authorization_endpoint": "https://issuer.example/authorize",
+    #|  "jwks_uri": 42,
+    #|  "response_types_supported": ["code"],
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(doc) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted malformed discovery string endpoint")
+  }
+}
+
+///|
+test "ATTACK discovery: duplicate provider metadata members are rejected" {
+  let duplicate_issuer =
+    #|{
+    #|  "issuer": "https://issuer.example/",
+    #|  "issuer": "https://attacker.example/",
+    #|  "response_types_supported": ["code"],
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(duplicate_issuer) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted duplicate discovery issuer")
+  }
+
+  let duplicate_jwks =
+    #|{
+    #|  "issuer": "https://issuer.example/",
+    #|  "jwks_uri": "https://issuer.example/jwks.json",
+    #|  "jwks_uri": "https://attacker.example/jwks.json",
+    #|  "response_types_supported": ["code"],
+    #|  "subject_types_supported": ["public"],
+    #|  "id_token_signing_alg_values_supported": ["RS256"]
+    #|}
+  try @jwt.parse_provider_metadata(duplicate_jwks) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted duplicate discovery jwks_uri")
   }
 }
 
@@ -4758,6 +5115,81 @@ test "federation: optional trust metadata is surfaced and alg is pinned" {
   } noraise {
     _ => abort("expected AlgorithmNotAllowed, got Ok")
   }
+}
+
+///|
+test "ATTACK federation: malformed optional trust metadata rejects" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"federation-optional-shape"
+  fn expect_reject(payload : Json) -> Unit raise {
+    let token = @jwt.sign(
+      payload,
+      @jwt.Key::Hs256(secret~),
+      typ="entity-statement+jwt",
+    )
+    let opts : @jwt.EntityStatementVerifyOptions = {
+      now,
+      clock_skew_sec: 0L,
+      subject: "https://op.example.com",
+      expected_issuer: Some("https://op.example.com"),
+      expected_kind: Some(@jwt.EntityStatementKind::Configuration),
+      allowed_algorithms: None,
+    }
+    try
+      @jwt.verify_entity_statement(token, @jwt.VerifyKey::Hs256(secret~), opts)
+    catch {
+      ClaimsParseError(_) | InvalidEntityStatement(_) => ()
+      e =>
+        abort("expected metadata shape rejection, got " + @debug.to_string(e))
+    } noraise {
+      _ => abort("accepted malformed federation optional metadata")
+    }
+  }
+
+  let bad_metadata = entity_statement_claims_for_coverage(
+    now, "https://op.example.com", "https://op.example.com",
+  )
+  match bad_metadata {
+    Object(m) => m["metadata"] = Json::string("not-an-object")
+    _ => abort("fixture claims not object")
+  }
+  expect_reject(bad_metadata)
+
+  let bad_source_endpoint = entity_statement_claims_for_coverage(
+    now, "https://op.example.com", "https://op.example.com",
+  )
+  match bad_source_endpoint {
+    Object(m) => m["source_endpoint"] = Json::number(42.0)
+    _ => abort("fixture claims not object")
+  }
+  expect_reject(bad_source_endpoint)
+
+  let bad_trust_marks = entity_statement_claims_for_coverage(
+    now, "https://op.example.com", "https://op.example.com",
+  )
+  match bad_trust_marks {
+    Object(m) => m["trust_marks"] = Json::string("trust-mark.jwt")
+    _ => abort("fixture claims not object")
+  }
+  expect_reject(bad_trust_marks)
+
+  let bad_constraints = entity_statement_claims_for_coverage(
+    now, "https://op.example.com", "https://op.example.com",
+  )
+  match bad_constraints {
+    Object(m) => m["constraints"] = Json::array([])
+    _ => abort("fixture claims not object")
+  }
+  expect_reject(bad_constraints)
+
+  let bad_policy = entity_statement_claims_for_coverage(
+    now, "https://op.example.com", "https://op.example.com",
+  )
+  match bad_policy {
+    Object(m) => m["metadata_policy"] = Json::string("not-an-object")
+    _ => abort("fixture claims not object")
+  }
+  expect_reject(bad_policy)
 }
 
 ///|

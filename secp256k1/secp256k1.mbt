@@ -292,6 +292,40 @@ pub fn PublicKey::to_compressed(self : PublicKey) -> Bytes {
 }
 
 ///|
+/// Add `scalar * G` to this public key and return the resulting public key.
+/// This is the non-hardened BIP-32 CKDpub operation primitive. `scalar` is a
+/// 32-byte big-endian integer in `[0, n)`. Zero is accepted and returns the
+/// original key; a result at infinity is rejected.
+pub fn PublicKey::add_generator_mul(
+  self : PublicKey,
+  scalar : Bytes,
+) -> PublicKey raise Secp256k1Error {
+  if scalar.length() != 32 {
+    raise InvalidPrivateKey(
+      "expected 32-byte generator tweak scalar, got " +
+      scalar.length().to_string(),
+    )
+  }
+  if !is_on_curve(self.point) {
+    raise PointNotOnCurve
+  }
+  let k = BigInt::from_octets(scalar[:])
+  let n = k1_n()
+  if k.compare(n) >= 0 {
+    raise InvalidPrivateKey("generator tweak scalar >= n")
+  }
+  let tweak = fe_k1_scalar_mult_base_fixed(k)
+  let sum = point_add(self.point, tweak)
+  if sum.inf {
+    raise InvalidPointEncoding("generator tweak produced point at infinity")
+  }
+  if !is_on_curve(sum) {
+    raise PointNotOnCurve
+  }
+  { point: sum }
+}
+
+///|
 // OIDs used in SPKI: ecPublicKey + namedCurve secp256k1 (1.3.132.0.10).
 let id_ec_public_key_str : String = "1.2.840.10045.2.1"
 

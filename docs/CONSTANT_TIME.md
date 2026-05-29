@@ -22,8 +22,9 @@ This workspace uses four different levels of side-channel language:
 | `crypto_bigint` pow | Fixed exponent-width loop. Odd moduli use 32-bit-word Montgomery multiplication. | Measured constant-time candidate for the listed workload; Linux native callgrind stays CI-gated at 1.0%. |
 | `crypto_bigint` inv | Fixed-iteration odd-modulus almost-inverse loop. | Final invertible / non-invertible branch is caller-visible; measured candidate only for fixed-size invertible class workloads. |
 | RSA sign / JWE RSA-OAEP decrypt | Private modexp routes through `crypto_bigint.Uint::pow_mod`. | Measured constant-time candidate for private modexp workloads; there is still no CRT hardening or blinding. |
-| ECDSA final nonce inverse | `p256`, `p384`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Measured constant-time candidate for the direct sparse-vs-dense nonce-inverse workloads. |
-| ECDSA scalar multiplication | P-256, P-384, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Measured constant-time candidate for sign-side base-point workloads; verify remains public-input variable-time. |
+| ECDSA final nonce inverse | `p256`, `p384`, `p521`, and `secp256k1` route `k^-1 mod n` through `crypto_bigint.Uint::inv_mod`. | Measured constant-time candidate for the archived direct sparse-vs-dense nonce-inverse workloads except newly added P-521, which still needs repeated calibrated evidence. |
+| ECDSA scalar multiplication | P-256, P-384, P-521, and secp256k1 sign-side base-point multiplication use fixed-iteration complete-addition paths. Public verify remains affine `@bigint`. | Measured constant-time candidate for archived sign-side base-point workloads except newly added P-521, which still needs repeated calibrated evidence. |
+| P-521 / ES512 signing evidence | P-521 sign-side base-point multiplication and final nonce inverse are fixed-limb / fixed-iteration and registered as `p521-sign` / `p521-nonce-inv`. | Not yet part of archived measured constant-time candidate claims. |
 | Ed25519 | 10-limb Edwards field arithmetic with fixed-limb sign-side scalar reduction / mul-add. Public verify scalar parsing remains public `@bigint`. | Measured constant-time candidate for the `ed25519-sign` sparse/dense seed workload. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Measured constant-time candidate for the sparse/dense scalar ECDH workload. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
@@ -38,7 +39,8 @@ Manual `Leakage Profile` run
 on head `1ff288146603df1dc9b6b1829b3b30a3dc5a81f2` passed
 `profile_evidence_gate.sh` on 2026-05-28 UTC. Artifact
 [`7271878741`](https://github.com/mizchi/moonbit-crypto/actions/runs/26587352022/artifacts/7271878741)
-archives the merged TSVs for every current private-operation workload:
+archives the merged TSVs for the private-operation workload set at that
+revision. It predates the `p521-sign` and `p521-nonce-inv` workloads:
 
 - timing evidence: 3 runs for native, JS, wasm-gc, and wasm targets; worst
   row was JS `p384-nonce-inv` with `max_abs_t=12.79`,
@@ -61,8 +63,8 @@ private-operation paths that previously relied on source inspection alone.
      exponent class.
    - `crypto_bigint.Uint::inv_mod` with same modulus, split by secret input
      class.
-   - ECDSA nonce inverses for P-256, P-384, and secp256k1 order moduli,
-     split by sparse-vs-dense nonce class.
+   - ECDSA nonce inverses for P-256, P-384, P-521, and secp256k1 order
+     moduli, split by sparse-vs-dense nonce class.
    - X25519 ECDH with a fixed basepoint peer key, split by secret scalar
      class.
    - Ed25519 signing with fixed messages, split by sparse-vs-dense seed
@@ -72,8 +74,8 @@ private-operation paths that previously relied on source inspection alone.
 2. Callgrind-style instruction-count comparisons exist for the same fixed-size
    classes. These do not prove absence of microarchitectural leakage, but they
    catch obvious secret-dependent control flow and allocation deltas.
-3. Signing leakage checks exist for Ed25519, P-256, P-384, and secp256k1 in
-   the Linux-native callgrind gate.
+3. Signing leakage checks exist for Ed25519, P-256, P-384, P-521, and
+   secp256k1 in the Linux-native callgrind gate.
 4. CI also runs loose timing smoke checks for JS, wasm-gc, and wasm so backend
    lowering paths keep executing. Treat these as smoke tests only: JIT, GC,
    and BigInt lowering make them unsuitable for strong constant-time claims.
@@ -234,8 +236,8 @@ Before upgrading any new path from "branchless / fixed-iteration intended" to
   wasm-gc, and wasm timing rows plus repeated wasm-gc / wasm dudect and native
   callgrind rows for every advertised private-operation workload.
 
-For the current private-operation workload set, those checks exist in run
-`26587352022`. The correct description for covered paths is:
+For the archived pre-P-521 workload set, those checks exist in run
+`26587352022`. The correct description for those covered paths is:
 
 > fixed-limb / fixed-iteration, branchless-intended, measured constant-time
 > candidate for the archived workload set, not constant-clock proven.

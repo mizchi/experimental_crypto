@@ -101,6 +101,12 @@ pub fn decode_armor(input : String) -> Armored raise PgpError {
       }
     None => raise ArmorMalformed("missing END line")
   }
+  while i < lines.length() {
+    if trim_ascii(lines[i]) != "" {
+      raise ArmorMalformed("trailing data after END line")
+    }
+    i = i + 1
+  }
   let data = @base64.decode(buf.to_string()) catch {
     _ => raise ArmorMalformed("body base64")
   }

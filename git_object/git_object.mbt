@@ -94,6 +94,7 @@ fn parse_signed_content(
     if in_sig_header {
       // Continuation lines start with a single space.
       if raw.length() > 0 && raw.get_char(0).unwrap() == ' ' {
+        validate_gpgsig_continuation(raw)
         // Strip the leading space (and trailing newline if any) before
         // collecting.
         let stripped = drop_first_char(raw)
@@ -127,6 +128,7 @@ fn parse_signed_content(
         if first_sig_line == "" {
           raise Malformed("empty gpgsig header")
         }
+        validate_gpgsig_value_line(first_sig_line)
         gpgsig_lines.push(first_sig_line)
         in_sig_header = true
         byte_index = logical_end
@@ -160,6 +162,31 @@ fn parse_signed_content(
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
+
+///|
+fn validate_gpgsig_value_line(line : String) -> Unit raise GitObjectError {
+  if line.length() == 0 {
+    raise Malformed("empty gpgsig header")
+  }
+  let first = line.get_char(0).unwrap()
+  if first == ' ' || first == '\t' {
+    raise Malformed("ambiguous gpgsig header whitespace")
+  }
+}
+
+///|
+fn validate_gpgsig_continuation(raw : String) -> Unit raise GitObjectError {
+  if raw.length() <= 1 {
+    return
+  }
+  let second = raw.get_char(1).unwrap()
+  // A line containing only the required continuation space plus newline is
+  // valid: OpenPGP armor can contain a blank line after BEGIN. Extra leading
+  // whitespace would be hidden by tolerant armor parsers, so reject it here.
+  if second == ' ' || second == '\t' {
+    raise Malformed("ambiguous gpgsig continuation whitespace")
+  }
+}
 
 ///|
 fn strip_raw_object_header(

@@ -26,6 +26,11 @@ fn secp256r1_oid() -> @asn1.ObjectIdentifier raise {
 }
 
 ///|
+fn secp521r1_oid() -> @asn1.ObjectIdentifier raise {
+  @asn1.ObjectIdentifier::from_string("1.3.132.0.35")
+}
+
+///|
 fn oid_param(oid : @asn1.ObjectIdentifier) -> Bytes {
   @asn1.encode_der(@asn1.Element::new(@asn1.tag_oid, Oid(oid)))
 }
@@ -154,9 +159,23 @@ test "ATTACK pkcs8: PRIVATE KEY PEM with legacy headers is rejected" {
   })
   try @pkcs8.parse_pem(pem) catch {
     @pkcs8.UnexpectedStructure(_) => ()
+    @pkcs8.Pem(_) => ()
     other => abort("expected header rejection, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted PRIVATE KEY PEM with legacy headers")
+  }
+}
+
+///|
+test "ATTACK pkcs8: PRIVATE KEY PEM rejects explanatory text" {
+  let pem = "loaded from an untrusted bundle\n" +
+    @pkcs8.serialize_pem(sample_ed25519_key()) +
+    "trailing notes\n"
+  try @pkcs8.parse_pem(pem) catch {
+    @pkcs8.Pem(_) => ()
+    other => abort("expected strict PEM rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted PRIVATE KEY PEM with explanatory text")
   }
 }
 
@@ -238,9 +257,25 @@ test "ATTACK pkcs8: ENCRYPTED PRIVATE KEY PEM with legacy headers is rejected" {
   })
   try @pkcs8.parse_encrypted_pem(pem) catch {
     @pkcs8.UnexpectedStructure(_) => ()
+    @pkcs8.Pem(_) => ()
     other => abort("expected header rejection, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted ENCRYPTED PRIVATE KEY PEM with legacy headers")
+  }
+}
+
+///|
+test "ATTACK pkcs8: ENCRYPTED PRIVATE KEY PEM rejects explanatory text" {
+  let enc : @pkcs8.EncryptedPrivateKeyInfo = {
+    algorithm: { algorithm: pbes2_oid(), parameters: None },
+    encrypted_data: b"\x01\x02\x03\x04\x05",
+  }
+  let pem = "prelude\n" + @pkcs8.serialize_encrypted_pem(enc) + "epilogue\n"
+  try @pkcs8.parse_encrypted_pem(pem) catch {
+    @pkcs8.Pem(_) => ()
+    other => abort("expected strict PEM rejection, got " + repr(other) + "")
+  } noraise {
+    _ => abort("accepted ENCRYPTED PRIVATE KEY PEM with explanatory text")
   }
 }
 
@@ -355,6 +390,41 @@ test "ATTACK pkcs8: known EC v2 publicKey must be uncompressed point shape" {
   } noraise {
     other =>
       abort("expected EC publicKey shape rejection, got " + repr(other) + "")
+  }
+}
+
+///|
+test "ATTACK pkcs8: P-521 v2 publicKey must use 66-byte coordinates" {
+  let short_p521_point = Bytes::makei(65, fn(i) {
+    if i == 0 {
+      b'\x04'
+    } else {
+      b'\x00'
+    }
+  })
+  let bit_string_payload = Bytes::makei(short_p521_point.length() + 1, fn(i) {
+    if i == 0 {
+      b'\x00'
+    } else {
+      short_p521_point[i - 1]
+    }
+  })
+  let items : Array[@asn1.Element] = [
+    @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+    @pkix.algorithm_identifier_to_element({
+      algorithm: ec_public_key_oid(),
+      parameters: Some(oid_param(secp521r1_oid())),
+    }),
+    @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+    @asn1.Element::new(@asn1.Tag::context(1U), Unknown(bit_string_payload)),
+  ]
+  try @pkcs8.parse_der(pkcs8_der_from_items(items)) catch {
+    @pkcs8.UnexpectedStructure(_) => ()
+    other =>
+      abort("expected P-521 publicKey shape rejection, got " + repr(other) + "")
+  } noraise {
+    other =>
+      abort("expected P-521 publicKey shape rejection, got " + repr(other) + "")
   }
 }
 

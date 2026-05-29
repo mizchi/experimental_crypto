@@ -82,6 +82,7 @@ pub fn Element::new(Tag, Value) -> Self
 
 pub struct Encoder {
   buf : @buffer.Buffer
+  // private fields
 }
 pub fn Encoder::finish(Self) -> Bytes
 pub fn Encoder::new() -> Self

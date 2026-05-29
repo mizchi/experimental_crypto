@@ -64,8 +64,8 @@ implementation **rejects** the exploit:
 |---|---|---|
 | CVE-2015-9235 — JWT `alg:none` | `jwt` | ✓ rejected |
 | CVE-2016-10555 — JWT alg confusion (HS256 token + RS256 key) | `jwt` | ✓ rejected |
-| CVE-2022-21449 — ECDSA "Psychic Signatures" (s=0 / r=0 / r=s=0) | `p256` / `p384` / `secp256k1` | ✓ rejected |
-| CVE-2020-0601 — ECDSA Curveball (off-curve pubkey) | `p256` / `p384` / `secp256k1` | ✓ rejected |
+| CVE-2022-21449 — ECDSA "Psychic Signatures" (s=0 / r=0 / r=s=0) | `p256` / `p384` / `p521` / `secp256k1` | ✓ rejected |
+| CVE-2020-0601 — ECDSA Curveball (off-curve pubkey) | `p256` / `p384` / `p521` / `secp256k1` | ✓ rejected |
 | CVE-2006-4339 / CVE-2014-1568 — RSA Bleichenbacher / BERserk (PKCS#1 v1.5 trailing garbage) | `rsa` | ✓ rejected |
 | CVE-2018-0739 — ASN.1 deep-nesting DoS | `asn1` | ✓ MAX_DEPTH on both decoder + encoder |
 | RFC 7748 §6.1 — X25519 small-subgroup pubkey | `x25519` | ✓ AllZeroSharedSecret raised |
@@ -89,6 +89,11 @@ worth noting:
   backed by Linux-native callgrind coverage, wasm-gc / wasm in-process
   dudect-style evidence, and repeated native / JS / wasm-gc / wasm timing
   evidence. It is not a constant-clock proof.
+- **P-521 / ES512 signing** now routes sign-side base-point multiplication and
+  final nonce inversion through fixed-limb / fixed-iteration paths. It is
+  wired into the leakage harness, but it was added after the archived evidence
+  run below and still needs repeated calibrated evidence before the same
+  measured-candidate status.
 - **RSA / JWE private modexp** routes through `crypto_bigint` fixed-limb
   modular exponentiation instead of `@bigint.pow`. This is fixed-iteration and
   branchless in source structure with direct `crypto_bigint` add/sub/mul/pow
@@ -106,10 +111,10 @@ The current archived evidence is manual `Leakage Profile` run `26587352022`
 on `1ff288146603df1dc9b6b1829b3b30a3dc5a81f2`, artifact `7271878741`.
 That run passed `leakage_harness/profile_evidence_gate.sh` with repeated
 native / JS / wasm-gc / wasm timing rows, wasm-gc / wasm dudect rows, and
-native callgrind rows for every current private-operation workload. CI keeps
-the same paths under smoke gates; future private-operation workloads must be
-added to the harness, registry self-test, thresholds, and manual evidence
-profile before receiving the same measured-candidate status.
+native callgrind rows for every private-operation workload that existed at
+that revision. CI keeps the same classes under smoke gates; newly added
+private-operation workloads such as P-521 sign / nonce-inverse must pass a new
+manual evidence profile before receiving the same measured-candidate status.
 
 ### Caller responsibilities
 

@@ -19,6 +19,7 @@ members = [
   "./pkix_verify",
   "./p256",
   "./p384",
+  "./p521",
   "./hash",
   "./ssh",
   "./git_object",

@@ -2,10 +2,11 @@
 //
 // Supported algorithms:
 //   - sign + verify: HS256, HS384, HS512, EdDSA (RFC 8037 §3.1),
-//                    RS256, RS384, RS512, ES256, ES384, ES256K,
+//                    RS256, RS384, RS512, ES256, ES384, ES512, ES256K,
 //                    PS256, PS384, PS512 (RFC 7518 §3.5)
-// ES512 is recognized in `Algorithm` for completeness but has no Key /
-// VerifyKey branch because this workspace does not currently implement P-521.
+//
+// ES512 uses NIST P-521 / secp521r1 with SHA-512. This workspace does not
+// implement a curve literally named "P-512".
 //
 // PSx note: RFC 7518 §3.5 requires sLen = hLen for PS256 / PS384 / PS512.
 // The workspace does not provide an RNG at the JWT layer, so PSx signing
@@ -47,9 +48,11 @@ pub(all) enum Key {
   Rs256(privkey~ : @rsa.RsaPrivateKey)
   Rs384(privkey~ : @rsa.RsaPrivateKey)
   Rs512(privkey~ : @rsa.RsaPrivateKey)
-  // ES256 / ES384: ECDSA-SHA-{256,384} sign with RFC 6979 deterministic nonce.
+  // ES256 / ES384 / ES512: ECDSA-SHA-{256,384,512} sign with RFC 6979
+  // deterministic nonce.
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
+  Es512(privkey~ : @p521.PrivateKey)
   // ES256K (RFC 8812): ECDSA-secp256k1-SHA256 with RFC 6979 + BIP-62 low-s.
   // Signature is the JOSE raw form r||s (64 bytes) regardless of the curve.
   Es256k(privkey~ : @secp256k1.PrivateKey)
@@ -78,6 +81,8 @@ pub(all) enum VerifyKey {
   Es256(pubkey~ : @p256.PublicKey)
   // ES384 (ECDSA with P-384 + SHA-384, RFC 7518 §3.4). JOSE raw r||s = 96B.
   Es384(pubkey~ : @p384.PublicKey)
+  // ES512 (ECDSA with P-521 + SHA-512, RFC 7518 §3.4). JOSE raw r||s = 132B.
+  Es512(pubkey~ : @p521.PublicKey)
   // ES256K (RFC 8812 §3.1): ECDSA-secp256k1-SHA256. JOSE raw r||s = 64B.
   // Verify is permissive on high-s per the underlying SEC 2 / FIPS 186-5
   // shape — strict BIP-66 rejection is the caller's job.
@@ -326,6 +331,7 @@ fn key_alg(k : Key) -> Algorithm {
     Rs512(..) => RS512
     Es256(..) => ES256
     Es384(..) => ES384
+    Es512(..) => ES512
     Es256k(..) => ES256K
     Ps256(..) => PS256
     Ps384(..) => PS384
@@ -345,6 +351,7 @@ fn verify_key_alg(k : VerifyKey) -> Algorithm {
     Rs512(..) => RS512
     Es256(..) => ES256
     Es384(..) => ES384
+    Es512(..) => ES512
     Es256k(..) => ES256K
     Ps256(..) => PS256
     Ps384(..) => PS384
@@ -444,6 +451,7 @@ pub fn sign(
       }
     Es256(privkey~) => privkey.sign(signing_bytes)
     Es384(privkey~) => privkey.sign(signing_bytes)
+    Es512(privkey~) => privkey.sign(signing_bytes)
     Es256k(privkey~) =>
       // @secp256k1.sign defaults to BIP-62 low-s + DER; JOSE wants raw r||s.
       privkey.sign(signing_bytes, format=@secp256k1.SignatureFormat::Raw)
@@ -985,6 +993,16 @@ pub fn verify(
       ) catch {
         _ => raise InvalidSignature
       }
+    (ES512, Es512(pubkey~)) =>
+      // r||s, 132 bytes total for ES512 / P-521.
+      @p521.verify(
+        pubkey,
+        signing_bytes,
+        provided_sig,
+        @p521.SignatureFormat::Raw,
+      ) catch {
+        _ => raise InvalidSignature
+      }
     (ES256K, Es256k(pubkey~)) =>
       // r||s, 64 bytes total. RFC 8812 §3.1.
       @secp256k1.verify(
@@ -1191,6 +1209,7 @@ fn jwk_to_verify_key(
     (PS512, Rsa(pubkey~, ..)) => Ps512(pubkey~)
     (ES256, EcP256(pubkey~, ..)) => Es256(pubkey~)
     (ES384, EcP384(pubkey~, ..)) => Es384(pubkey~)
+    (ES512, EcP521(pubkey~, ..)) => Es512(pubkey~)
     (ES256K, EcSecp256k1(pubkey~, ..)) => Es256k(pubkey~)
     (EdDSA, OkpEd25519(pubkey~, ..)) => EdDsa(pubkey~)
     _ =>
@@ -1466,20 +1485,23 @@ fn extract_aud(m : Map[String, Json]) -> Array[String] raise JwtError {
 }
 
 ///|
-fn extract_string_array(m : Map[String, Json], key : String) -> Array[String]? {
+fn extract_string_array(
+  m : Map[String, Json],
+  key : String,
+) -> Array[String]? raise JwtError {
   match m.get(key) {
     Some(Array(items)) => {
       let out : Array[String] = []
       for it in items {
         match it {
           String(s) => out.push(s)
-          // Skip non-strings rather than fail — these are optional claims.
-          _ => ()
+          _ => raise ClaimsParseError(key + " array entry not a string")
         }
       }
       Some(out)
     }
-    _ => None
+    Some(_) => raise ClaimsParseError(key + " is not an array of strings")
+    None => None
   }
 }
 
@@ -1766,11 +1788,12 @@ fn finalise_oidc_id_token(
 }
 
 ///|
-fn get_bool(m : Map[String, Json], key : String) -> Bool? {
+fn get_bool(m : Map[String, Json], key : String) -> Bool? raise JwtError {
   match m.get(key) {
     Some(True) => Some(true)
     Some(False) => Some(false)
-    _ => None
+    Some(_) => raise ClaimsParseError(key + " is not a boolean")
+    None => None
   }
 }
 
@@ -1957,12 +1980,29 @@ fn extract_cnf(claims : Map[String, Json]) -> Cnf? raise JwtError {
   match claims.get("cnf") {
     None => None
     Some(Object(m)) => {
+      for key, _ in m {
+        if key != "jwk" && key != "jkt" && key != "x5t#S256" {
+          raise ClaimsParseError("unsupported cnf member '" + key + "'")
+        }
+      }
       let jwk = match m.get("jwk") {
         Some(Object(inner)) => Some(inner)
-        _ => None
+        Some(_) => raise ClaimsParseError("cnf.jwk is not an object")
+        None => None
       }
-      let jkt = get_string(m, "jkt")
-      let x5t_s256 = get_string(m, "x5t#S256")
+      let jkt = match m.get("jkt") {
+        Some(String(s)) => Some(s)
+        Some(_) => raise ClaimsParseError("cnf.jkt is not a string")
+        None => None
+      }
+      let x5t_s256 = match m.get("x5t#S256") {
+        Some(String(s)) => Some(s)
+        Some(_) => raise ClaimsParseError("cnf.x5t#S256 is not a string")
+        None => None
+      }
+      if jwk is None && jkt is None && x5t_s256 is None {
+        raise ClaimsParseError("cnf has no supported confirmation method")
+      }
       Some({ jwk, jkt, x5t_s256 })
     }
     Some(_) => raise ClaimsParseError("claim 'cnf' is not an object")
@@ -2184,6 +2224,7 @@ fn parse_inline_jwk(
   jwk_obj : Map[String, Json],
   alg : Algorithm,
 ) -> @jwk.Jwk raise JwtError {
+  reject_inline_jwk_private_material(jwk_obj)
   // Stringify the JWK map so we can hand it to @jwk.parse_public. The
   // round-trip costs a JSON encode/decode but keeps the validation
   // logic centralised.
@@ -2196,6 +2237,7 @@ fn parse_inline_jwk(
   match (alg, parsed) {
     (ES256, EcP256(..))
     | (ES384, EcP384(..))
+    | (ES512, EcP521(..))
     | (ES256K, EcSecp256k1(..))
     | (EdDSA, OkpEd25519(..))
     | (RS256, Rsa(..))
@@ -2205,6 +2247,20 @@ fn parse_inline_jwk(
     | (PS384, Rsa(..))
     | (PS512, Rsa(..)) => parsed
     _ => raise InvalidDpopProof("jwk kty does not match alg")
+  }
+}
+
+///|
+fn reject_inline_jwk_private_material(
+  jwk_obj : Map[String, Json],
+) -> Unit raise JwtError {
+  let private_fields = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"]
+  for name in private_fields {
+    match jwk_obj.get(name) {
+      Some(_) =>
+        raise InvalidDpopProof("inline jwk must not contain private material")
+      None => ()
+    }
   }
 }
 
@@ -2553,7 +2609,7 @@ pub fn verify_request_object(
   }
   // RFC 9101 §10.2.4: client_id in the request object MUST equal the
   // client_id parameter (which we pinned via opts).
-  let client_id_claim = get_string(v.claims, "client_id")
+  let client_id_claim = extract_string(v.claims, "client_id")
   match client_id_claim {
     Some(s) => if s != opts.expected_client_id { raise ClientIdMismatch }
     None => ()
@@ -2890,17 +2946,20 @@ pub(all) struct AggregatedDistributedClaims {
 ///|
 /// Extract the aggregated / distributed claim metadata from a parsed
 /// claim set. Returns None if neither `_claim_sources` nor
-/// `_claim_names` is present.
+/// `_claim_names` is present. If either metadata member is present, malformed
+/// entries are rejected instead of being silently dropped.
 pub fn extract_aggregated_distributed_claims(
   claims : Map[String, Json],
-) -> AggregatedDistributedClaims? {
+) -> AggregatedDistributedClaims? raise JwtError {
   let sources_obj = match claims.get("_claim_sources") {
     Some(Object(m)) => Some(m)
-    _ => None
+    Some(_) => raise ClaimsParseError("_claim_sources is not an object")
+    None => None
   }
   let names_obj = match claims.get("_claim_names") {
     Some(Object(m)) => Some(m)
-    _ => None
+    Some(_) => raise ClaimsParseError("_claim_names is not an object")
+    None => None
   }
   if sources_obj is None && names_obj is None {
     return None
@@ -2910,23 +2969,52 @@ pub fn extract_aggregated_distributed_claims(
     Some(m) =>
       for k, v in m {
         match v {
-          Object(inner) =>
-            match (inner.get("JWT"), inner.get("endpoint")) {
-              (Some(String(jwt_str)), _) =>
+          Object(inner) => {
+            let jwt_claim = match inner.get("JWT") {
+              Some(String(s)) => Some(s)
+              Some(_) =>
+                raise ClaimsParseError(
+                  "_claim_sources." + k + ".JWT is not a string",
+                )
+              None => None
+            }
+            let endpoint = match inner.get("endpoint") {
+              Some(String(s)) => Some(s)
+              Some(_) =>
+                raise ClaimsParseError(
+                  "_claim_sources." + k + ".endpoint is not a string",
+                )
+              None => None
+            }
+            match (jwt_claim, endpoint) {
+              (Some(jwt_str), None) =>
                 sources[k] = ClaimSource::Aggregated(jwt=jwt_str)
-              (None, Some(String(ep))) => {
+              (None, Some(ep)) => {
                 let at = match inner.get("access_token") {
                   Some(String(s)) => Some(s)
-                  _ => None
+                  Some(_) =>
+                    raise ClaimsParseError(
+                      "_claim_sources." + k + ".access_token is not a string",
+                    )
+                  None => None
                 }
                 sources[k] = ClaimSource::Distributed(
                   endpoint=ep,
                   access_token=at,
                 )
               }
-              _ => () // ignore malformed entries
+              (Some(_), Some(_)) =>
+                raise ClaimsParseError(
+                  "_claim_sources." + k + " has both JWT and endpoint",
+                )
+              (None, None) =>
+                raise ClaimsParseError(
+                  "_claim_sources." + k + " has neither JWT nor endpoint",
+                )
             }
-          _ => ()
+          }
+          _ =>
+            raise ClaimsParseError("_claim_sources." + k + " is not an object")
         }
       }
     None => ()
@@ -2936,8 +3024,15 @@ pub fn extract_aggregated_distributed_claims(
     Some(m) =>
       for k, v in m {
         match v {
-          String(src) => names[k] = src
-          _ => ()
+          String(src) => {
+            if sources.get(src) is None {
+              raise ClaimsParseError(
+                "_claim_names." + k + " references missing source",
+              )
+            }
+            names[k] = src
+          }
+          _ => raise ClaimsParseError("_claim_names." + k + " is not a string")
         }
       }
     None => ()
@@ -2983,8 +3078,9 @@ pub(all) struct ProviderMetadata {
 pub fn parse_provider_metadata(
   json : String,
 ) -> ProviderMetadata raise JwtError {
+  reject_duplicate_top_level_json_keys(json, false)
   let m = parse_json_object(json)
-  let issuer = match get_string(m, "issuer") {
+  let issuer = match extract_string(m, "issuer") {
     Some(s) => s
     None => raise MissingRequiredClaim("issuer")
   }
@@ -3004,21 +3100,21 @@ pub fn parse_provider_metadata(
   }
   {
     issuer,
-    authorization_endpoint: get_string(m, "authorization_endpoint"),
-    token_endpoint: get_string(m, "token_endpoint"),
-    userinfo_endpoint: get_string(m, "userinfo_endpoint"),
-    jwks_uri: get_string(m, "jwks_uri"),
-    registration_endpoint: get_string(m, "registration_endpoint"),
-    end_session_endpoint: get_string(m, "end_session_endpoint"),
-    introspection_endpoint: get_string(m, "introspection_endpoint"),
-    revocation_endpoint: get_string(m, "revocation_endpoint"),
-    device_authorization_endpoint: get_string(
+    authorization_endpoint: extract_string(m, "authorization_endpoint"),
+    token_endpoint: extract_string(m, "token_endpoint"),
+    userinfo_endpoint: extract_string(m, "userinfo_endpoint"),
+    jwks_uri: extract_string(m, "jwks_uri"),
+    registration_endpoint: extract_string(m, "registration_endpoint"),
+    end_session_endpoint: extract_string(m, "end_session_endpoint"),
+    introspection_endpoint: extract_string(m, "introspection_endpoint"),
+    revocation_endpoint: extract_string(m, "revocation_endpoint"),
+    device_authorization_endpoint: extract_string(
       m, "device_authorization_endpoint",
     ),
-    backchannel_authentication_endpoint: get_string(
+    backchannel_authentication_endpoint: extract_string(
       m, "backchannel_authentication_endpoint",
     ),
-    pushed_authorization_request_endpoint: get_string(
+    pushed_authorization_request_endpoint: extract_string(
       m, "pushed_authorization_request_endpoint",
     ),
     response_types_supported: resp_types,
@@ -3034,7 +3130,22 @@ pub fn parse_provider_metadata(
 }
 
 ///|
-fn string_array_or_empty(m : Map[String, Json], key : String) -> Array[String] {
+fn extract_string(
+  m : Map[String, Json],
+  key : String,
+) -> String? raise JwtError {
+  match m.get(key) {
+    Some(String(s)) => Some(s)
+    Some(_) => raise ClaimsParseError(key + " is not a string")
+    None => None
+  }
+}
+
+///|
+fn string_array_or_empty(
+  m : Map[String, Json],
+  key : String,
+) -> Array[String] raise JwtError {
   match extract_string_array(m, key) {
     Some(a) => a
     None => []
@@ -3168,21 +3279,25 @@ pub fn verify_entity_statement(
   }
   let metadata = match v.claims.get("metadata") {
     Some(Object(m)) => Some(m)
-    _ => None
+    Some(_) => raise InvalidEntityStatement("metadata is not an object")
+    None => None
   }
   let authority_hints = extract_string_array(v.claims, "authority_hints")
-  let source_endpoint = get_string(v.claims, "source_endpoint")
+  let source_endpoint = extract_string(v.claims, "source_endpoint")
   let trust_marks = match v.claims.get("trust_marks") {
     Some(Array(items)) => Some(items)
-    _ => None
+    Some(_) => raise InvalidEntityStatement("trust_marks is not an array")
+    None => None
   }
   let constraints = match v.claims.get("constraints") {
     Some(Object(m)) => Some(m)
-    _ => None
+    Some(_) => raise InvalidEntityStatement("constraints is not an object")
+    None => None
   }
   let policy = match v.claims.get("metadata_policy") {
     Some(Object(m)) => Some(m)
-    _ => None
+    Some(_) => raise InvalidEntityStatement("metadata_policy is not an object")
+    None => None
   }
   {
     iss,

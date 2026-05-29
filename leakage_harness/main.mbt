@@ -80,6 +80,15 @@ fn p384_order_uint() -> @crypto_bigint.Uint {
 }
 
 ///|
+fn p521_order_uint() -> @crypto_bigint.Uint {
+  uint_fixture(9, [
+    0xbb6f_b71e_9138_6409UL, 0x3bb5_c9b8_899c_47aeUL, 0x7fcc_0148_f709_a5d0UL, 0x5186_8783_bf2f_966bUL,
+    0xffff_ffff_ffff_fffaUL, 0xffff_ffff_ffff_ffffUL, 0xffff_ffff_ffff_ffffUL, 0xffff_ffff_ffff_ffffUL,
+    0x0000_0000_0000_01ffUL,
+  ])
+}
+
+///|
 fn k1_order_uint() -> @crypto_bigint.Uint {
   uint_fixture(4, [
     0xbfd2_5e8c_d036_4141UL, 0xbaaedce6_af48_a03bUL, 0xffff_ffff_ffff_fffeUL, 0xffff_ffff_ffff_ffffUL,
@@ -135,6 +144,22 @@ fn p384_dense_scalar() -> Bytes {
     "ffffffffffffffffffffffffffffffff" +
     "ffffffffffffffffc7634d81f4372ddf" +
     "581a0db248b0a77aecec196accc52971",
+  )
+}
+
+///|
+fn p521_sparse_scalar() -> Bytes {
+  Bytes::makei(66, fn(i) { if i == 65 { b'\x01' } else { b'\x00' } })
+}
+
+///|
+fn p521_dense_scalar() -> Bytes {
+  hex(
+    "01ffffffffffffffffffffffffffffff" +
+    "ffffffffffffffffffffffffffffffff" +
+    "fffa51868783bf2f966b7fcc0148f709" +
+    "a5d03bb5c9b8899c47aebb6fb71e9138" +
+    "6407",
   )
 }
 
@@ -373,6 +398,15 @@ fn p384_sign_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
 }
 
 ///|
+fn p521_sign_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
+  let sk = @p521.PrivateKey::from_bytes(scalar) catch {
+    _ => abort("bad P-521 scalar fixture")
+  }
+  let msg = fixed_msg32()
+  () => sink_bytes(sink, sk.sign(msg))
+}
+
+///|
 fn k1_sign_workload(scalar : Bytes, sink : Sink) -> () -> Unit {
   let sk = @secp256k1.PrivateKey::from_bytes(scalar) catch {
     _ => abort("bad secp256k1 scalar fixture")
@@ -461,6 +495,19 @@ fn build_workloads(sink : Sink) -> Array[Workload] {
       ),
     },
     {
+      name: "p521-nonce-inv",
+      sparse: inv_mod_workload(
+        uint_from_be_fixture(p521_sparse_scalar(), 9),
+        p521_order_uint(),
+        sink,
+      ),
+      dense: inv_mod_workload(
+        uint_from_be_fixture(p521_dense_scalar(), 9),
+        p521_order_uint(),
+        sink,
+      ),
+    },
+    {
       name: "secp256k1-nonce-inv",
       sparse: inv_mod_workload(
         uint_from_be_fixture(k1_sparse_scalar(), 4),
@@ -502,6 +549,11 @@ fn build_workloads(sink : Sink) -> Array[Workload] {
       name: "p384-sign",
       sparse: p384_sign_workload(p384_sparse_scalar(), sink),
       dense: p384_sign_workload(p384_dense_scalar(), sink),
+    },
+    {
+      name: "p521-sign",
+      sparse: p521_sign_workload(p521_sparse_scalar(), sink),
+      dense: p521_sign_workload(p521_dense_scalar(), sink),
     },
     {
       name: "secp256k1-sign",

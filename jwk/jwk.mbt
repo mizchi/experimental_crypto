@@ -1,8 +1,8 @@
 // JSON Web Key (RFC 7517) parse + serialise.
 //
 // Bridges JOSE JSON keys to the workspace's existing key types
-// (`mizchi/rsa`, `mizchi/p256`, `mizchi/p384`, `mizchi/secp256k1`,
-// `mizchi/ed25519`). Algorithm-specific encodings follow RFC 7518 §6
+// (`mizchi/rsa`, `mizchi/p256`, `mizchi/p384`, `mizchi/p521`,
+// `mizchi/secp256k1`, `mizchi/ed25519`). Algorithm-specific encodings follow RFC 7518 §6
 // (RSA / EC / oct) and RFC 8037 §2 (OKP / Ed25519). The RFC 7638
 // canonical-form JWK thumbprint is implemented in this module.
 //
@@ -33,6 +33,7 @@ pub(all) enum Jwk {
   Rsa(pubkey~ : @rsa.RsaPublicKey, privkey~ : @rsa.RsaPrivateKey?)
   EcP256(pubkey~ : @p256.PublicKey, privkey~ : @p256.PrivateKey?)
   EcP384(pubkey~ : @p384.PublicKey, privkey~ : @p384.PrivateKey?)
+  EcP521(pubkey~ : @p521.PublicKey, privkey~ : @p521.PrivateKey?)
   EcSecp256k1(pubkey~ : @secp256k1.PublicKey, privkey~ : @secp256k1.PrivateKey?)
   OkpEd25519(pubkey~ : @ed25519.PublicKey, privkey~ : @ed25519.PrivateKey?)
   Hmac(secret~ : Bytes)
@@ -277,10 +278,11 @@ fn reject_duplicate_json_keys(json : String) -> Unit raise JwkError {
 }
 
 ///|
-fn get_string(m : Map[String, Json], key : String) -> String? {
+fn get_string(m : Map[String, Json], key : String) -> String? raise JwkError {
   match m.get(key) {
     Some(String(s)) => Some(s)
-    _ => None
+    Some(_) => raise InvalidJson(key + " must be a string")
+    None => None
   }
 }
 
@@ -331,20 +333,17 @@ fn opt_b64url(m : Map[String, Json], key : String) -> Bytes? raise JwkError {
 // -----------------------------------------------------------------------------
 
 ///|
-// Strip optional leading zero bytes that JWK encoders sometimes (incorrectly,
-// but harmlessly) emit. RFC 7518 §6.3.1 says n/e/d are the unsigned big-endian
-// encoding of the value's magnitude with the minimum number of octets; we
-// accept and trim leading zeroes defensively, raising only if the buffer was
-// empty.
+// RFC 7518 §6.3.1 says RSA n/e/d are unsigned big-endian integers encoded
+// with the minimum number of octets. Reject leading zeroes instead of
+// normalising them so alternate encodings cannot cross a trust boundary.
 fn bytes_to_bigint(b : Bytes) -> @bigint.BigInt raise JwkError {
   if b.length() == 0 {
     raise InvalidFieldLength("expected non-empty integer field")
   }
-  let mut start = 0
-  while start < b.length() - 1 && b[start] == b'\x00' {
-    start = start + 1
+  if b.length() > 1 && b[0] == b'\x00' {
+    raise InvalidFieldLength("integer field must use minimal unsigned encoding")
   }
-  @bigint.BigInt::from_octets(b[start:])
+  @bigint.BigInt::from_octets(b[:])
 }
 
 ///|
@@ -425,6 +424,28 @@ fn make_ec_pub_p384(x : Bytes, y : Bytes) -> @p384.PublicKey raise JwkError {
 }
 
 ///|
+fn make_ec_pub_p521(x : Bytes, y : Bytes) -> @p521.PublicKey raise JwkError {
+  if x.length() != 66 {
+    raise InvalidFieldLength("EC P-521 x must be 66 bytes")
+  }
+  if y.length() != 66 {
+    raise InvalidFieldLength("EC P-521 y must be 66 bytes")
+  }
+  let buf = FixedArray::make(133, b'\x00')
+  buf.unsafe_set(0, b'\x04')
+  for i = 0; i < 66; i = i + 1 {
+    buf.unsafe_set(1 + i, x[i])
+  }
+  for i = 0; i < 66; i = i + 1 {
+    buf.unsafe_set(67 + i, y[i])
+  }
+  let uncompressed = Bytes::makei(133, fn(j) { buf.unsafe_get(j) })
+  @p521.PublicKey::from_uncompressed(uncompressed) catch {
+    e => raise CryptoError("P-521 public key: " + @debug.to_string(e))
+  }
+}
+
+///|
 fn make_ec_pub_secp256k1(
   x : Bytes,
   y : Bytes,
@@ -465,7 +486,7 @@ fn pad_left(b : Bytes, n : Int) -> Bytes raise JwkError {
 // public-key serialisation (extract x/y/n/e/etc from each key type)
 // -----------------------------------------------------------------------------
 
-// Each of p256/p384/secp256k1 already gives us `to_uncompressed` returning
+// Each EC module gives us `to_uncompressed` returning
 // `04 || X || Y`. We split it here for the JWK x / y fields.
 
 ///|
@@ -566,6 +587,28 @@ fn parse_inner(
             None
           }
           EcP384(pubkey=pub_key, privkey=priv_key)
+        }
+        "P-521" => {
+          let pub_key = make_ec_pub_p521(x_bytes, y_bytes)
+          let priv_key : @p521.PrivateKey? = if allow_private {
+            match opt_b64url(m, "d") {
+              Some(d_bytes) => {
+                let d_padded = pad_left(d_bytes, 66)
+                let p = @p521.PrivateKey::from_bytes(d_padded) catch {
+                  e =>
+                    raise CryptoError("P-521 private: " + @debug.to_string(e))
+                }
+                if p.public_key().to_uncompressed() != pub_key.to_uncompressed() {
+                  raise CryptoError("P-521 public/private mismatch")
+                }
+                Some(p)
+              }
+              None => None
+            }
+          } else {
+            None
+          }
+          EcP521(pubkey=pub_key, privkey=priv_key)
         }
         "secp256k1" => {
           let pub_key = make_ec_pub_secp256k1(x_bytes, y_bytes)
@@ -681,6 +724,7 @@ pub fn parse_set(json : String) -> Array[JwkSetEntry] raise JwkError {
     None => raise MissingField("keys")
   }
   let out : Array[JwkSetEntry] = []
+  let seen_kids : Array[String] = []
   for k in keys {
     let inner = match k {
       Object(o) => o
@@ -689,9 +733,21 @@ pub fn parse_set(json : String) -> Array[JwkSetEntry] raise JwkError {
     // Use the same parse_inner path as parse_public, accepting private
     // material when present so a JWK Set with sign-side keys still loads.
     let jwk = parse_inner(inner, true)
+    let kid = get_string(inner, "kid")
+    match kid {
+      Some(kid_value) => {
+        for seen in seen_kids {
+          if seen == kid_value {
+            raise InvalidJson("duplicate JWK Set kid '" + kid_value + "'")
+          }
+        }
+        seen_kids.push(kid_value)
+      }
+      None => ()
+    }
     out.push({
       jwk,
-      kid: get_string(inner, "kid"),
+      kid,
       alg: get_string(inner, "alg"),
       use_: get_string(inner, "use"),
       key_ops: get_string_array(inner, "key_ops"),
@@ -725,6 +781,13 @@ fn jwk_to_public_map(jwk : Jwk) -> Map[String, Json] {
       let (x, y) = split_uncompressed(pubkey.to_uncompressed(), 48)
       m["kty"] = Json::string("EC")
       m["crv"] = Json::string("P-384")
+      m["x"] = Json::string(b64url_encode(x))
+      m["y"] = Json::string(b64url_encode(y))
+    }
+    EcP521(pubkey~, ..) => {
+      let (x, y) = split_uncompressed(pubkey.to_uncompressed(), 66)
+      m["kty"] = Json::string("EC")
+      m["crv"] = Json::string("P-521")
       m["x"] = Json::string(b64url_encode(x))
       m["y"] = Json::string(b64url_encode(y))
     }
@@ -771,6 +834,12 @@ pub fn serialise_private(jwk : Jwk) -> String raise JwkError {
       match privkey {
         Some(p) =>
           m["d"] = Json::string(b64url_encode(p.d.to_octets(length=48)))
+        None => raise PrivateKeyMissing
+      }
+    EcP521(privkey~, ..) =>
+      match privkey {
+        Some(p) =>
+          m["d"] = Json::string(b64url_encode(p.d.to_octets(length=66)))
         None => raise PrivateKeyMissing
       }
     EcSecp256k1(privkey~, ..) =>
@@ -907,6 +976,13 @@ fn canonical_form(jwk : Jwk) -> String {
     EcP384(pubkey~, ..) => {
       let (x, y) = split_uncompressed(pubkey.to_uncompressed(), 48)
       pairs.push(("crv", "P-384"))
+      pairs.push(("kty", "EC"))
+      pairs.push(("x", b64url_encode(x)))
+      pairs.push(("y", b64url_encode(y)))
+    }
+    EcP521(pubkey~, ..) => {
+      let (x, y) = split_uncompressed(pubkey.to_uncompressed(), 66)
+      pairs.push(("crv", "P-521"))
       pairs.push(("kty", "EC"))
       pairs.push(("x", b64url_encode(x)))
       pairs.push(("y", b64url_encode(y)))

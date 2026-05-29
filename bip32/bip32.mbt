@@ -161,19 +161,19 @@ pub fn derive_public(
   if il.compare(n) >= 0 {
     raise DerivationFailed("I_L >= n, retry with index+1")
   }
-  // child_pub = il*G + parent_pub. Use private-key trick: a temp private
-  // key with scalar = il, take its public point, then add parent's point.
-  // We don't have a direct point-add API on @secp256k1.PublicKey, so go via
-  // raw scalar + the compressed encoding trick: re-derive child by going to
-  // private space is wrong (we don't have the parent's private key). For
-  // this module, since we only test CKDpriv flows (BIP-32 vectors), we
-  // raise NotImplemented here; non-hardened CKDpub-only chains aren't on
-  // the critical BIP-32 vector path.
-  let _ = il_bytes
-  let _ = ir_bytes
-  raise DerivationFailed(
-    "CKDpub not implemented (needs point-add API on @secp256k1.PublicKey)",
-  )
+  let child_pubkey = parent.pubkey.add_generator_mul(il_bytes) catch {
+    @secp256k1.InvalidPointEncoding(_) =>
+      raise DerivationFailed("child public key is infinity, retry with index+1")
+    e => raise Secp256k1(e)
+  }
+  let fp = fingerprint(parent.pubkey)
+  {
+    pubkey: child_pubkey,
+    chain_code: ir_bytes,
+    depth: parent.depth + 1,
+    parent_fingerprint: fp,
+    child_index: index,
+  }
 }
 
 ///|

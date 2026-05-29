@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-DEFAULT_WORKLOADS="crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman ed25519-sign rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign secp256k1-sign"
+DEFAULT_WORKLOADS="crypto_bigint-add_mod crypto_bigint-sub_mod crypto_bigint-mul_mod crypto_bigint-pow_mod crypto_bigint-inv_mod p256-nonce-inv p384-nonce-inv p521-nonce-inv secp256k1-nonce-inv x25519-diffie_hellman ed25519-sign rsa-pkcs1v15-sign jwe-rsa-oaep-decrypt p256-sign p384-sign p521-sign secp256k1-sign"
 WORKLOADS="${LEAKAGE_EVIDENCE_WORKLOADS:-$DEFAULT_WORKLOADS}"
 TIMING_TARGETS="${LEAKAGE_EVIDENCE_TIMING_TARGETS:-native js wasm-gc wasm}"
 DUDECT_TARGETS="${LEAKAGE_EVIDENCE_DUDECT_TARGETS:-wasm-gc wasm}"

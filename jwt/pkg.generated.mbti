@@ -7,6 +7,7 @@ import {
   "mizchi/jwk",
   "mizchi/p256",
   "mizchi/p384",
+  "mizchi/p521",
   "mizchi/rsa",
   "mizchi/secp256k1",
   "moonbitlang/core/debug",
@@ -15,7 +16,7 @@ import {
 // Values
 pub fn compute_x_hash(Algorithm, String) -> String
 
-pub fn extract_aggregated_distributed_claims(Map[String, Json]) -> AggregatedDistributedClaims?
+pub fn extract_aggregated_distributed_claims(Map[String, Json]) -> AggregatedDistributedClaims? raise JwtError
 
 pub fn fapi_check_alg(VerifiedJwt) -> Unit raise JwtError
 
@@ -244,6 +245,7 @@ pub(all) enum Key {
   Rs512(privkey~ : @rsa.RsaPrivateKey)
   Es256(privkey~ : @p256.PrivateKey)
   Es384(privkey~ : @p384.PrivateKey)
+  Es512(privkey~ : @p521.PrivateKey)
   Es256k(privkey~ : @secp256k1.PrivateKey)
   Ps256(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
   Ps384(privkey~ : @rsa.RsaPrivateKey, salt~ : Bytes)
@@ -445,6 +447,7 @@ pub(all) enum VerifyKey {
   Rs512(pubkey~ : @rsa.RsaPublicKey)
   Es256(pubkey~ : @p256.PublicKey)
   Es384(pubkey~ : @p384.PublicKey)
+  Es512(pubkey~ : @p521.PublicKey)
   Es256k(pubkey~ : @secp256k1.PublicKey)
   Ps256(pubkey~ : @rsa.RsaPublicKey)
   Ps384(pubkey~ : @rsa.RsaPublicKey)

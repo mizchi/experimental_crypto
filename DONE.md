@@ -51,6 +51,28 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 | Experimental-status warning in every module README + moon.mod | workspace | 6fccbf7 |
 | CI target matrix for `wasm-gc`, `native`, and `js`; `moon prove` separate | CI | done |
 
+## Authentication False-Positive Hardening
+
+- Make PKCS#8 `parse_pem` / `parse_encrypted_pem` use strict RFC 7468 PEM
+  decoding so explanatory text around private-key containers is rejected.
+- Reject malformed JWT / OIDC string arrays instead of silently dropping
+  non-string entries from `amr`, discovery metadata arrays, and federation
+  `authority_hints`.
+- Reject malformed OIDC Discovery string endpoints instead of treating
+  present non-string metadata as absent.
+- Reject malformed JAR Request Object `client_id` values when the claim is
+  present, so the embedded client binding cannot be bypassed by shape errors.
+- Reject JWK RSA integer fields with non-minimal leading zeroes, and reject
+  malformed JWKS metadata strings plus duplicate `kid` values at parse time.
+- Reject non-empty trailing data after OpenPGP ASCII armor END lines before
+  verifying detached signatures or parsing public-key armor.
+- Reject ambiguous OpenPGP `PUBLIC KEY BLOCK` envelopes before returning key
+  material: leading non-key packets, multiple primary keys, and unsupported
+  top-level packet types.
+- Reject ambiguous git `gpgsig` whitespace before reconstructing signature
+  armor, so tolerant downstream armor parsers cannot normalise a non-canonical
+  signed-object header.
+
 ## Constant-Time / BigInt Reduction
 
 - Move `crypto_bigint` modular add/sub/mul/pow and Montgomery `r2` reduction
@@ -171,6 +193,9 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add a top-level README git commit signing walkthrough that maps git
   `gpg.format=ssh/openpgp/x509` to the `ssh`, `pgp`, `cms`,
   `pkix_verify`, and `git_object` modules.
+- Add a CI job that runs `pgp/gpg_interop.sh`, imports the deterministic
+  MoonBit-generated v4 Ed25519 public key into an isolated GnuPG home, and
+  verifies the MoonBit-generated detached signature with `gpg --verify`.
 - Extend `leakage_harness/timing_check.sh` and the manual leakage profile
   workflow so timing smoke reports can be collected for native, JS, wasm-gc,
   and wasm targets.
@@ -378,6 +403,48 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add signed git tag-object coverage.
 - Keep `parse_signed_commit` commit-only; reject tag content and raw tag objects.
 - Keep duplicate `gpgsig` and body-only `gpgsig` rejection tests.
+- Add first functional NIST P-521 / secp521r1 ECDSA module with OpenSSL DER
+  and JOSE raw signature vectors, off-curve / non-canonical-coordinate
+  rejection, and PKCS#8 public-key mismatch checks.
+- Wire P-521 into JWK (`crv="P-521"`) and JWT `ES512`, including OpenSSL
+  signed-token verification, deterministic sign/verify roundtrip, and JWKS
+  `ES512` key selection.
+- Grey-box harden the new P-521 PKCS#8 loader: reject unsupported SEC1
+  `ECPrivateKey` versions, mismatched inner SEC1 `publicKey`, duplicate /
+  unexpected SEC1 fields, and non-explicit inner parameters / public keys.
+- Reject DPoP inline JWKs that carry private key material (`d`, RSA CRT
+  fields, or symmetric `k`) before public-key thumbprint or signature
+  verification.
+- Replace P-521 sign-side affine scalar multiplication with a 9-limb
+  fixed-iteration complete-addition path, route ES512 signing and public-key
+  derivation through it, and add P-521 nonce-inverse / sign workloads to the
+  leakage harness. This is not yet an archived measured-candidate claim.
+- Switch ASN.1 SEQUENCE encoding to a streaming placeholder /
+  length-backpatch finalization path so constructed bodies are written once
+  into the parent encoder instead of first materializing a child DER buffer.
+  Add whitebox coverage for long-form and nested length placeholder shrinking.
+- Confirm AES-GCM GHASH is already on the portable 4-bit Shoup table path,
+  update stale TODO / README wording away from "bit-by-bit GHASH", and add a
+  sampled whitebox oracle comparing table multiplication against the slow
+  bit-reference implementation.
+- Reject duplicate OIDC Discovery provider metadata members before JSON map
+  collapse, covering issuer / JWKS URI shadowing attacks.
+- Reject malformed OIDC / UserInfo `email_verified` boolean claims instead of
+  silently treating present non-boolean profile metadata as absent.
+- Reject malformed RFC 7800 `cnf` confirmation members, including unknown
+  confirmation methods, non-object `jwk`, and non-string `jkt` /
+  `x5t#S256`.
+- Reject malformed OIDC aggregated / distributed claim metadata instead of
+  silently dropping bad `_claim_sources` / `_claim_names` entries or accepting
+  dangling source references.
+- Reject malformed OIDC Federation optional trust metadata (`metadata`,
+  `source_endpoint`, `trust_marks`, `constraints`, `metadata_policy`) instead
+  of silently treating present bad fields as absent.
+- Reject SSH certificate public-key text at the generic public-key parser
+  boundary until SSH certificate validation exists.
+- Implement BIP-32 non-hardened CKDpub by adding a secp256k1 public-key
+  `scalar*G + K` tweak primitive, and cover xpub derivation against CKDpriv
+  neutering plus zero-tweak behaviour.
 
 ## Reference Tests And Fuzzing
 

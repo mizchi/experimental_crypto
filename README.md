@@ -33,12 +33,12 @@ For API-level detail, see [docs/MODULES.md](docs/MODULES.md) and
 | Encoding and foundations | `asn1`, `cose_cbor`, `crypto_bigint`, `getrandom` | Strict DER/CBOR codecs, fixed-limb unsigned integers, and platform CSPRNG bridge. |
 | Hashes, AEAD, and KDFs | `hash`, `aead`, `hkdf`, `pbkdf2`, `scrypt`, `argon2` | SHA-1/2, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, ChaCha20/XChaCha20-Poly1305, AES-GCM/CBC, and password KDFs. |
 | Key and certificate containers | `pem`, `pkcs8`, `pkix`, `pkix_verify`, `ocsp`, `crl`, `cms` | PEM, PKCS#8/PBES2, X.509 parsing, chain verification, revocation formats, and CMS SignedData. |
-| Signature and key-exchange primitives | `ed25519`, `x25519`, `p256`, `p384`, `secp256k1`, `rsa` | Ed/X25519, NIST ECDSA, secp256k1, and RSA PKCS#1 v1.5/PSS. |
+| Signature and key-exchange primitives | `ed25519`, `x25519`, `p256`, `p384`, `p521`, `secp256k1`, `rsa` | Ed/X25519, NIST ECDSA, secp256k1, and RSA PKCS#1 v1.5/PSS. |
 | JOSE, COSE, SSH, PGP, and git formats | `jwt`, `jwe`, `jwk`, `cose`, `ssh`, `pgp`, `git_object` | Strict parsers/verifiers for compact JOSE, COSE_Sign1, SSHSIG-style signatures, OpenPGP detached signatures, and git signed-object bytes. |
 | Wallet, box, and OTP protocols | `bip39`, `bip32`, `hpke`, `naclbox`, `totp` | BIP mnemonic/HD wallet helpers, HPKE base mode, libsodium-style box, and HOTP/TOTP. |
 | Sidecar tooling | `proofs`, `leakage_harness` | SMT proof leaves and native sparse-vs-dense leakage measurement harnesses. |
 
-`moon test` from the workspace root runs the full suite (currently 1298 native
+`moon test` from the workspace root runs the full suite (currently 1352 native
 tests on this checkout).
 
 ## Cross-implementation interop
@@ -51,7 +51,7 @@ parsers and codecs aren't only validated against bytes we produced ourselves:
 - `pkcs8` parses the Ed25519 PKCS#8 v1 + v2 PEM fixtures from
   `RustCrypto/formats`, including the v2 "Curdle Chairs" attribute from
   RFC 8410 §10.3.
-- `aead`, `ed25519`, `x25519`, `p256`, `p384`, `secp256k1`, and `rsa`
+- `aead`, `ed25519`, `x25519`, `p256`, `p384`, `p521`, `secp256k1`, and `rsa`
   include Wycheproof or Wycheproof-derived vectors where the workspace has
   matching algorithm support.
 - `jwt`, `jwe`, `cose`, `pkcs8`, `pbkdf2`, `scrypt`, and `hash` include
@@ -105,7 +105,7 @@ mizchi/<module>`:
 | `crypto_bigint` 256-bit `pow_mod` | ~108-109 us | sparse and dense exponent classes |
 | `crypto_bigint` 256-bit `inv_mod` | ~109-112 us | sparse and dense input classes |
 | `aead` ChaCha20-Poly1305 seal 1 KiB | ~5.3 us | |
-| `aead` AES-128-GCM seal 1 KiB | ~9.2 us | bit-sliced GHASH is still TODO |
+| `aead` AES-128-GCM seal 1 KiB | ~9.2 us | portable 4-bit Shoup GHASH; no hardware CLMUL |
 | `x25519` ECDH | ~85 us | 10-limb Montgomery ladder |
 | `p256` sign | ~2.0 ms | fixed-iteration sign-side scalar path |
 | `p384` sign | ~5.2 ms | fixed-iteration sign-side scalar path |
@@ -125,19 +125,20 @@ backend where possible).
 These are intentional and called out in the source where they apply:
 
 - **Not constant-time end-to-end.** `crypto_bigint`, RSA private modexp, and
-  ECDSA sign-side scalar multiplication now use fixed-limb / fixed-iteration
+  ECDSA sign-side scalar multiplication mostly use fixed-limb / fixed-iteration
   paths, Linux-native leakage smoke gates, and loose JS / wasm-gc / wasm
-  backend smoke checks, but this is still not a constant-clock proof. Ed25519
-  field arithmetic remains `@bigint`-backed. See
+  backend smoke checks, but this is still not a constant-clock proof. P-521
+  sign-side paths are wired into the leakage harness but still need repeated
+  calibrated evidence before a measured-candidate claim. See
   [docs/CONSTANT_TIME.md](docs/CONSTANT_TIME.md).
-- **Partial protocol coverage.** TLS 1.3, PKCS#12, P-521 / ES512, Ed448 /
-  X448, ML-KEM / ML-DSA, AES-GCM-SIV / AES-SIV, `age`, and EIP-712 / EIP-191
-  are not implemented.
+- **Partial protocol coverage.** TLS 1.3, PKCS#12, Ed448 / X448, ML-KEM /
+  ML-DSA, AES-GCM-SIV / AES-SIV, `age`, and EIP-712 / EIP-191 are not
+  implemented.
 - **Revocation scope is conservative.** OCSP and CRL parsing / verification
   exist, but unsupported delta / indirect / distribution-point semantics are
   rejected fail-closed rather than silently applied.
-- **No GHASH carryless-multiplication intrinsic.** The `gcm` module does
-  GF(2^128) bit-by-bit, which is correct but slow.
+- **No GHASH carryless-multiplication intrinsic.** The `gcm` module uses a
+  portable 4-bit Shoup table, not hardware CLMUL / SIMD.
 
 ## License
 

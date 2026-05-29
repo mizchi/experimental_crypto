@@ -66,6 +66,11 @@ fn pub_hex(xpriv : @bip32.ExtendedPrivateKey) -> String {
 }
 
 ///|
+fn xpub_hex(xpub : @bip32.ExtendedPublicKey) -> String {
+  bytes_to_hex(xpub.pubkey.to_compressed())
+}
+
+///|
 test "master_from_seed: BIP-32 test vector 1" {
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
@@ -198,11 +203,31 @@ test "neuter strips private half" {
 }
 
 ///|
+test "derive_public: non-hardened CKDpub matches CKDpriv neuter" {
+  let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
+  let m = @bip32.master_from_seed(seed)
+  let parent_priv = @bip32.derive_path(m, "m/0'")
+  let child_priv = @bip32.derive_private(parent_priv, 1U)
+  let parent_pub = @bip32.neuter(parent_priv)
+  let child_pub = @bip32.derive_public(parent_pub, 1U)
+  @debug.assert_eq(xpub_hex(child_pub), pub_hex(child_priv))
+  @debug.assert_eq(
+    bytes_to_hex(child_pub.chain_code),
+    bytes_to_hex(child_priv.chain_code),
+  )
+  @debug.assert_eq(child_pub.depth, child_priv.depth)
+  @debug.assert_eq(child_pub.child_index, child_priv.child_index)
+  @debug.assert_eq(
+    bytes_to_hex(child_pub.parent_fingerprint),
+    bytes_to_hex(child_priv.parent_fingerprint),
+  )
+}
+
+///|
 test "derive_path: rejects hardened from path on extended public key path" {
   // Just confirm derive_public raises HardenedFromPublic if asked (the
-  // current CKDpub impl raises DerivationFailed for the non-hardened
-  // branch too, since point-add isn't wired; we only assert the hardened
-  // gate here).
+  // non-hardened branch is covered above; hardened public derivation must
+  // remain fail-closed).
   let seed = hex_to_bytes("000102030405060708090a0b0c0d0e0f")
   let m = @bip32.master_from_seed(seed)
   let xpub = @bip32.neuter(m)

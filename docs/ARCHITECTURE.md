@@ -19,8 +19,8 @@ RFC-level concern. Modules depend only on `moonbitlang/core`, a small
                      └────┬────┬──────┘ └─────────────────┘
                           │    │
                      ┌────┴────┴──────────────────────────┐
-        Layer 3      │ p256  p384  secp256k1  ed25519     │ — signature
-        signing      │ x25519  rsa  (ECDH, sign + verify) │   primitives
+        Layer 3      │ p256  p384  p521  secp256k1        │ — signature
+        signing      │ ed25519  x25519  rsa               │   primitives
                      └────┬────────────────┬──────────────┘
                           │                │
                      ┌────┴────────────────┴──────────────┐
@@ -72,6 +72,7 @@ RFC-level concern. Modules depend only on `moonbitlang/core`, a small
 | `x25519` | RFC 7748 | X25519 ECDH. 10-limb radix-2^25.5 Montgomery ladder; ~90µs/operation. Small-subgroup defence. |
 | `p256` | NIST FIPS 186-5, SEC 1 | ECDSA-SHA-256 verify + sign (RFC 6979 deterministic). Sign-side base-point multiplication and final nonce inverse route through fixed-limb paths; public verify remains affine `@bigint`. PKCS#8 loader (curve-OID checked). |
 | `p384` | NIST FIPS 186-5 | ECDSA-SHA-384. Sign-side base-point multiplication and final nonce inverse route through fixed-limb paths; public verify remains affine `@bigint`. |
+| `p521` | NIST FIPS 186-5 | ECDSA-SHA-512 for P-521 / ES512. Sign-side base-point multiplication and final nonce inverse route through fixed-limb paths; public verify remains affine `@bigint`. Newly wired into leakage workloads; repeated calibrated evidence is still pending before measured-candidate claims. |
 | `secp256k1` | SEC 2 §2.4.1 | Bitcoin / Ethereum curve. ECDSA + RFC 6979 + BIP-62 low-s by default; sign-side base-point multiplication and final nonce inverse route through fixed-limb paths; public verify remains affine `@bigint`. `sign_no_low_s` for pre-BIP-62 callers. `PublicKey::to_compressed` for BIP-32. |
 | `rsa` | RFC 8017 | RSA PKCS#1 v1.5 + RSA-PSS (MGF1-SHA-2{56,384,512}). Sign + verify. Sign-side private modexp routes through `crypto_bigint`; public verify remains `@bigint.pow`. PKCS#1 / SPKI / PKCS#8 loaders. |
 
