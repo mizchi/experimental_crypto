@@ -128,9 +128,16 @@ rejects unsupported inputs before returning trusted output.
     / constant-time `verify_finished`), and the CertificateVerify signed-content
     builder. End-to-end verified against RFC 8448 §3 (server Finished)
     (`tls13/handshake.mbt`).
-  - [ ] Per-message body codecs (ClientHello/ServerHello extensions, the
-    Certificate list, CertificateVerify signature wiring to `pkix_verify` /
-    `rsa` / ECDSA) and the client state machine driving the flights.
+  - [x] Server-flight parsers (`tls13/messages.mbt`): ServerHello (suite,
+    key_share, supported_versions, HelloRetryRequest detection), Certificate
+    (cert chain), CertificateVerify (scheme + signature), with a fail-closed
+    byte reader. Verified against RFC 8448 §3.
+  - [ ] ClientHello builder (extensions: supported_versions, supported_groups,
+    key_share, signature_algorithms, server_name) and the SignatureScheme →
+    `rsa`/`p256`/`p384`/`ed25519` dispatch that verifies CertificateVerify over
+    `certificate_verify_content` against the leaf certificate's key.
+  - [ ] Client state machine driving the flights and wiring `pkix_verify` for
+    certificate-chain verification.
 
 ### Tier 2 / 3
 

@@ -29,13 +29,21 @@ Implemented:
   constant-time `verify_finished`); and the CertificateVerify signed-content
   builder (`certificate_verify_content` + the server/client context strings).
 
-All three layers are verified against the RFC 8448 §3 "Simple 1-RTT Handshake"
-trace — including an end-to-end check that reconstructs the transcript and
-confirms the server Finished MAC.
+- **Server-flight parsers** (`messages.mbt`): `parse_server_hello` (selected
+  cipher suite, `key_share`, `supported_versions`, HelloRetryRequest
+  detection), `parse_certificate` (the certificate chain as DER blobs), and
+  `parse_certificate_verify` (signature scheme + signature), over a fail-closed
+  byte reader that rejects truncation, length mismatches, and trailing data.
 
-Not yet implemented (planned): per-message body codecs (ClientHello/ServerHello
-extensions, the Certificate list, wiring the CertificateVerify signature to
-`pkix_verify` / `rsa` / ECDSA) and the client state machine.
+All layers are verified against the RFC 8448 §3 "Simple 1-RTT Handshake" trace,
+including an end-to-end check that reconstructs the transcript and confirms the
+server Finished MAC, and the byte-exact ServerHello / Certificate /
+CertificateVerify fields.
+
+Not yet implemented (planned): the ClientHello builder, the SignatureScheme →
+`rsa`/`p256`/`ed25519` dispatch that verifies CertificateVerify against the leaf
+certificate's key, and the client state machine (wiring `pkix_verify` for
+chain verification).
 
 ## Example
 
