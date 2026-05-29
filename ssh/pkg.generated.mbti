@@ -20,9 +20,15 @@ pub fn decode_sshsig_blob(Bytes) -> SshSignature raise SshError
 
 pub let ecdsa_p256_algo : String
 
+pub let ecdsa_p256_cert_algo : String
+
 pub let ecdsa_p384_algo : String
 
+pub let ecdsa_p384_cert_algo : String
+
 pub let ed25519_algo : String
+
+pub let ed25519_cert_algo : String
 
 pub fn encode_sshsig_armor(Bytes) -> String
 
@@ -38,7 +44,13 @@ pub fn parse_ed25519_pubkey(Bytes) -> @ed25519.PublicKey raise SshError
 
 pub fn parse_rsa_pubkey(Bytes) -> @rsa.RsaPublicKey raise SshError
 
+pub fn parse_ssh_certificate(Bytes) -> SshCertificate raise SshError
+
+pub fn parse_ssh_pubkey_blob(Bytes) -> SshPublicKey raise SshError
+
 pub fn parse_ssh_pubkey_text(String) -> SshPublicKeyText raise SshError
+
+pub let rsa_cert_algo : String
 
 pub let rsa_sha256_algo : String
 
@@ -49,6 +61,10 @@ pub fn serialize_ed25519_pubkey(@ed25519.PublicKey) -> Bytes
 pub fn sign_armor(@ed25519.PrivateKey, Bytes, sig_namespace? : String, hash_algorithm? : String) -> String raise SshError
 
 pub fn sign_armor_with(SshPrivateKey, Bytes, sig_namespace? : String, hash_algorithm? : String) -> String raise SshError
+
+pub let ssh_cert_type_host : UInt
+
+pub let ssh_cert_type_user : UInt
 
 pub let sshsig_begin : String
 
@@ -87,7 +103,24 @@ pub(all) struct AllowedSigner {
   namespaces : Array[String]?
   valid_after : Int64?
   valid_before : Int64?
+  cert_authority : Bool
   pubkey : SshPublicKey
+}
+
+pub(all) struct SshCertificate {
+  algorithm : String
+  subject_key : SshPublicKey
+  serial : UInt64
+  cert_type : UInt
+  key_id : String
+  valid_principals : Array[String]
+  valid_after : UInt64
+  valid_before : UInt64
+  critical_options : Bytes
+  extensions : Bytes
+  ca_key : SshPublicKey
+  signature_blob : Bytes
+  signed_data : Bytes
 }
 
 pub(all) enum SshPrivateKey {
@@ -102,6 +135,7 @@ pub(all) enum SshPublicKey {
   P256(@p256.PublicKey)
   P384(@p384.PublicKey)
   Rsa(@rsa.RsaPublicKey)
+  Certificate(SshCertificate)
 }
 
 pub(all) struct SshPublicKeyText {
@@ -123,10 +157,12 @@ pub struct WireReader {
 }
 pub fn WireReader::is_empty(Self) -> Bool
 pub fn WireReader::new(Bytes) -> Self
+pub fn WireReader::position(Self) -> Int
 pub fn WireReader::read_bytes(Self, Int) -> Bytes raise SshError
 pub fn WireReader::read_string(Self) -> Bytes raise SshError
 pub fn WireReader::read_string_ascii(Self) -> String raise SshError
 pub fn WireReader::read_uint32(Self) -> UInt raise SshError
+pub fn WireReader::read_uint64(Self) -> UInt64 raise SshError
 pub fn WireReader::remaining(Self) -> Int
 
 pub struct WireWriter {
@@ -139,6 +175,7 @@ pub fn WireWriter::write_bytes_raw(Self, Bytes) -> Unit
 pub fn WireWriter::write_string(Self, Bytes) -> Unit
 pub fn WireWriter::write_string_ascii(Self, String) -> Unit
 pub fn WireWriter::write_uint32(Self, UInt) -> Unit
+pub fn WireWriter::write_uint64(Self, UInt64) -> Unit
 
 // Type aliases
 

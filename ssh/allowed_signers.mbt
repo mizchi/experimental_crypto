@@ -8,8 +8,8 @@
 //     patterns. A standalone `*` matches any principal.
 //   - `options` may include namespaces="git,file", valid-after="YYYYMMDDZ",
 //     and valid-before="YYYYMMDDZ" / "YYYYMMDDHHMMSSZ".
-//   - cert-authority is deliberately rejected until this package has SSH
-//     certificate verification.
+//   - cert-authority is accepted only by the time-aware verification path,
+//     because OpenSSH certificates carry their own validity windows.
 //   - `keytype` + `base64-key` is exactly what's emitted by ssh-keygen.
 //
 // Lines starting with `#` and blank lines are ignored.
@@ -23,6 +23,7 @@ pub(all) struct AllowedSigner {
   // Optional Unix-time validity window. `valid_before` is exclusive.
   valid_after : Int64?
   valid_before : Int64?
+  cert_authority : Bool
   pubkey : SshPublicKey
 }
 
@@ -31,6 +32,7 @@ priv struct ParsedAllowedOptions {
   namespaces : Array[String]?
   valid_after : Int64?
   valid_before : Int64?
+  cert_authority : Bool
 }
 
 ///|
@@ -98,6 +100,7 @@ fn try_parse_allowed_signer_line(
   let mut namespaces : Array[String]? = None
   let mut valid_after : Int64? = None
   let mut valid_before : Int64? = None
+  let mut cert_authority = false
   let mut idx = 1
   while idx < tokens.length() {
     let t = tokens[idx]
@@ -132,6 +135,12 @@ fn try_parse_allowed_signer_line(
         }
       None => ()
     }
+    if parsed.cert_authority {
+      if cert_authority {
+        return None
+      }
+      cert_authority = true
+    }
     idx = idx + 1
   }
   if idx + 1 >= tokens.length() {
@@ -149,7 +158,14 @@ fn try_parse_allowed_signer_line(
   } else {
     return None
   }
-  Some({ principals, namespaces, valid_after, valid_before, pubkey })
+  Some({
+    principals,
+    namespaces,
+    valid_after,
+    valid_before,
+    cert_authority,
+    pubkey,
+  })
 }
 
 ///|
@@ -158,51 +174,85 @@ fn parse_options_token(token : String) -> (Bool, ParsedAllowedOptions) {
   let mut namespaces : Array[String]? = None
   let mut valid_after : Int64? = None
   let mut valid_before : Int64? = None
+  let mut cert_authority = false
   for opt in opts {
     if opt == "" {
-      return (false, { namespaces, valid_after, valid_before })
+      return (false, { namespaces, valid_after, valid_before, cert_authority })
+    }
+    if opt == "cert-authority" {
+      if cert_authority {
+        return (
+          false,
+          { namespaces, valid_after, valid_before, cert_authority },
+        )
+      }
+      cert_authority = true
+      continue
     }
     let eq = index_of(opt, '=')
     if eq < 0 {
-      return (false, { namespaces, valid_after, valid_before })
+      return (false, { namespaces, valid_after, valid_before, cert_authority })
     }
     let k = substr(opt, 0, eq)
     let v = strip_quotes(substr(opt, eq + 1, opt.length()))
     if k == "namespaces" {
       match namespaces {
-        Some(_) => return (false, { namespaces, valid_after, valid_before })
+        Some(_) =>
+          return (
+            false,
+            { namespaces, valid_after, valid_before, cert_authority },
+          )
         None => ()
       }
       let ns = split_on(v, ',')
       for n in ns {
         if n == "" {
-          return (false, { namespaces, valid_after, valid_before })
+          return (
+            false,
+            { namespaces, valid_after, valid_before, cert_authority },
+          )
         }
       }
       namespaces = Some(ns)
     } else if k == "valid-after" {
       match valid_after {
-        Some(_) => return (false, { namespaces, valid_after, valid_before })
+        Some(_) =>
+          return (
+            false,
+            { namespaces, valid_after, valid_before, cert_authority },
+          )
         None => ()
       }
       match parse_validity_time(v) {
         Some(ts) => valid_after = Some(ts)
-        None => return (false, { namespaces, valid_after, valid_before })
+        None =>
+          return (
+            false,
+            { namespaces, valid_after, valid_before, cert_authority },
+          )
       }
     } else if k == "valid-before" {
       match valid_before {
-        Some(_) => return (false, { namespaces, valid_after, valid_before })
+        Some(_) =>
+          return (
+            false,
+            { namespaces, valid_after, valid_before, cert_authority },
+          )
         None => ()
       }
       match parse_validity_time(v) {
         Some(ts) => valid_before = Some(ts)
-        None => return (false, { namespaces, valid_after, valid_before })
+        None =>
+          return (
+            false,
+            { namespaces, valid_after, valid_before, cert_authority },
+          )
       }
     } else {
-      return (false, { namespaces, valid_after, valid_before })
+      return (false, { namespaces, valid_after, valid_before, cert_authority })
     }
   }
-  (true, { namespaces, valid_after, valid_before })
+  (true, { namespaces, valid_after, valid_before, cert_authority })
 }
 
 ///|
@@ -291,7 +341,19 @@ fn verify_with_allowed_signers_internal(
     if !signer_time_allows(s, now_unix) {
       continue
     }
-    if verify_armor_with(armor, message, s.pubkey, sig_namespace~) {
+    let ok = if s.cert_authority {
+      verify_armor_with_cert_authority(
+        armor,
+        message,
+        s.pubkey,
+        principal,
+        now_unix,
+        sig_namespace~,
+      )
+    } else {
+      verify_armor_with(armor, message, s.pubkey, sig_namespace~)
+    }
+    if ok {
       return true
     }
   }
@@ -335,6 +397,77 @@ fn signer_time_allows(s : AllowedSigner, now_unix : Int64?) -> Bool {
         }
       }
   }
+}
+
+///|
+fn verify_armor_with_cert_authority(
+  armor : String,
+  message : Bytes,
+  ca_key : SshPublicKey,
+  principal : String,
+  now_unix : Int64?,
+  sig_namespace~ : String,
+) -> Bool raise SshError {
+  let now = match now_unix {
+    Some(t) => t
+    None => return false
+  }
+  if now < 0L {
+    return false
+  }
+  let blob = decode_sshsig_armor_strict(armor)
+  let sig = decode_sshsig_blob(blob)
+  if sig.sig_namespace != sig_namespace {
+    return false
+  }
+  let cert = match sig.publickey {
+    Certificate(c) => c
+    _ => return false
+  }
+  if !pubkeys_equal(cert.ca_key, ca_key) {
+    return false
+  }
+  if !certificate_trust_policy_allows(cert, principal, now) {
+    return false
+  }
+  let signed_data = compute_signed_data(
+    sig.sig_namespace,
+    sig.hash_algorithm,
+    message,
+  )
+  verify_signed_data(sig.publickey, signed_data, sig.signature_blob)
+}
+
+///|
+fn certificate_trust_policy_allows(
+  cert : SshCertificate,
+  principal : String,
+  now : Int64,
+) -> Bool {
+  if !certificate_basic_policy_allows(cert) {
+    return false
+  }
+  let now_u = now.reinterpret_as_uint64()
+  if now_u < cert.valid_after || now_u >= cert.valid_before {
+    return false
+  }
+  certificate_principal_allows(cert, principal)
+}
+
+///|
+fn certificate_principal_allows(
+  cert : SshCertificate,
+  principal : String,
+) -> Bool {
+  if cert.valid_principals.length() == 0 {
+    return true
+  }
+  for p in cert.valid_principals {
+    if p == principal {
+      return true
+    }
+  }
+  false
 }
 
 ///|

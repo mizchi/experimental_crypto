@@ -38,6 +38,11 @@ pub fn WireReader::is_empty(self : WireReader) -> Bool {
 }
 
 ///|
+pub fn WireReader::position(self : WireReader) -> Int {
+  self.pos
+}
+
+///|
 pub fn WireReader::read_uint32(self : WireReader) -> UInt raise SshError {
   if self.remaining() < 4 {
     raise TruncatedInput("uint32")
@@ -48,6 +53,19 @@ pub fn WireReader::read_uint32(self : WireReader) -> UInt raise SshError {
   let b3 = self.buf[self.pos + 3].to_uint()
   self.pos = self.pos + 4
   (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
+}
+
+///|
+pub fn WireReader::read_uint64(self : WireReader) -> UInt64 raise SshError {
+  if self.remaining() < 8 {
+    raise TruncatedInput("uint64")
+  }
+  let mut v : UInt64 = 0UL
+  for i = 0; i < 8; i = i + 1 {
+    v = (v << 8) | self.buf[self.pos + i].to_uint64()
+  }
+  self.pos = self.pos + 8
+  v
 }
 
 ///|
@@ -124,6 +142,18 @@ pub fn WireWriter::write_uint32(self : WireWriter, v : UInt) -> Unit {
   self.buf.push(((v >> 16) & 0xffU).to_byte())
   self.buf.push(((v >> 8) & 0xffU).to_byte())
   self.buf.push((v & 0xffU).to_byte())
+}
+
+///|
+pub fn WireWriter::write_uint64(self : WireWriter, v : UInt64) -> Unit {
+  self.buf.push((v >> 56).to_byte())
+  self.buf.push(((v >> 48) & 0xffUL).to_byte())
+  self.buf.push(((v >> 40) & 0xffUL).to_byte())
+  self.buf.push(((v >> 32) & 0xffUL).to_byte())
+  self.buf.push(((v >> 24) & 0xffUL).to_byte())
+  self.buf.push(((v >> 16) & 0xffUL).to_byte())
+  self.buf.push(((v >> 8) & 0xffUL).to_byte())
+  self.buf.push((v & 0xffUL).to_byte())
 }
 
 ///|

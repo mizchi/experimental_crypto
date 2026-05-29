@@ -115,19 +115,7 @@ fn validate_namespace(ns : String) -> Unit raise SshError {
 
 ///|
 fn decode_pubkey(blob : Bytes) -> SshPublicKey raise SshError {
-  // Peek the algorithm to pick the right decoder. We do NOT consume the
-  // reader here — each per-algorithm parser owns the full blob.
-  let reader = WireReader::new(blob)
-  let algo = reader.read_string_ascii()
-  if algo == ed25519_algo {
-    Ed25519(parse_ed25519_pubkey(blob))
-  } else if algo == ecdsa_p256_algo || algo == ecdsa_p384_algo {
-    parse_ecdsa_pubkey(blob)
-  } else if algo == "ssh-rsa" {
-    Rsa(parse_rsa_pubkey(blob))
-  } else {
-    raise UnsupportedAlgorithm(algo)
-  }
+  parse_ssh_pubkey_blob(blob)
 }
 
 ///|

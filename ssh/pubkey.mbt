@@ -13,6 +13,24 @@ pub(all) enum SshPublicKey {
   P256(@p256.PublicKey)
   P384(@p384.PublicKey)
   Rsa(@rsa.RsaPublicKey)
+  Certificate(SshCertificate)
+}
+
+///|
+pub(all) struct SshCertificate {
+  algorithm : String
+  subject_key : SshPublicKey
+  serial : UInt64
+  cert_type : UInt
+  key_id : String
+  valid_principals : Array[String]
+  valid_after : UInt64
+  valid_before : UInt64
+  critical_options : Bytes
+  extensions : Bytes
+  ca_key : SshPublicKey
+  signature_blob : Bytes
+  signed_data : Bytes
 }
 
 ///|
@@ -36,6 +54,24 @@ pub let rsa_sha256_algo : String = "rsa-sha2-256"
 
 ///|
 pub let rsa_sha512_algo : String = "rsa-sha2-512"
+
+///|
+pub let ed25519_cert_algo : String = "ssh-ed25519-cert-v01@openssh.com"
+
+///|
+pub let ecdsa_p256_cert_algo : String = "ecdsa-sha2-nistp256-cert-v01@openssh.com"
+
+///|
+pub let ecdsa_p384_cert_algo : String = "ecdsa-sha2-nistp384-cert-v01@openssh.com"
+
+///|
+pub let rsa_cert_algo : String = "ssh-rsa-cert-v01@openssh.com"
+
+///|
+pub let ssh_cert_type_user : UInt = 1U
+
+///|
+pub let ssh_cert_type_host : UInt = 2U
 
 ///|
 fn is_supported_pubkey_text_algorithm(algorithm : String) -> Bool {
@@ -91,6 +127,201 @@ fn left_pad(b : Bytes, target_len : Int) -> Bytes raise SshError {
 fn bigint_is_odd(n : BigInt) -> Bool {
   let oct = n.to_octets()
   oct.length() > 0 && (oct[oct.length() - 1].to_int() & 1) == 1
+}
+
+///|
+fn bytes_prefix(b : Bytes, n : Int) -> Bytes {
+  Bytes::makei(n, fn(i) { b[i] })
+}
+
+///|
+fn read_ascii_bytes(bytes : Bytes, context : String) -> String raise SshError {
+  let buf = StringBuilder::new()
+  for i = 0; i < bytes.length(); i = i + 1 {
+    let c = bytes[i].to_int()
+    if c < 0 || c > 0x7f {
+      raise InvalidEncoding("non-ASCII " + context)
+    }
+    buf.write_char(c.to_char().unwrap())
+  }
+  buf.to_string()
+}
+
+///|
+fn string_lex_compare(a : String, b : String) -> Int {
+  let n = if a.length() < b.length() { a.length() } else { b.length() }
+  for i = 0; i < n; i = i + 1 {
+    let av = a.get_char(i).unwrap().to_int()
+    let bv = b.get_char(i).unwrap().to_int()
+    if av < bv {
+      return -1
+    }
+    if av > bv {
+      return 1
+    }
+  }
+  if a.length() < b.length() {
+    -1
+  } else if a.length() > b.length() {
+    1
+  } else {
+    0
+  }
+}
+
+///|
+fn parse_cert_string_list(blob : Bytes) -> Array[String] raise SshError {
+  let out : Array[String] = []
+  if blob.length() == 0 {
+    return out
+  }
+  let r = WireReader::new(blob)
+  while !r.is_empty() {
+    out.push(read_ascii_bytes(r.read_string(), "certificate principal"))
+  }
+  out
+}
+
+///|
+fn validate_name_data_sequence(
+  blob : Bytes,
+  context : String,
+) -> Unit raise SshError {
+  let r = WireReader::new(blob)
+  let mut prev : String? = None
+  while !r.is_empty() {
+    let name = read_ascii_bytes(r.read_string(), context + " name")
+    let _data = r.read_string()
+    match prev {
+      Some(p) =>
+        if string_lex_compare(p, name) >= 0 {
+          raise InvalidEncoding(context + " names must be strictly ordered")
+        }
+      None => ()
+    }
+    prev = Some(name)
+  }
+}
+
+///|
+fn is_cert_algorithm(algo : String) -> Bool {
+  algo == ed25519_cert_algo ||
+  algo == ecdsa_p256_cert_algo ||
+  algo == ecdsa_p384_cert_algo ||
+  algo == rsa_cert_algo
+}
+
+///|
+pub fn parse_ssh_pubkey_blob(blob : Bytes) -> SshPublicKey raise SshError {
+  let reader = WireReader::new(blob)
+  let algo = reader.read_string_ascii()
+  if is_cert_algorithm(algo) {
+    Certificate(parse_ssh_certificate(blob))
+  } else {
+    parse_raw_ssh_pubkey_blob(blob)
+  }
+}
+
+///|
+fn parse_raw_ssh_pubkey_blob(blob : Bytes) -> SshPublicKey raise SshError {
+  let reader = WireReader::new(blob)
+  let algo = reader.read_string_ascii()
+  if algo == ed25519_algo {
+    Ed25519(parse_ed25519_pubkey(blob))
+  } else if algo == ecdsa_p256_algo || algo == ecdsa_p384_algo {
+    parse_ecdsa_pubkey(blob)
+  } else if algo == "ssh-rsa" {
+    Rsa(parse_rsa_pubkey(blob))
+  } else {
+    raise UnsupportedAlgorithm(algo)
+  }
+}
+
+///|
+pub fn parse_ssh_certificate(blob : Bytes) -> SshCertificate raise SshError {
+  let reader = WireReader::new(blob)
+  let algo = reader.read_string_ascii()
+  if !is_cert_algorithm(algo) {
+    raise UnsupportedAlgorithm(algo)
+  }
+  let _nonce = reader.read_string()
+  let subject_key = if algo == ed25519_cert_algo {
+    let pk_bytes = reader.read_string()
+    if pk_bytes.length() != 32 {
+      raise InvalidEncoding("ssh-ed25519 certificate key must be 32 bytes")
+    }
+    SshPublicKey::Ed25519(
+      @ed25519.PublicKey::from_bytes(pk_bytes) catch {
+        _ => raise InvalidEncoding("ed25519 certificate key")
+      },
+    )
+  } else if algo == ecdsa_p256_cert_algo || algo == ecdsa_p384_cert_algo {
+    let curve = reader.read_string_ascii()
+    let q = reader.read_string()
+    if algo == ecdsa_p256_cert_algo {
+      if curve != "nistp256" {
+        raise InvalidEncoding("expected nistp256 certificate curve")
+      }
+      SshPublicKey::P256(
+        @p256.PublicKey::from_uncompressed(q) catch {
+          _ => raise InvalidEncoding("p256 certificate key")
+        },
+      )
+    } else {
+      if curve != "nistp384" {
+        raise InvalidEncoding("expected nistp384 certificate curve")
+      }
+      SshPublicKey::P384(
+        @p384.PublicKey::from_uncompressed(q) catch {
+          _ => raise InvalidEncoding("p384 certificate key")
+        },
+      )
+    }
+  } else if algo == rsa_cert_algo {
+    let e_bytes = reader.read_string()
+    let n_bytes = reader.read_string()
+    SshPublicKey::Rsa(parse_rsa_public_numbers(e_bytes, n_bytes))
+  } else {
+    raise UnsupportedAlgorithm(algo)
+  }
+  let serial = reader.read_uint64()
+  let cert_type = reader.read_uint32()
+  let key_id = read_ascii_bytes(reader.read_string(), "certificate key id")
+  let valid_principals = parse_cert_string_list(reader.read_string())
+  let valid_after = reader.read_uint64()
+  let valid_before = reader.read_uint64()
+  let critical_options = reader.read_string()
+  if critical_options.length() > 0 {
+    validate_name_data_sequence(critical_options, "certificate critical option")
+  }
+  let extensions = reader.read_string()
+  validate_name_data_sequence(extensions, "certificate extension")
+  let reserved = reader.read_string()
+  if reserved.length() != 0 {
+    raise InvalidEncoding("OpenSSH certificate reserved field must be empty")
+  }
+  let ca_key_blob = reader.read_string()
+  let ca_key = parse_raw_ssh_pubkey_blob(ca_key_blob)
+  let signed_len = reader.position()
+  let signature_blob = reader.read_string()
+  if !reader.is_empty() {
+    raise InvalidEncoding("trailing bytes after SSH certificate")
+  }
+  {
+    algorithm: algo,
+    subject_key,
+    serial,
+    cert_type,
+    key_id,
+    valid_principals,
+    valid_after,
+    valid_before,
+    critical_options,
+    extensions,
+    ca_key,
+    signature_blob,
+    signed_data: bytes_prefix(blob, signed_len),
+  }
 }
 
 ///|
@@ -214,6 +445,14 @@ pub fn parse_rsa_pubkey(blob : Bytes) -> @rsa.RsaPublicKey raise SshError {
   if !reader.is_empty() {
     raise InvalidEncoding("trailing bytes after ssh-rsa pubkey")
   }
+  parse_rsa_public_numbers(e_bytes, n_bytes)
+}
+
+///|
+fn parse_rsa_public_numbers(
+  e_bytes : Bytes,
+  n_bytes : Bytes,
+) -> @rsa.RsaPublicKey raise SshError {
   let e_mag = mpint_magnitude(e_bytes)
   let n_mag = mpint_magnitude(n_bytes)
   let e = BigInt::from_octets(e_mag[:])

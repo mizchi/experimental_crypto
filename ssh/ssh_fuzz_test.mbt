@@ -164,6 +164,26 @@ test "fuzz allowed_signers: structured options preserve or narrow trust" {
           1_700_000_000L,
         ),
       )
+    } else if opt == "cert-authority" {
+      @debug.assert_eq(signers.length(), 1)
+      assert_true(signers[0].cert_authority)
+      assert_false(
+        @ssh.verify_with_allowed_signers(
+          text,
+          "fuzz@example.com",
+          fuzz_armored_signature,
+          fuzz_message(),
+        ),
+      )
+      assert_false(
+        @ssh.verify_with_allowed_signers_at(
+          text,
+          "fuzz@example.com",
+          fuzz_armored_signature,
+          fuzz_message(),
+          1_700_000_000L,
+        ),
+      )
     } else {
       @debug.assert_eq(signers.length(), 0)
     }

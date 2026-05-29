@@ -375,11 +375,12 @@ test "ssh: time-aware allowed_signers API honours validity window" {
 }
 
 ///|
-test "ATTACK: cert-authority allowed_signers entries fail closed" {
+test "ssh: cert-authority allowed_signers entries parse as CA policy" {
   let ca_text =
     #|*@example.com cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPOyK1I6VglEt8r9GA0e9SjRxpvfYsGqqHs8eayXplcV
   let signers = @ssh.parse_allowed_signers(ca_text)
-  @debug.assert_eq(signers.length(), 0)
+  @debug.assert_eq(signers.length(), 1)
+  assert_true(signers[0].cert_authority)
 }
 
 ///|
@@ -393,6 +394,117 @@ test "ATTACK: high-level allowed_signers rejects cert-authority policy" {
     fixture_message(),
   )
   assert_false(ok)
+}
+
+///|
+// OpenSSH Ed25519 certificate fixture. Generated with:
+//   ssh-keygen -t ed25519 -f ca -N "" -C ca
+//   ssh-keygen -t ed25519 -f user -N "" -C user
+//   ssh-keygen -s ca -I cert-auth-test -n mizchi@misc-test,alt@example.com \
+//     -V 20240101:20300101 user.pub
+//   ssh-keygen -Y sign -f user-cert.pub -n git msg.txt
+// and verified with:
+//   ssh-keygen -Y verify -f allowed -I mizchi@misc-test -n git -s msg.txt.sig
+let cert_authority_allowed_signers : String =
+  #|mizchi@misc-test cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK9DvYgggqZj/iURAIGAu4gAhI119OdTGiHx9z+BJ2dy
+
+///|
+let cert_authority_armored_signature : String =
+  #|-----BEGIN SSH SIGNATURE-----
+  #|U1NIU0lHAAAAAQAAAeEAAAAgc3NoLWVkMjU1MTktY2VydC12MDFAb3BlbnNzaC5jb20AAA
+  #|AgSBJQ+BFlvfMF5RY4HtXJtAqRfwmA2iGSlAzyibLA25oAAAAgoR39Er9yhLLgP/G5onN2
+  #|G87iSwsRDlflml+unw0IeYQAAAAAAAAAAAAAAAEAAAAOY2VydC1hdXRoLXRlc3QAAAAnAA
+  #|AAEG1pemNoaUBtaXNjLXRlc3QAAAAPYWx0QGV4YW1wbGUuY29tAAAAAGWRgfAAAAAAcNtZ
+  #|8AAAAAAAAACCAAAAFXBlcm1pdC1YMTEtZm9yd2FyZGluZwAAAAAAAAAXcGVybWl0LWFnZW
+  #|50LWZvcndhcmRpbmcAAAAAAAAAFnBlcm1pdC1wb3J0LWZvcndhcmRpbmcAAAAAAAAACnBl
+  #|cm1pdC1wdHkAAAAAAAAADnBlcm1pdC11c2VyLXJjAAAAAAAAAAAAAAAzAAAAC3NzaC1lZD
+  #|I1NTE5AAAAIK9DvYgggqZj/iURAIGAu4gAhI119OdTGiHx9z+BJ2dyAAAAUwAAAAtzc2gt
+  #|ZWQyNTUxOQAAAEDMhpN5JpDqMQZzDdzX/C2HgRomfBQvAJkmko309BRjmL2yGaTDPrGJBj
+  #|mFhIhV8lRjvn1REkYdJiN7HeQYK7wLAAAAA2dpdAAAAAAAAAAGc2hhNTEyAAAAUwAAAAtz
+  #|c2gtZWQyNTUxOQAAAED47rH+v6Rf08+3mH0wYgZA/370OPlCAuCwkB9TVG91I7W01XFwMI
+  #|ydmgVN5Xfa9NuYxJRYRNn18mokNr8W85YC
+  #|-----END SSH SIGNATURE-----
+
+///|
+test "ssh: time-aware allowed_signers accepts OpenSSH cert-authority signature" {
+  assert_true(
+    @ssh.verify_with_allowed_signers_at(
+      cert_authority_allowed_signers,
+      "mizchi@misc-test",
+      cert_authority_armored_signature,
+      fixture_message(),
+      1_735_689_600L,
+    ),
+  )
+}
+
+///|
+test "ATTACK: direct verify_armor_with rejects SSH certificate without verification time" {
+  let sig = @ssh.decode_sshsig_blob(
+    @ssh.decode_sshsig_armor_strict(cert_authority_armored_signature),
+  )
+  assert_false(
+    @ssh.verify_armor_with(
+      cert_authority_armored_signature,
+      fixture_message(),
+      sig.publickey,
+    ),
+  )
+}
+
+///|
+test "ATTACK: cert-authority requires both allowed and certificate principal match" {
+  assert_false(
+    @ssh.verify_with_allowed_signers_at(
+      cert_authority_allowed_signers,
+      "alt@example.com",
+      cert_authority_armored_signature,
+      fixture_message(),
+      1_735_689_600L,
+    ),
+  )
+  let wildcard_allowed =
+    #|*@example.com cert-authority ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK9DvYgggqZj/iURAIGAu4gAhI119OdTGiHx9z+BJ2dy
+  assert_true(
+    @ssh.verify_with_allowed_signers_at(
+      wildcard_allowed,
+      "alt@example.com",
+      cert_authority_armored_signature,
+      fixture_message(),
+      1_735_689_600L,
+    ),
+  )
+  assert_false(
+    @ssh.verify_with_allowed_signers_at(
+      wildcard_allowed,
+      "mallory@example.com",
+      cert_authority_armored_signature,
+      fixture_message(),
+      1_735_689_600L,
+    ),
+  )
+}
+
+///|
+test "ATTACK: cert-authority certificate validity is enforced" {
+  assert_false(
+    @ssh.verify_with_allowed_signers_at(
+      cert_authority_allowed_signers,
+      "mizchi@misc-test",
+      cert_authority_armored_signature,
+      fixture_message(),
+      1_700_000_000L,
+    ),
+  )
+  assert_false(
+    @ssh.verify_with_allowed_signers_at(
+      cert_authority_allowed_signers,
+      "mizchi@misc-test",
+      cert_authority_armored_signature,
+      fixture_message(),
+      1_893_456_000L,
+    ),
+  )
 }
 
 // -----------------------------------------------------------------------------

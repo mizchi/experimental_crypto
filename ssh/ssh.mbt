@@ -10,7 +10,7 @@
 /// Verify an armored SSHSIG over `message` using whatever public key is
 /// embedded in the signature. Returns true iff:
 ///   - the embedded pubkey is supported (Ed25519, ECDSA-P256/P384, ssh-rsa
-///     with rsa-sha2-256/512)
+///     with rsa-sha2-256/512, or an OpenSSH certificate over those key types)
 ///   - the signature is valid for `message` under that key
 ///   - the SSHSIG sig_namespace matches `sig_namespace` (default "git")
 ///
@@ -105,6 +105,10 @@ fn pubkeys_equal(a : SshPublicKey, b : SshPublicKey) -> Bool {
     (P384(x), P384(y)) => x.to_uncompressed() == y.to_uncompressed()
     (Rsa(x), Rsa(y)) =>
       x.n == y.n && x.e == y.e && x.n_bytes_len == y.n_bytes_len
+    // Certificate trust requires a verification time and an allowed CA policy.
+    // Keep direct pubkey matching fail-closed; `cert-authority` uses the
+    // explicit time-aware allowed_signers path.
+    (Certificate(_), Certificate(_)) => false
     _ => false
   }
 }
@@ -170,7 +174,26 @@ fn verify_signed_data(
         _ => false
       }
     }
+    (Certificate(cert), _) => {
+      if !certificate_basic_policy_allows(cert) {
+        return false
+      }
+      if !verify_certificate_signature(cert) {
+        return false
+      }
+      verify_signed_data(cert.subject_key, signed_data, signature_blob)
+    }
   }
+}
+
+///|
+fn certificate_basic_policy_allows(cert : SshCertificate) -> Bool {
+  cert.cert_type == ssh_cert_type_user && cert.critical_options.length() == 0
+}
+
+///|
+fn verify_certificate_signature(cert : SshCertificate) -> Bool raise SshError {
+  verify_signed_data(cert.ca_key, cert.signed_data, cert.signature_blob)
 }
 
 ///|
