@@ -388,6 +388,29 @@ test "ATTACK NumericDate claims with non-number values are rejected" {
 }
 
 ///|
+test "ATTACK registered string claims with non-string values are rejected" {
+  let secret : Bytes = b"registered-string-shape"
+  for claim in ["iss", "sub", "jti"] {
+    let m : Map[String, Json] = Map([])
+    m[claim] = Json::number(42.0)
+    let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+    let opts = @jwt.VerifyOptions::default(0L)
+    try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+      ClaimsParseError(_) => ()
+      other =>
+        abort(
+          "expected ClaimsParseError for non-string " +
+          claim +
+          ", got " +
+          repr(other),
+        )
+    } noraise {
+      _ => abort("accepted non-string registered claim " + claim)
+    }
+  }
+}
+
+///|
 test "iss: wrong issuer raises InvalidIssuer" {
   let secret : Bytes = b"k"
   let m : Map[String, Json] = Map([])
@@ -477,6 +500,27 @@ test "ATTACK aud: malformed array does not match by ignoring bad entries" {
     other => abort("expected aud-shape rejection, got " + repr(other) + "")
   } noraise {
     _ => abort("accepted malformed aud array after finding matching string")
+  }
+}
+
+///|
+test "ATTACK aud: malformed audience is rejected even without expected audience" {
+  let secret : Bytes = b"aud-generic-shape"
+  let opts = @jwt.VerifyOptions::default(0L)
+  let cases : Array[Json] = [
+    Json::number(42.0),
+    Json::array([Json::string("svc"), Json::number(42.0)]),
+  ]
+  for aud in cases {
+    let m : Map[String, Json] = Map([])
+    m["aud"] = aud
+    let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+    try @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+      ClaimsParseError(_) => ()
+      other => abort("expected ClaimsParseError, got " + repr(other))
+    } noraise {
+      _ => abort("accepted malformed aud without expected audience")
+    }
   }
 }
 
@@ -1868,6 +1912,38 @@ test "ATTACK rfc9068: malformed cnf members are rejected" {
 }
 
 ///|
+test "ATTACK rfc9068: malformed optional string claims are rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"hs256-test-secret-for-9068-optional-shape"
+  let opts = @jwt.Rfc9068VerifyOptions::default(
+    now, "https://as.example.com/", "https://rs.example.com/",
+  )
+  for key in ["scope", "acr", "jti"] {
+    let payload = rfc9068_test_claims(
+      now,
+      "https://as.example.com/",
+      Json::string("https://rs.example.com/"),
+    )
+    let m = match payload {
+      Object(obj) => obj
+      _ => abort("expected object")
+    }
+    m[key] = Json::number(42.0)
+    let token = @jwt.sign(
+      Json::object(m),
+      @jwt.Key::Hs256(secret~),
+      typ="at+jwt",
+    )
+    try @jwt.verify_rfc9068(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+      ClaimsParseError(_) => ()
+      e => abort("expected ClaimsParseError for " + key + ", got " + repr(e))
+    } noraise {
+      _ => abort("accepted RFC 9068 token with malformed " + key)
+    }
+  }
+}
+
+///|
 test "rfc9068: aud as JSON array containing the resource indicator" {
   let now = 1_700_000_000L
   let secret : Bytes = b"hs256-test-secret-for-9068"
@@ -2403,6 +2479,37 @@ test "ATTACK oidc: malformed email_verified is rejected" {
 }
 
 ///|
+test "ATTACK oidc: malformed optional string claims are rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"oidc-optional-string-shape"
+  let opts = @jwt.OidcIdTokenVerifyOptions::default(
+    now, "https://accounts.example.com/", "client-abc",
+  )
+  for
+    key in [
+      "azp", "nonce", "at_hash", "c_hash", "acr", "email", "name", "preferred_username",
+    ] {
+    let extra : Map[String, Json] = Map([])
+    extra[key] = Json::number(42.0)
+    let payload = oidc_id_token_claims(
+      now,
+      "https://accounts.example.com/",
+      Json::string("client-abc"),
+      extra,
+    )
+    let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+    try
+      @jwt.verify_oidc_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+    catch {
+      ClaimsParseError(_) => ()
+      e => abort("expected ClaimsParseError for " + key + ", got " + repr(e))
+    } noraise {
+      _ => abort("accepted ID token with malformed " + key)
+    }
+  }
+}
+
+///|
 test "oidc: at_hash binding accepts matching access_token" {
   let now = 1_700_000_000L
   let secret : Bytes = b"oidc-at-hash"
@@ -2926,6 +3033,38 @@ test "ATTACK rfc7523: defaults reject replay-friendly assertions" {
   }
 }
 
+///|
+test "ATTACK rfc7523: malformed optional jti is rejected when replay guard disabled" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"client-assertion-jti-shape"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("client-xyz")
+  m["sub"] = Json::string("client-xyz")
+  m["aud"] = Json::string("https://as.example.com/token")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["iat"] = Json::number(now.to_double())
+  m["jti"] = Json::number(42.0)
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.ClientAssertionVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_client_id: "client-xyz",
+    token_endpoint: "https://as.example.com/token",
+    require_jti: false,
+    max_iat_age_sec: None,
+    max_exp_lifetime_sec: None,
+    allowed_algorithms: None,
+  }
+  try
+    @jwt.verify_client_assertion(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted client assertion with malformed optional jti")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // ES256K (RFC 8812) — ECDSA-secp256k1-SHA256
 // -----------------------------------------------------------------------------
@@ -3240,8 +3379,34 @@ test "ATTACK dpop: non-string htm claim is rejected" {
 }
 
 ///|
+test "ATTACK dpop: malformed optional string claims are rejected" {
+  let seed = Bytes::makei(32, fn(i) { (i + 16).to_byte() })
+  let sk = @ed25519.PrivateKey::from_seed(seed)
+  let now = 1_700_000_000L
+  for key in ["nonce", "ath"] {
+    let payload_json = "{\"htm\":\"POST\",\"htu\":\"https://rs.example.com/resource\",\"iat\":1700000000,\"jti\":\"bad-" +
+      key +
+      "-shape\",\"" +
+      key +
+      "\":42}"
+    let proof = sign_ed25519_token_with_raw_json(
+      dpop_header_json_for_test(sk),
+      payload_json,
+      sk,
+    )
+    try @jwt.verify_dpop_proof(proof, dpop_opts_for_test(now)) catch {
+      InvalidDpopProof(_) => ()
+      other =>
+        abort("expected InvalidDpopProof for " + key + ", got " + repr(other))
+    } noraise {
+      _ => abort("accepted DPoP proof with malformed " + key)
+    }
+  }
+}
+
+///|
 test "ATTACK dpop: non-numeric iat claim is rejected" {
-  let seed = Bytes::makei(32, fn(i) { (i + 15).to_byte() })
+  let seed = Bytes::makei(32, fn(i) { (i + 17).to_byte() })
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let now = 1_700_000_000L
   let payload_json = "{\"htm\":\"POST\",\"htu\":\"https://rs.example.com/resource\",\"iat\":\"1700000000\",\"jti\":\"bad-iat-shape\"}"
@@ -3775,6 +3940,75 @@ test "logout-token: both sub and sid missing rejected" {
   }
 }
 
+///|
+test "ATTACK logout-token: malformed optional subject identifiers are rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"logout-subject-shape"
+  let opts = @jwt.LogoutTokenVerifyOptions::default(
+    now, "https://as.example.com/", "client-abc",
+  )
+
+  let bad_sub : Map[String, Json] = Map([])
+  bad_sub["iss"] = Json::string("https://as.example.com/")
+  bad_sub["aud"] = Json::string("client-abc")
+  bad_sub["iat"] = Json::number(now.to_double())
+  bad_sub["jti"] = Json::string("j")
+  bad_sub["sub"] = Json::number(42.0)
+  bad_sub["sid"] = Json::string("session-1")
+  let events1 : Map[String, Json] = Map([])
+  events1["http://schemas.openid.net/event/backchannel-logout"] = Json::object(
+    Map([]),
+  )
+  bad_sub["events"] = Json::object(events1)
+  let bad_sub_token = @jwt.sign(
+    Json::object(bad_sub),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  try
+    @jwt.verify_logout_token(
+      bad_sub_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError for sub, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted logout token with malformed sub")
+  }
+
+  let bad_sid : Map[String, Json] = Map([])
+  bad_sid["iss"] = Json::string("https://as.example.com/")
+  bad_sid["aud"] = Json::string("client-abc")
+  bad_sid["iat"] = Json::number(now.to_double())
+  bad_sid["jti"] = Json::string("j")
+  bad_sid["sub"] = Json::string("user-42")
+  bad_sid["sid"] = Json::number(42.0)
+  let events2 : Map[String, Json] = Map([])
+  events2["http://schemas.openid.net/event/backchannel-logout"] = Json::object(
+    Map([]),
+  )
+  bad_sid["events"] = Json::object(events2)
+  let bad_sid_token = @jwt.sign(
+    Json::object(bad_sid),
+    @jwt.Key::Hs256(secret~),
+    typ="logout+jwt",
+  )
+  try
+    @jwt.verify_logout_token(
+      bad_sid_token,
+      @jwt.VerifyKey::Hs256(secret~),
+      opts,
+    )
+  catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError for sid, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted logout token with malformed sid")
+  }
+}
+
 // -----------------------------------------------------------------------------
 // OIDC UserInfo signed-JWT response (Core §5.3.2)
 // -----------------------------------------------------------------------------
@@ -3858,6 +4092,36 @@ test "ATTACK userinfo-jws: malformed email_verified is rejected" {
     e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
   } noraise {
     _ => abort("accepted UserInfo with malformed email_verified")
+  }
+}
+
+///|
+test "ATTACK userinfo-jws: malformed optional string claims are rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"userinfo-optional-string-shape"
+  let opts : @jwt.UserInfoVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_sub: "user-42",
+    allowed_algorithms: None,
+  }
+  for key in ["email", "name", "preferred_username"] {
+    let m : Map[String, Json] = Map([])
+    m["iss"] = Json::string("https://as.example.com/")
+    m["aud"] = Json::string("client-abc")
+    m["sub"] = Json::string("user-42")
+    m[key] = Json::number(42.0)
+    let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+    try
+      @jwt.verify_userinfo_jws(token, @jwt.VerifyKey::Hs256(secret~), opts)
+    catch {
+      ClaimsParseError(_) => ()
+      e => abort("expected ClaimsParseError for " + key + ", got " + repr(e))
+    } noraise {
+      _ => abort("accepted UserInfo with malformed " + key)
+    }
   }
 }
 
@@ -4303,6 +4567,34 @@ test "JARM: expected state absent rejects, optional state accepts" {
 }
 
 ///|
+test "ATTACK JARM: malformed optional state is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"jarm-state-shape"
+  let m : Map[String, Json] = Map([])
+  m["iss"] = Json::string("https://as.example.com/")
+  m["aud"] = Json::string("client-abc")
+  m["exp"] = Json::number((now + 300L).to_double())
+  m["code"] = Json::string("auth-code")
+  m["state"] = Json::number(42.0)
+  let token = @jwt.sign(Json::object(m), @jwt.Key::Hs256(secret~))
+  let opts : @jwt.JarmVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_issuer: "https://as.example.com/",
+    client_id: "client-abc",
+    expected_state: None,
+    allowed_algorithms: None,
+    typ_allowed: None,
+  }
+  try @jwt.verify_jarm(token, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JARM with malformed optional state")
+  }
+}
+
+///|
 test "ATTACK JARM: authorization response mix-up rejected by iss and aud" {
   let now = 1_700_000_000L
   let secret : Bytes = b"jarm-mixup"
@@ -4364,6 +4656,7 @@ fn self_issued_ed25519_fixture(
   now : Int64,
   sub_override? : String? = None,
   nonce? : String? = None,
+  nonce_json? : Json? = None,
   include_sub_jwk? : Bool = true,
 ) -> (String, String) raise {
   let seed = Bytes::makei(32, fn(i) { (i + 99).to_byte() })
@@ -4389,9 +4682,13 @@ fn self_issued_ed25519_fixture(
   claims["aud"] = Json::string("rp-redirect-uri")
   claims["exp"] = Json::number((now + 300L).to_double())
   claims["iat"] = Json::number(now.to_double())
-  match nonce {
-    Some(n) => claims["nonce"] = Json::string(n)
-    None => ()
+  match nonce_json {
+    Some(v) => claims["nonce"] = v
+    None =>
+      match nonce {
+        Some(n) => claims["nonce"] = Json::string(n)
+        None => ()
+      }
   }
   let token = @jwt.sign(Json::object(claims), @jwt.Key::EdDsa(privkey=sk))
   (token, thumb)
@@ -4498,6 +4795,28 @@ test "siop-v2: missing sub_jwk, sub mismatch, nonce mismatch, and alg policy rej
     e => abort("expected AlgorithmNotAllowed, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected AlgorithmNotAllowed, got Ok")
+  }
+}
+
+///|
+test "ATTACK siop-v2: malformed optional nonce is rejected" {
+  let now = 1_700_000_000L
+  let (token, _) = self_issued_ed25519_fixture(
+    now,
+    nonce_json=Some(Json::number(42.0)),
+  )
+  let opts : @jwt.SelfIssuedVerifyOptions = {
+    now,
+    clock_skew_sec: 0L,
+    expected_aud: Some("rp-redirect-uri"),
+    expected_nonce: None,
+    allowed_algorithms: None,
+  }
+  try @jwt.verify_self_issued_id_token(token, opts) catch {
+    ClaimsParseError(_) => ()
+    e => abort("expected ClaimsParseError, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted self-issued ID token with malformed optional nonce")
   }
 }
 
@@ -5424,6 +5743,41 @@ test "ATTACK ciba: rt_hash for different refresh token rejected" {
   }
 }
 
+///|
+test "ATTACK ciba: malformed optional binding claims are rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"ciba-binding-shape"
+  let opts : @jwt.CibaVerifyOptions = {
+    oidc: @jwt.OidcIdTokenVerifyOptions::default(
+      now, "https://accounts.example.com/", "client-abc",
+    ),
+    expected_auth_req_id: None,
+    refresh_token: None,
+  }
+  for
+    key in [
+      "urn:openid:params:jwt:claim:auth_req_id", "urn:openid:params:jwt:claim:rt_hash",
+    ] {
+    let extra : Map[String, Json] = Map([])
+    extra[key] = Json::number(42.0)
+    let payload = oidc_id_token_claims(
+      now,
+      "https://accounts.example.com/",
+      Json::string("client-abc"),
+      extra,
+    )
+    let token = @jwt.sign(payload, @jwt.Key::Hs256(secret~))
+    try
+      @jwt.verify_ciba_id_token(token, @jwt.VerifyKey::Hs256(secret~), opts)
+    catch {
+      ClaimsParseError(_) => ()
+      e => abort("expected ClaimsParseError for " + key + ", got " + repr(e))
+    } noraise {
+      _ => abort("accepted CIBA ID token with malformed " + key)
+    }
+  }
+}
+
 // -----------------------------------------------------------------------------
 // FAPI 2.0 profile guard
 // -----------------------------------------------------------------------------
@@ -5568,6 +5922,38 @@ test "ATTACK typ-confusion: dpop+jwt rejected by generic verify default" {
     e => abort("expected InvalidType, got " + @debug.to_string(e))
   } noraise {
     _ => abort("expected InvalidType (cross-class confusion), got Ok")
+  }
+}
+
+///|
+test "ATTACK typ-confusion: malformed typ header is rejected" {
+  let now = 1_700_000_000L
+  let secret : Bytes = b"bad-typ-header"
+  let header : Map[String, Json] = Map([])
+  header["alg"] = Json::string("HS256")
+  header["typ"] = Json::number(42.0)
+  let claims : Map[String, Json] = Map([])
+  claims["iss"] = Json::string("https://accounts.example.com/")
+  claims["sub"] = Json::string("u")
+  claims["aud"] = Json::string("client-abc")
+  claims["exp"] = Json::number((now + 600L).to_double())
+  claims["iat"] = Json::number(now.to_double())
+  let token = sign_hs256_token_with_header(
+    Json::object(header),
+    Json::object(claims),
+    secret,
+  )
+  try
+    @jwt.verify(
+      token,
+      @jwt.VerifyKey::Hs256(secret~),
+      @jwt.VerifyOptions::default(now),
+    )
+  catch {
+    InvalidHeader(_) => ()
+    e => abort("expected InvalidHeader, got " + @debug.to_string(e))
+  } noraise {
+    _ => abort("accepted JWT with malformed typ header")
   }
 }
 

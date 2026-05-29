@@ -819,6 +819,7 @@ fn get_numeric_date(
 ///|
 // `aud` may be a single string or an array of strings (RFC 7519 §4.1.3).
 fn audience_matches(claim : Json, expected : String) -> Bool raise JwtError {
+  validate_aud_claim_shape(claim)
   match claim {
     String(s) => s == expected
     Array(arr) => {
@@ -832,6 +833,48 @@ fn audience_matches(claim : Json, expected : String) -> Bool raise JwtError {
       matched
     }
     _ => raise ClaimsParseError("aud is neither string nor array")
+  }
+}
+
+///|
+fn validate_registered_string_claim_shape(
+  m : Map[String, Json],
+  key : String,
+) -> Unit raise JwtError {
+  match m.get(key) {
+    Some(String(_)) | None => ()
+    Some(_) => raise ClaimsParseError("claim '" + key + "' is not a string")
+  }
+}
+
+///|
+fn validate_aud_claim_shape(claim : Json) -> Unit raise JwtError {
+  match claim {
+    String(_) => ()
+    Array(arr) =>
+      for v in arr {
+        match v {
+          String(_) => ()
+          _ => raise ClaimsParseError("aud array entry not a string")
+        }
+      }
+    _ => raise ClaimsParseError("aud is neither string nor array")
+  }
+}
+
+///|
+fn validate_registered_claim_shapes(
+  claims : Map[String, Json],
+) -> Unit raise JwtError {
+  // RFC 7519 registered string claims are optional, but once present their
+  // JSON type is part of the verified token's contract. Rejecting here keeps
+  // generic `verify` callers from receiving a signed-but-malformed claim set.
+  for key in ["iss", "sub", "jti"] {
+    validate_registered_string_claim_shape(claims, key)
+  }
+  match claims.get("aud") {
+    Some(v) => validate_aud_claim_shape(v)
+    None => ()
   }
 }
 
@@ -882,13 +925,18 @@ pub fn verify(
     Some(_) => raise InvalidHeader("b64 header is not supported")
     None => ()
   }
+  let typ = match header.get("typ") {
+    Some(String(s)) => Some(s)
+    Some(_) => raise InvalidHeader("typ must be a string")
+    None => None
+  }
   // RFC 8725 §3.11: explicit typing. When the caller asks for a `typ`
   // allow-list, the header MUST carry one of the listed values. This is
   // what RFC 9068 §4 requires for `at+jwt` access tokens and what RFC
   // 7519 IdPs use to disambiguate ID tokens from generic JWS payloads.
   match opts.typ_allowed {
     Some(allowed) => {
-      let actual = match get_string(header, "typ") {
+      let actual = match typ {
         Some(s) => s
         None => raise InvalidType("missing typ header")
       }
@@ -913,7 +961,7 @@ pub fn verify(
       // authorisation semantics. The denylist below names every typ this
       // module knows about; callers who genuinely want one of them must
       // pass `typ_allowed=Some([...])` to opt in.
-      match get_string(header, "typ") {
+      match typ {
         Some(t) => {
           let t_norm = ascii_lower(t)
           let denied = [
@@ -1050,6 +1098,7 @@ pub fn verify(
     Object(m) => m
     _ => raise ClaimsParseError("payload is not a JSON object")
   }
+  validate_registered_claim_shapes(claims)
 
   // ---- iat / exp / nbf / iss / aud ----
   // RFC 8725 §3.10: an `iat` more than `clock_skew_sec` in the future is
@@ -1393,7 +1442,7 @@ fn finalise_rfc9068(
     Some(want) => if want != client_id { raise ClientIdMismatch }
     None => ()
   }
-  let scope = match get_string(v.claims, "scope") {
+  let scope = match extract_string(v.claims, "scope") {
     Some(s) => Some(split_space(s))
     None => None
   }
@@ -1432,7 +1481,7 @@ fn finalise_rfc9068(
     client_id,
     nbf: get_numeric_date(v.claims, "nbf"),
     auth_time: get_numeric_date(v.claims, "auth_time"),
-    acr: get_string(v.claims, "acr"),
+    acr: extract_string(v.claims, "acr"),
     amr: extract_string_array(v.claims, "amr"),
     scope,
     cnf: extract_cnf(v.claims),
@@ -1690,7 +1739,7 @@ fn finalise_oidc_id_token(
   let iat = require_numeric_claim(v.claims, "iat")
   // OIDC §3.1.3.7 step 4–5: if aud has multiple entries, azp MUST be
   // present and equal the relying party's client_id.
-  let azp = get_string(v.claims, "azp")
+  let azp = extract_string(v.claims, "azp")
   if aud.length() > 1 {
     match azp {
       Some(s) => if s != opts.client_id { raise InvalidAudience }
@@ -1703,7 +1752,7 @@ fn finalise_oidc_id_token(
     }
   }
   // OIDC §3.1.3.7 step 11: nonce replay defence.
-  let nonce = get_string(v.claims, "nonce")
+  let nonce = extract_string(v.claims, "nonce")
   match opts.expected_nonce {
     Some(want) =>
       match nonce {
@@ -1714,7 +1763,7 @@ fn finalise_oidc_id_token(
   }
   // OIDC §3.1.3.6 / §3.3.2.11: at_hash / c_hash bind the ID token to a
   // specific access_token / authorization_code.
-  let at_hash = get_string(v.claims, "at_hash")
+  let at_hash = extract_string(v.claims, "at_hash")
   match opts.access_token {
     Some(at) =>
       match at_hash {
@@ -1728,7 +1777,7 @@ fn finalise_oidc_id_token(
       }
     None => ()
   }
-  let c_hash = get_string(v.claims, "c_hash")
+  let c_hash = extract_string(v.claims, "c_hash")
   match opts.authorization_code {
     Some(code) =>
       match c_hash {
@@ -1756,7 +1805,7 @@ fn finalise_oidc_id_token(
       }
     None => ()
   }
-  let acr = get_string(v.claims, "acr")
+  let acr = extract_string(v.claims, "acr")
   match opts.expected_acr {
     Some(want) =>
       match acr {
@@ -1778,10 +1827,10 @@ fn finalise_oidc_id_token(
     amr: extract_string_array(v.claims, "amr"),
     at_hash,
     c_hash,
-    email: get_string(v.claims, "email"),
+    email: extract_string(v.claims, "email"),
     email_verified: get_bool(v.claims, "email_verified"),
-    name: get_string(v.claims, "name"),
-    preferred_username: get_string(v.claims, "preferred_username"),
+    name: extract_string(v.claims, "name"),
+    preferred_username: extract_string(v.claims, "preferred_username"),
     cnf: extract_cnf(v.claims),
     jwt: v,
   }
@@ -1944,7 +1993,7 @@ pub fn verify_client_assertion(
     }
     None => ()
   }
-  let jti = get_string(v.claims, "jti")
+  let jti = extract_string(v.claims, "jti")
   if opts.require_jti && jti is None {
     raise MissingRequiredClaim("jti")
   }
@@ -2152,14 +2201,14 @@ pub fn verify_dpop_proof(
   let v = verify(token, vk, base) catch {
     _ => raise InvalidDpopProof("signature verify failed")
   }
-  let htm = match get_string(v.claims, "htm") {
+  let htm = match extract_dpop_string(v.claims, "htm") {
     Some(s) => s
     None => raise InvalidDpopProof("missing htm claim")
   }
   if htm != opts.http_method {
     raise InvalidDpopProof("htm '" + htm + "' does not match HTTP method")
   }
-  let htu = match get_string(v.claims, "htu") {
+  let htu = match extract_dpop_string(v.claims, "htu") {
     Some(s) => s
     None => raise InvalidDpopProof("missing htu claim")
   }
@@ -2176,11 +2225,11 @@ pub fn verify_dpop_proof(
   if iat > opts.now + opts.clock_skew_sec {
     raise InvalidDpopProof("iat in the future")
   }
-  let jti = match get_string(v.claims, "jti") {
+  let jti = match extract_dpop_string(v.claims, "jti") {
     Some(s) => s
     None => raise InvalidDpopProof("missing jti claim")
   }
-  let nonce = get_string(v.claims, "nonce")
+  let nonce = extract_dpop_string(v.claims, "nonce")
   match opts.expected_nonce {
     Some(want) =>
       match nonce {
@@ -2189,7 +2238,7 @@ pub fn verify_dpop_proof(
       }
     None => ()
   }
-  let ath = get_string(v.claims, "ath")
+  let ath = extract_dpop_string(v.claims, "ath")
   match opts.bound_access_token {
     Some(at) => {
       let expected_ath = sha256_base64url(at)
@@ -2213,6 +2262,16 @@ pub fn verify_dpop_proof(
     None => ()
   }
   { htm, htu, iat, jti, ath, nonce, jwk: jwk_obj, jkt, jwt: v }
+}
+
+///|
+fn extract_dpop_string(
+  claims : Map[String, Json],
+  key : String,
+) -> String? raise JwtError {
+  extract_string(claims, key) catch {
+    _ => raise InvalidDpopProof(key + " claim is not a string")
+  }
 }
 
 ///|
@@ -2400,8 +2459,8 @@ pub fn verify_logout_token(
     None => ()
   }
   let jti = require_string_claim(v.claims, "jti")
-  let sub = get_string(v.claims, "sub")
-  let sid = get_string(v.claims, "sid")
+  let sub = extract_string(v.claims, "sub")
+  let sid = extract_string(v.claims, "sid")
   if sub is None && sid is None {
     raise LogoutSubAndSidMissing
   }
@@ -2492,10 +2551,10 @@ pub fn verify_userinfo_jws(
     sub,
     iss,
     aud,
-    email: get_string(v.claims, "email"),
+    email: extract_string(v.claims, "email"),
     email_verified: get_bool(v.claims, "email_verified"),
-    name: get_string(v.claims, "name"),
-    preferred_username: get_string(v.claims, "preferred_username"),
+    name: extract_string(v.claims, "name"),
+    preferred_username: extract_string(v.claims, "preferred_username"),
     claims: v.claims,
     jwt: v,
   }
@@ -2707,9 +2766,10 @@ pub fn verify_jarm(
     }
     None => ()
   }
+  let state = extract_string(v.claims, "state")
   match opts.expected_state {
     Some(want) =>
-      match get_string(v.claims, "state") {
+      match state {
         Some(got) =>
           if want != got {
             raise ClaimsParseError("JARM state does not round-trip")
@@ -2841,7 +2901,7 @@ pub fn verify_self_issued_id_token(
     }
     None => ()
   }
-  let nonce = get_string(v.claims, "nonce")
+  let nonce = extract_string(v.claims, "nonce")
   match opts.expected_nonce {
     Some(want) =>
       match nonce {
@@ -3359,7 +3419,7 @@ pub fn verify_ciba_id_token(
   opts : CibaVerifyOptions,
 ) -> CibaIdToken raise JwtError {
   let id = verify_oidc_id_token(token, key, opts.oidc)
-  let auth_req_id = get_string(
+  let auth_req_id = extract_string(
     id.jwt.claims,
     "urn:openid:params:jwt:claim:auth_req_id",
   )
@@ -3371,7 +3431,10 @@ pub fn verify_ciba_id_token(
       }
     None => ()
   }
-  let rt_hash = get_string(id.jwt.claims, "urn:openid:params:jwt:claim:rt_hash")
+  let rt_hash = extract_string(
+    id.jwt.claims,
+    "urn:openid:params:jwt:claim:rt_hash",
+  )
   match opts.refresh_token {
     Some(rt) => {
       let expected = compute_x_hash(id.jwt.alg, rt)
