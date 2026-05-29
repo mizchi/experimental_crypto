@@ -1627,6 +1627,86 @@ test "anchor enforcement: non-CA anchor rejected" {
 }
 
 ///|
+// RFC 5280 §6.1.3(b)/§6.1.4: name constraints are NOT applied to a self-issued
+// (subject == issuer) intermediate that is not the final cert. A CA key-rollover
+// chain root(NC example.com) -> self-issued ICA(SAN not-example.com) -> leaf must
+// validate when the LEAF is within the permitted subtree, even though the
+// self-issued ICA's own SAN is outside it.
+test "anchor nameConstraints: self-issued intermediate is exempt; leaf still checked" {
+  let root_seed = "88990011223344556677aabbccddeeff00112233445566778899aabbccddee00"
+  let ica_seed = "990011223344556677aabbccddeeff00112233445566778899aabbccddee0011"
+  let leaf_ok_seed = "0011223344556677aabbccddeeff00112233445566778899aabbccddee001122"
+  let leaf_bad_seed = "11223344556677aabbccddeeff00112233445566778899aabbccddee00112233"
+  // Root and the self-issued ICA share the DN "Rollover CA"; the ICA is signed
+  // by the root's key (key rollover), so it is self-issued (subject == issuer).
+  let (root, _) = build_self_signed_ed25519(
+    root_seed,
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_permitted_ext("example.com"),
+    ],
+  )
+  let (ica, _) = build_ed25519_cert(
+    ica_seed,
+    "Rollover CA", // subject == issuer ⇒ self-issued
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      san_ext("ica.not-example.com"),
+    ],
+    root_seed,
+  )
+  // Leaf inside the permitted subtree: the self-issued ICA's offending SAN is
+  // exempt, so the chain validates.
+  let (leaf_ok, _) = build_ed25519_cert(
+    leaf_ok_seed,
+    "Leaf OK",
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    ica_seed,
+  )
+  @pkix_verify.verify_chain_with_anchor_cert(
+    leaf_ok,
+    [ica],
+    root,
+    "250601000000Z",
+  )
+  // Leaf OUTSIDE the permitted subtree must still be rejected: the exemption
+  // never applies to the final certificate.
+  let (leaf_bad, _) = build_ed25519_cert(
+    leaf_bad_seed,
+    "Leaf BAD",
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.evil.org")],
+    ica_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf_bad,
+      [ica],
+      root,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.evil.org")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("self-issued exemption leaked to the final leaf certificate")
+  }
+}
+
+///|
 test "ATTACK nameConstraints: unsupported GeneralSubtree maximum is rejected" {
   let inter_seed = "7172737475767778797a7b7c7d7e7f807172737475767778797a7b7c7d7e7f80"
   let leaf_seed = "8182838485868788898a8b8c8d8e8f908182838485868788898a8b8c8d8e8f90"

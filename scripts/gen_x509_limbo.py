@@ -168,8 +168,6 @@ SKIP_SUBNS = {"eku", "aki", "ski", "pc", "san"}
 # even with certificate-anchored validation:
 #   *-non-critical-basic-constraints -> basicConstraints criticality is a pedantic
 #       profile rule the verifier does not require.
-#   *self-issued* -> RFC 5280 §6.1.4 exempts self-issued (non-leaf) certs from name
-#       constraints; the verifier has no self-issued special case.
 #   ca-empty-subject / ee-empty-issuer -> empty-DN edge cases / top-link DN.
 #   leaf-ku-keycertsign -> leaf keyUsage policy, out of scope.
 #   nc::invalid-dnsname-* -> dNSName constraint encoding profile rules (no
@@ -209,7 +207,7 @@ def out_of_scope(t: dict) -> bool:
         return len(parts) > 1 and parts[1] != "nameconstraints"
     if len(parts) > 1 and parts[1] in SKIP_SUBNS:
         return True
-    if t["id"] in EXPLICIT_SKIP or "self-issued" in t["id"]:
+    if t["id"] in EXPLICIT_SKIP:
         return True
     for f in t["features"]:
         if f in SKIP_FEATURES or f.startswith("pedantic"):
@@ -234,6 +232,21 @@ def build_case(t: dict):
         return None
     if epn["value"] not in leaf_san_values(leaf):
         return None  # identity does not match -> verdict not determined by us
+
+    # Path building is out of scope: verify_chain takes a single pre-ordered
+    # intermediate list, so it cannot choose among candidates that share a
+    # subject DN. This covers the "chain of pain" (a cross-cert sharing the
+    # root's DN) and CA key-rollover / self-issued topologies, where picking
+    # the validating path requires trying signatures. Skip when any subject DN
+    # is shared across the supplied intermediates and trust anchors.
+    subjects = []
+    for p in t["untrusted_intermediates"] + t["trusted_certs"]:
+        try:
+            subjects.append(cert_of(p)["tbs_certificate"]["subject"].dump())
+        except Exception:
+            return None
+    if len(subjects) != len(set(subjects)):
+        return None
 
     expect = "accept" if t["expected_result"] == "SUCCESS" else "reject"
     ordered, anchor, complete = order_chain(

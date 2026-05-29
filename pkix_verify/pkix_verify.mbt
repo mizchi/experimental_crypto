@@ -1325,8 +1325,21 @@ fn verify_chain_with_options_internal(
     // Active nameConstraints from any ancestor must hold for THIS cert's
     // SAN as well — a CA cannot escape its parent's constraints just by
     // issuing further sub-CAs.
+    //
+    // RFC 5280 §6.1.3(b)/§6.1.4: name constraints are NOT applied to a
+    // self-issued certificate (subject == issuer) UNLESS it is the final
+    // certificate in the path. Every cert in this loop is an intermediate
+    // (never final — the leaf is checked separately below), so a self-issued
+    // intermediate is exempt from the SAN check. Its own constraints still
+    // propagate via the intersection step below, and certs beneath it are
+    // still checked, so this does not open a bypass: the final leaf is always
+    // checked regardless of self-issuance.
+    let inter_self_issued = names_match(inter.tbs.subject, inter.tbs.issuer)
     match active_constraints {
-      Some(cons) => enforce_name_constraints(cons, inter)
+      Some(cons) =>
+        if !inter_self_issued {
+          enforce_name_constraints(cons, inter)
+        }
       None => ()
     }
     // Signature: inter is signed by current_pubkey.

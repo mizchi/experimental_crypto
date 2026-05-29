@@ -157,10 +157,14 @@ rejects unsupported inputs before returning trusted output.
   `nameConstraints` (seeded into the chain's active constraint set). The
   bare-pubkey `verify_chain` entry points still treat the anchor as
   unconstrained (documented). The x509-limbo harness uses the cert-anchored API.
-  Remaining anchor profile rules NOT enforced (documented, fail-open only for
-  malformed-but-benign placement): basicConstraints/nameConstraints criticality,
-  `nameConstraints`-only-in-CA, non-canonical dNSName constraints, and the
-  self-issued name-constraint exemption.
+  Also implements the RFC 5280 §6.1.3(b)/§6.1.4 self-issued name-constraint
+  exemption (a self-issued, non-final intermediate is exempt from the SAN check;
+  the final leaf is always checked). Remaining anchor profile rules NOT enforced
+  (documented, fail-open only for malformed-but-benign placement):
+  basicConstraints/nameConstraints criticality, `nameConstraints`-only-in-CA,
+  and non-canonical dNSName constraints. Path building (multiple candidate certs
+  sharing a subject DN) remains out of scope — `verify_chain` takes a single
+  pre-ordered intermediate list.
 
 ## Performance / Footprint
 

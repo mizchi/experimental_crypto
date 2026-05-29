@@ -29,8 +29,12 @@ discrepancies):
 - Encoding / placement profile rules the verifier does not enforce:
   basicConstraints / nameConstraints criticality, `nameConstraints` only in CA
   certs, and non-canonical dNSName constraints (leading period / wildcard).
-- The RFC 5280 self-issued name-constraint exemption (`*self-issued*`): the
-  verifier has no self-issued special case.
+- Path building: cases where several supplied certs share a subject DN (the
+  "chain of pain" cross-cert, CA key-rollover / self-issued topologies, expired
+  sibling intermediates) require trying candidate paths, which `verify_chain`
+  does not do (it takes a single pre-ordered intermediate list). The self-issued
+  name-constraint exemption itself is covered by a dedicated unit test in
+  `pkix_verify_test.mbt`.
 - Revocation (CRL/OCSP), verifier-config chain-depth caps, DoS limits, and
   pedantic encoding profiles.
 
@@ -50,5 +54,5 @@ python3 scripts/gen_x509_limbo.py path/to/limbo.json
 ## SHA-256
 
 ```text
-2a445de18484383558ec9e8964d95e77295ad77430fd3be47f5175a30e704448  limbo.json
+7ac9afefb1cb18207b22461f6bf63370f530648722ec74133499b3b76e068c8e  limbo.json
 ```
