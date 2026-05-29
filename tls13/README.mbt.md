@@ -50,10 +50,23 @@ verify-side of server authentication).
   spec-compliant first flight (supported_versions, supported_groups,
   signature_algorithms, key_share, optional SNI); `parse_client_hello` is the
   symmetric reader. The caller supplies the random and key-share public keys.
+- **Client 1-RTT driver** (`client.mbt`): `client_handshake_1rtt` ties it all
+  together — given the ClientHello/ServerHello, the (EC)DHE shared secret, and
+  the decrypted server flight, it runs the key schedule, authenticates the
+  server (CertificateVerify + server Finished), derives the handshake and
+  application traffic keys/IVs, emits the client Finished, and returns the
+  server certificate chain for the caller to validate with `pkix_verify`.
 
-Not yet implemented (planned): the client state machine — which drives the
-flights and layers `pkix_verify` certificate-chain trust (leaf → anchor) on top
-of this CertificateVerify possession check.
+The whole 1-RTT verify-side handshake is verified end-to-end against RFC 8448
+§3 — every secret, traffic key, IV, the server CertificateVerify, the server
+Finished, and the client Finished match the trace.
+
+Not yet implemented (planned, see TODO.md): driving ECDHE (x25519/p256) and
+record (de)framing inside the driver, HelloRetryRequest, post-handshake
+messages (NewSessionTicket / KeyUpdate), and an incremental state API. The
+caller currently supplies the ECDHE shared secret and does record framing with
+`seal_record` / `open_record`, and the certificate-chain trust check with
+`pkix_verify`.
 
 ## Example
 

@@ -141,9 +141,15 @@ rejects unsupported inputs before returning trusted output.
     spec-compliant first flight with supported_versions, supported_groups,
     signature_algorithms, key_share, and optional SNI; round-trips through
     `parse_client_hello`.
-  - [ ] Client state machine driving the flights and wiring `pkix_verify` for
-    certificate-chain trust (leaf → anchor) on top of the CertificateVerify
-    possession check.
+  - [x] Client 1-RTT handshake driver (`tls13/client.mbt`): one-shot
+    orchestration that runs the key schedule, authenticates the server
+    (CertificateVerify signature + server Finished MAC), derives the handshake
+    and application traffic keys/IVs, and emits the client Finished. Returns the
+    server certificate chain for the caller to validate with `pkix_verify`.
+    Verified end-to-end against RFC 8448 §3 (all keys + client Finished).
+  - [ ] Remaining glue for a live client: drive ECDHE (x25519/p256) + record
+    (de)framing internally, HelloRetryRequest, post-handshake messages
+    (NewSessionTicket / KeyUpdate), and an incremental (non one-shot) state API.
 
 ### Tier 2 / 3
 
