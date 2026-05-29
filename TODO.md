@@ -145,6 +145,19 @@ rejects unsupported inputs before returning trusted output.
 
 - [ ] **JWT remaining coverage holes**: continue adding reference fixtures for
   profile-specific JWT/OIDC/FAPI branches as they are touched.
+- [x] **x509-limbo / BetterTLS path-validation differential corpus**: replay
+  the C2SP/x509-limbo + Netflix BetterTLS name-constraint suites against
+  `pkix_verify.verify_chain` (`pkix_verify/limbo_json_js_test.mbt`,
+  `scripts/gen_x509_limbo.py`, fixtures under `testdata/{x509-limbo,bettertls}`).
+  Hard assertion: no `reject` case verifies (false-positive guard).
+- [ ] **Trust-anchor-level constraint enforcement**: `verify_chain` treats the
+  trust anchor as a bare public key and does NOT inspect the anchor's own
+  validity window, basicConstraints, critical extensions, or `nameConstraints`.
+  A caller that pins a name-constrained or expired root has those properties
+  silently dropped (surfaced by the excluded x509-limbo `*root*` / anchor
+  `nc::` cases). Intermediate-level constraints ARE enforced. Decide whether to
+  accept a full anchor `Certificate` (and enforce its constraints/validity) or
+  document this as a hard API contract.
 
 ## Performance / Footprint
 
