@@ -38,6 +38,7 @@ members = [
   "./jwk",
   "./hpke",
   "./totp",
+  "./tls13",
   "./proofs",
   "./pem/wrap",
   "./aead/wrap",

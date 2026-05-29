@@ -114,8 +114,15 @@ rejects unsupported inputs before returning trusted output.
 
 ### Tier 1
 
-- [ ] **TLS 1.3 client**: handshake + key schedule (HKDF-Expand-Label) +
-  record layer. All cryptographic primitives are already here.
+- [ ] **TLS 1.3 client** (`tls13`): handshake + key schedule (HKDF-Expand-Label)
+  + record layer. All cryptographic primitives are already here.
+  - [x] Key schedule (RFC 8446 §7.1): HKDF-Extract/Expand, HKDF-Expand-Label,
+    Derive-Secret, the full secret chain, traffic key/IV, and Finished key, for
+    SHA-256 and SHA-384. Verified byte-for-byte against RFC 8448 §3.
+  - [ ] Record layer: AEAD framing (TLSCiphertext) + per-record nonce
+    (sequence number XOR write IV) + content-type padding.
+  - [ ] Handshake message parse/build (ClientHello … Finished) and the client
+    state machine, wiring `pkix_verify` for certificate-chain verification.
 
 ### Tier 2 / 3
 
