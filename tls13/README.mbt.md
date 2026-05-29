@@ -23,12 +23,19 @@ Implemented:
   `TLS_AES_128_GCM_SHA256`, `TLS_AES_256_GCM_SHA384`,
   `TLS_CHACHA20_POLY1305_SHA256`.
 
-Both are verified byte-for-byte against the RFC 8448 §3 "Simple 1-RTT
-Handshake" trace (key schedule + the server handshake flight record).
+- **Handshake framing + authentication** (RFC 8446 §4): `handshake_message` /
+  `parse_handshake` / `parse_handshake_flight` for the `msg_type || uint24 len ||
+  body` framing; the Finished MAC (`finished_mac`, `build_finished`, and a
+  constant-time `verify_finished`); and the CertificateVerify signed-content
+  builder (`certificate_verify_content` + the server/client context strings).
 
-Not yet implemented (planned): handshake message parsing/building (ClientHello …
-Finished), the client state machine, and certificate-chain verification wiring
-(`pkix_verify`).
+All three layers are verified against the RFC 8448 §3 "Simple 1-RTT Handshake"
+trace — including an end-to-end check that reconstructs the transcript and
+confirms the server Finished MAC.
+
+Not yet implemented (planned): per-message body codecs (ClientHello/ServerHello
+extensions, the Certificate list, wiring the CertificateVerify signature to
+`pkix_verify` / `rsa` / ECDSA) and the client state machine.
 
 ## Example
 

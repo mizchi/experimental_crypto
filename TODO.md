@@ -123,8 +123,14 @@ rejects unsupported inputs before returning trusted output.
     (sequence number XOR write IV) + content-type padding, for AES-128-GCM,
     AES-256-GCM, and ChaCha20-Poly1305. Verified byte-for-byte against the
     RFC 8448 §3 server handshake flight (`tls13/record.mbt`).
-  - [ ] Handshake message parse/build (ClientHello … Finished) and the client
-    state machine, wiring `pkix_verify` for certificate-chain verification.
+  - [x] Handshake message framing (`handshake_message` / `parse_handshake` /
+    `parse_handshake_flight`), the Finished MAC (`finished_mac` / `build_finished`
+    / constant-time `verify_finished`), and the CertificateVerify signed-content
+    builder. End-to-end verified against RFC 8448 §3 (server Finished)
+    (`tls13/handshake.mbt`).
+  - [ ] Per-message body codecs (ClientHello/ServerHello extensions, the
+    Certificate list, CertificateVerify signature wiring to `pkix_verify` /
+    `rsa` / ECDSA) and the client state machine driving the flights.
 
 ### Tier 2 / 3
 
