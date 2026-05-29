@@ -52,10 +52,15 @@ verify-side of server authentication).
   symmetric reader. The caller supplies the random and key-share public keys.
 - **Client 1-RTT driver** (`client.mbt`): `client_handshake_1rtt` ties it all
   together — given the ClientHello/ServerHello, the (EC)DHE shared secret, and
-  the decrypted server flight, it runs the key schedule, authenticates the
+  the decrypted server flight, it validates the ServerHello (rejecting
+  downgrade sentinels, non-TLS-1.3, cipher-suite confusion, HelloRetryRequest,
+  and a weak/all-zero ECDHE secret), runs the key schedule, authenticates the
   server (CertificateVerify + server Finished), derives the handshake and
   application traffic keys/IVs, emits the client Finished, and returns the
-  server certificate chain for the caller to validate with `pkix_verify`.
+  server certificate chain. `client_handshake_1rtt_verified` goes further:
+  it validates the chain to a supplied trust anchor with `pkix_verify` and
+  matches the leaf SAN against an expected hostname (RFC 6125), so a
+  non-raising return means the server is fully authenticated for that name.
 
 The whole 1-RTT verify-side handshake is verified end-to-end against RFC 8448
 §3 — every secret, traffic key, IV, the server CertificateVerify, the server

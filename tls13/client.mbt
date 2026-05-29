@@ -7,11 +7,17 @@
 // produces the client Finished message.
 //
 // This deliberately stays pure: the caller owns the socket, the ECDHE keypair,
-// and the record (de)framing (see seal_record / open_record). Certificate
-// chain-of-trust validation (leaf -> anchor) is also the caller's job — the
-// returned `server_certificates` chain is meant to be fed to
-// `pkix_verify.verify_chain*`. This driver only proves the server holds the
-// leaf key and agrees on the transcript.
+// and the record (de)framing (see seal_record / open_record).
+//
+// Two entry points, differing in how far they take server authentication:
+//   - client_handshake_1rtt proves only that the server holds the leaf key and
+//     agrees on the transcript (CertificateVerify + Finished). Chain-of-trust
+//     and hostname validation are the caller's job; the returned
+//     `server_certificates` chain is meant for `pkix_verify`.
+//   - client_handshake_1rtt_verified additionally validates the chain to a
+//     supplied trust anchor (via `pkix_verify`) and matches the leaf SAN
+//     against an expected hostname (RFC 6125), so a non-raising return means
+//     the server is fully authenticated for that name.
 
 ///|
 pub suberror ClientError {
@@ -44,6 +50,12 @@ pub suberror ClientError {
   CertificateVerifyFailed
   // The server's Finished MAC did not validate.
   ServerFinishedFailed
+  // A certificate in the chain failed to parse as DER.
+  CertParse(@pkix.PkixError)
+  // The server certificate chain did not validate to the trust anchor.
+  ChainUntrusted(@pkix_verify.PkixVerifyError)
+  // No dNSName SAN on the leaf matched the expected hostname.
+  HostnameMismatch(String)
 } derive(Debug)
 
 ///|
@@ -293,4 +305,147 @@ pub fn client_handshake_1rtt(
     server_application_iv: h.write_iv(s_ap),
   }
   { keys, server_certificates: chain, client_finished }
+}
+
+// ─── turnkey server authentication (chain trust + hostname) ──────────────
+
+///|
+fn ascii_lower(s : String) -> String {
+  let buf = StringBuilder::new()
+  for c in s {
+    let n = c.to_int()
+    if n >= 0x41 && n <= 0x5a {
+      buf.write_char((n + 0x20).to_char().unwrap())
+    } else {
+      buf.write_char(c)
+    }
+  }
+  buf.to_string()
+}
+
+///|
+// Does `h` end with `s[s_start:]`?
+fn ends_with_from(h : String, s : String, s_start : Int) -> Bool {
+  let suffix_len = s.length() - s_start
+  if suffix_len > h.length() {
+    return false
+  }
+  let off = h.length() - suffix_len
+  for i in 0..<suffix_len {
+    if h.get_char(off + i).unwrap() != s.get_char(s_start + i).unwrap() {
+      return false
+    }
+  }
+  true
+}
+
+///|
+// Is there a '.' in `s[start:]`?
+fn has_dot_from(s : String, start : Int) -> Bool {
+  for i in start..<s.length() {
+    if s.get_char(i).unwrap() == '.' {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// RFC 6125 §6.4.3 hostname matching of a DNS-ID against a certificate SAN
+/// dNSName. Case-insensitive exact match, plus a single left-most-label
+/// wildcard (`*.example.com` matches exactly one label — `a.example.com` but
+/// not `example.com` or `a.b.example.com`). Partial-label wildcards
+/// (`f*.example.com`), bare `*`, and wildcards covering a bare TLD (`*.com`)
+/// are rejected.
+pub fn hostname_matches_san(hostname : String, san : String) -> Bool {
+  let h = ascii_lower(hostname)
+  let s = ascii_lower(san)
+  if h.length() == 0 || s.length() == 0 {
+    return false
+  }
+  if h == s {
+    return true
+  }
+  // Wildcard must be exactly the whole left-most label: a "*." prefix.
+  if s.length() >= 2 &&
+    s.get_char(0).unwrap() == '*' &&
+    s.get_char(1).unwrap() == '.' {
+    // Wildcard suffix is s[1:] (".example.com"); it must cover at least two
+    // labels (a dot beyond the leading one) so "*.com" cannot match.
+    if !has_dot_from(s, 2) {
+      return false
+    }
+    if !ends_with_from(h, s, 1) {
+      return false
+    }
+    // The matched left-most label is h up to the suffix; it must be exactly one
+    // non-empty, dot-free label.
+    let label_len = h.length() - (s.length() - 1)
+    if label_len <= 0 {
+      return false
+    }
+    for i in 0..<label_len {
+      if h.get_char(i).unwrap() == '.' {
+        return false
+      }
+    }
+    return true
+  }
+  false
+}
+
+///|
+/// Like `client_handshake_1rtt`, but additionally establishes server identity:
+/// it validates the server certificate chain (leaf -> `trust_anchor`) with
+/// `pkix_verify` and checks the leaf's dNSName SANs against `expected_hostname`
+/// (RFC 6125). A non-raising return therefore means the server was both
+/// cryptographically authenticated (CertificateVerify + Finished) AND its
+/// certificate is trusted for the requested name.
+///
+/// `now` is the validation time as an RFC 5280 UTCTime/GeneralizedTime string
+/// (e.g. "20240101000000Z").
+pub fn client_handshake_1rtt_verified(
+  suite : CipherSuite,
+  client_hello : Bytes,
+  server_hello : Bytes,
+  ecdhe_shared_secret : Bytes,
+  server_flight : Bytes,
+  trust_anchor : @pkix.Certificate,
+  now : String,
+  expected_hostname : String,
+) -> ClientHandshakeResult raise ClientError {
+  let result = client_handshake_1rtt(
+    suite, client_hello, server_hello, ecdhe_shared_secret, server_flight,
+  )
+  // Parse the chain and validate leaf -> trust_anchor (signatures, validity,
+  // basicConstraints, pathLen, name constraints, leaf digitalSignature).
+  let parsed : Array[@pkix.Certificate] = []
+  for der in result.server_certificates {
+    parsed.push(@pkix.parse_certificate(der) catch { e => raise CertParse(e) })
+  }
+  let leaf = parsed[0]
+  let intermediates : Array[@pkix.Certificate] = []
+  for i = 1; i < parsed.length(); i = i + 1 {
+    intermediates.push(parsed[i])
+  }
+  @pkix_verify.verify_chain_for_signature_with_anchor_cert(
+    leaf, intermediates, trust_anchor, now,
+  ) catch {
+    e => raise ChainUntrusted(e)
+  }
+  // RFC 6125 identity check against the leaf's dNSName SANs.
+  let sans = @pkix_verify.extract_dns_san(leaf) catch {
+    e => raise ChainUntrusted(e)
+  }
+  let mut matched = false
+  for san in sans {
+    if hostname_matches_san(expected_hostname, san) {
+      matched = true
+      break
+    }
+  }
+  if !matched {
+    raise HostnameMismatch(expected_hostname)
+  }
+  result
 }

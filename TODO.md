@@ -151,12 +151,15 @@ rejects unsupported inputs before returning trusted output.
     negotiation, the RFC 8446 §4.1.3 downgrade sentinels, cipher-suite
     confusion, HelloRetryRequest, and a missing key_share — and a black-box
     fuzz sweep confirms no single-byte tamper of the handshake authenticates.
+  - [x] Turnkey full server authentication
+    (`client_handshake_1rtt_verified`): validates the certificate chain to a
+    trust anchor with `pkix_verify` and matches the leaf SAN against an expected
+    hostname (RFC 6125 exact + single-label wildcard), on top of the
+    CertificateVerify/Finished possession check.
   - [ ] Remaining glue for a live client: drive ECDHE (x25519/p256) + record
     (de)framing internally, *handle* (not just reject) HelloRetryRequest,
-    post-handshake messages (NewSessionTicket / KeyUpdate), an incremental
-    (non one-shot) state API, and a turnkey path that runs `pkix_verify`
-    chain + hostname validation on the returned certificate chain (today the
-    driver verifies key possession only — chain trust is the caller's job).
+    post-handshake messages (NewSessionTicket / KeyUpdate), and an incremental
+    (non one-shot) state API.
 
 ### Tier 2 / 3
 
