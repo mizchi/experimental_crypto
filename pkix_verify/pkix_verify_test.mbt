@@ -867,6 +867,34 @@ fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
 }
 
 ///|
+// nameConstraints with a single permittedSubtrees DNS entry ([0] IMPLICIT).
+fn name_constraints_permitted_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  let base = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let gst = @asn1.Element::new(@asn1.tag_sequence, Sequence([base]))
+  let gst_bytes = @asn1.encode_der(gst)
+  // [0] IMPLICIT SEQUENCE OF GeneralSubtree — context-specific constructed.
+  let permitted_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    @asn1.Value::Unknown(gst_bytes),
+  )
+  let nc = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([permitted_subtrees]),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value: @asn1.encode_der(nc),
+  }
+}
+
+///|
 fn name_constraints_excluded_with_maximum_ext(dns : String) -> @pkix.Extension {
   let dns_bytes = Bytes::makei(dns.length(), fn(i) {
     dns.get_char(i).unwrap().to_int().to_byte()
@@ -1107,6 +1135,223 @@ test "nameConstraints excludedSubtrees lets through a different DNS suffix" {
     inter.tbs.subject_public_key_info,
   )
   @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+///|
+// RFC 5280 §6.1.4(g): when intersecting permittedSubtrees down the chain
+// produces the EMPTY set (two CAs whose permitted DNS subtrees are disjoint),
+// the resulting permitted name space is empty and every subsequent name MUST
+// be rejected. A buggy verifier that treats "empty permitted set" the same as
+// "no permitted constraint" lets a CA escape the subtree it was restricted to.
+//
+// Chain: anchor (unconstrained) -> Inter A (permitted example.com)
+//        -> Inter B (permitted evil.org) -> leaf (SAN www.evil.org).
+// Inter A may only certify under example.com, so a leaf for evil.org issued
+// through B MUST NOT validate.
+test "ATTACK RFC 5280 §6.1.4(g): disjoint permittedSubtrees intersection denies all" {
+  let anchor_seed = "0011223344556677889900aabbccddeeff0011223344556677889900aabbccdd"
+  let inter_a_seed = "1122334455667788990011aabbccddeeff1122334455667788990011aabbccdd"
+  let inter_b_seed = "2233445566778899001122aabbccddeeff2233445566778899001122aabbccdd"
+  let leaf_seed = "3344556677889900112233aabbccddeeff3344556677889900112233aabbccdd"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Disjoint NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A example.com",
+    "Disjoint NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B evil.org",
+    "Inter A example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("evil.org")),
+    inter_a_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Inter B evil.org",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.evil.org")],
+    inter_b_seed,
+  )
+  // intermediates[0] is the leaf's direct parent (Inter B), [1] is Inter A.
+  try
+    @pkix_verify.verify_chain(
+      leaf,
+      [inter_b, inter_a],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.evil.org")
+    other => abort("expected NameConstraintViolation, got: " + repr(other) + "")
+  } noraise {
+    _ =>
+      abort(
+        "name-constraints bypass: leaf for evil.org accepted despite Inter A being restricted to example.com",
+      )
+  }
+}
+
+///|
+// Positive counterpart: a child CA that NARROWS the parent's permitted subtree
+// (sub.example.com ⊆ example.com) must still allow a leaf inside the narrowed
+// space. Guards against the empty-set fix over-rejecting legitimate chains.
+test "nameConstraints: child narrows parent permittedSubtrees, leaf still allowed" {
+  let anchor_seed = "0a0b0c0d0e0f00112233445566778899aabbccddeeff0a0b0c0d0e0f00112233"
+  let inter_a_seed = "1a1b1c1d1e1f00112233445566778899aabbccddeeff1a1b1c1d1e1f00112233"
+  let inter_b_seed = "2a2b2c2d2e2f00112233445566778899aabbccddeeff2a2b2c2d2e2f00112233"
+  let leaf_seed = "3a3b3c3d3e3f00112233445566778899aabbccddeeff3a3b3c3d3e3f00112233"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Narrow NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  // Parent permits example.com; child narrows to sub.example.com.
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A example.com",
+    "Narrow NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B sub.example.com",
+    "Inter A example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("sub.example.com")),
+    inter_a_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Inter B sub.example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("host.sub.example.com")],
+    inter_b_seed,
+  )
+  @pkix_verify.verify_chain(
+    leaf,
+    [inter_b, inter_a],
+    anchor_pk,
+    "250601000000Z",
+  )
+}
+
+///|
+// Same intersection but with parent/child order of specificity swapped: the
+// PARENT is the narrower subtree (sub.example.com) and the child re-asserts the
+// broader example.com. The intersection must keep the narrower sub.example.com,
+// so a leaf within it is allowed while example.com-but-not-sub names are not.
+// Guards the parent⊆child branch of intersect_dns_constraints.
+test "nameConstraints: intersection keeps narrower parent subtree" {
+  let anchor_seed = "0c0d0e0f00112233445566778899aabbccddeeff0c0d0e0f0011223344556677"
+  let inter_a_seed = "1c1d1e1f00112233445566778899aabbccddeeff1c1d1e1f0011223344556677"
+  let inter_b_seed = "2c2d2e2f00112233445566778899aabbccddeeff2c2d2e2f0011223344556677"
+  let leaf_ok_seed = "3c3d3e3f00112233445566778899aabbccddeeff3c3d3e3f0011223344556677"
+  let leaf_bad_seed = "4c4d4e4f00112233445566778899aabbccddeeff4c4d4e4f0011223344556677"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Swap NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A sub.example.com",
+    "Swap NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("sub.example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B example.com",
+    "Inter A sub.example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    inter_a_seed,
+  )
+  // Leaf inside sub.example.com is allowed.
+  let (leaf_ok, _) = build_ed25519_cert(
+    leaf_ok_seed,
+    "Leaf OK",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("api.sub.example.com")],
+    inter_b_seed,
+  )
+  @pkix_verify.verify_chain(
+    leaf_ok,
+    [inter_b, inter_a],
+    anchor_pk,
+    "250601000000Z",
+  )
+  // Leaf at example.com but outside sub.example.com must be rejected.
+  let (leaf_bad, _) = build_ed25519_cert(
+    leaf_bad_seed,
+    "Leaf BAD",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    inter_b_seed,
+  )
+  try
+    @pkix_verify.verify_chain(
+      leaf_bad,
+      [inter_b, inter_a],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.example.com")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("name outside narrower sub.example.com subtree wrongly accepted")
+  }
 }
 
 ///|

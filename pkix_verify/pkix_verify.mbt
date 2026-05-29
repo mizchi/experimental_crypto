@@ -373,9 +373,14 @@ pub fn extract_dns_san(
 
 ///|
 priv struct DnsNameConstraints {
-  // Permitted-subtrees (empty means "no permitted constraint" i.e. all
-  // allowed); excluded-subtrees take precedence over permitted (RFC 5280).
-  permitted : Array[String]
+  // Permitted-subtrees. `None` means "no permittedSubtrees constraint" (every
+  // name allowed unless excluded). `Some(list)` means the permitted DNS name
+  // space is exactly `list`; in particular `Some([])` is the EMPTY name space
+  // — RFC 5280 §6.1.4(g): when intersecting disjoint permitted subtrees down
+  // the chain yields the empty set, every subsequent name MUST be rejected.
+  // Conflating `Some([])` with `None` is a name-constraints bypass.
+  // Excluded-subtrees take precedence over permitted (RFC 5280).
+  permitted : Array[String]?
   excluded : Array[String]
 }
 
@@ -471,7 +476,10 @@ fn parse_dns_name_constraints(
       }
     }
   }
-  { permitted, excluded }
+  // Distinguish "permittedSubtrees absent" (None ⇒ unconstrained) from
+  // "permittedSubtrees present" (Some, possibly empty ⇒ a real, possibly
+  // empty, permitted name space).
+  { permitted: if saw_permitted { Some(permitted) } else { None }, excluded }
 }
 
 ///|
@@ -560,11 +568,15 @@ fn ascii_lower(s : String) -> String {
 //
 // - excluded: union of the two excluded sets (any new excluded entry
 //   blocks names previously permitted).
-// - permitted: if either side is empty, take the other; if both are
-//   non-empty, keep each child entry that lies WITHIN at least one
-//   parent entry. Names that the child wanted to allow but the parent
-//   already forbade are dropped — meaning subsequent SANs that match
-//   those orphaned subtrees will fail the permitted-check below.
+// - permitted: `None` (no constraint) on a side means "take the other side".
+//   If both sides constrain, the result is the set intersection of the two
+//   subtree collections. The intersection of two DNS suffix-subtrees is the
+//   MORE SPECIFIC of the pair when one contains the other, and empty when
+//   they are disjoint. So we keep, for every overlapping (parent, child)
+//   pair, the narrower subtree. If no pair overlaps, the result is
+//   `Some([])` — the empty permitted name space — and `dns_within_constraints`
+//   will then reject every name (RFC 5280 §6.1.4(g)), rather than silently
+//   treating it as "unconstrained".
 fn intersect_dns_constraints(
   parent : DnsNameConstraints,
   child : DnsNameConstraints,
@@ -576,29 +588,40 @@ fn intersect_dns_constraints(
   for e in child.excluded {
     new_excluded.push(e)
   }
-  let new_permitted : Array[String] = if parent.permitted.length() == 0 {
-    let copy : Array[String] = []
-    for p in child.permitted {
-      copy.push(p)
+  let new_permitted : Array[String]? = match
+    (parent.permitted, child.permitted) {
+    (None, None) => None
+    (None, Some(c)) => {
+      let copy : Array[String] = []
+      for p in c {
+        copy.push(p)
+      }
+      Some(copy)
     }
-    copy
-  } else if child.permitted.length() == 0 {
-    let copy : Array[String] = []
-    for p in parent.permitted {
-      copy.push(p)
+    (Some(p), None) => {
+      let copy : Array[String] = []
+      for x in p {
+        copy.push(x)
+      }
+      Some(copy)
     }
-    copy
-  } else {
-    let out : Array[String] = []
-    for c in child.permitted {
-      for p in parent.permitted {
-        if dns_name_in_subtree(c, p) {
-          out.push(c)
-          break
+    (Some(parent_p), Some(child_p)) => {
+      let out : Array[String] = []
+      for c in child_p {
+        for p in parent_p {
+          // child subtree within parent subtree ⇒ child is the narrower.
+          if dns_name_in_subtree(c, p) {
+            out.push(c)
+            break
+            // parent subtree within child subtree ⇒ parent is the narrower.
+          } else if dns_name_in_subtree(p, c) {
+            out.push(p)
+            break
+          }
         }
       }
+      Some(out)
     }
-    out
   }
   { permitted: new_permitted, excluded: new_excluded }
 }
@@ -610,15 +633,20 @@ fn dns_within_constraints(dns : String, cons : DnsNameConstraints) -> Bool {
       return false
     }
   }
-  if cons.permitted.length() == 0 {
-    return true
-  }
-  for p in cons.permitted {
-    if dns_name_in_subtree(dns, p) {
-      return true
+  // `None` ⇒ no permittedSubtrees constraint, so the name is permitted.
+  // `Some(list)` ⇒ the name MUST fall within one of `list`. An empty `list`
+  // is the empty permitted name space and rejects everything.
+  match cons.permitted {
+    None => true
+    Some(permitted) => {
+      for p in permitted {
+        if dns_name_in_subtree(dns, p) {
+          return true
+        }
+      }
+      false
     }
   }
-  false
 }
 
 ///|
