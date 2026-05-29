@@ -5,20 +5,23 @@ Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
 
 ## Security Implementation Priority
 
-1. [ ] **PGP sign-side interop**: verify generated signatures with external
+1. [x] **PGP sign-side interop**: verify generated signatures with external
    `gpg`, `sq`, or `rsop`.
    - [x] Add external sign-output verification for v4 signatures.
    - [x] Run v4 Ed25519 sign-output verification with `gpg --verify` in CI.
-   - [ ] Add v6 sign-output verification once a v6-capable reference tool is
-     available in CI.
+   - [x] Run v6 Ed25519 sign-output verification with Sequoia `sq verify` in
+     CI.
 2. [ ] **JWT remaining algorithm / parser coverage**.
    - [x] Add `ES512` after adding P-521 / secp521r1 support.
-3. [ ] **SSH allowed_signers feature gaps**.
-   - [ ] Add explicit SSH certificate support before accepting
-     `cert-authority`.
-   - [x] Add a time-aware allowed_signers API before accepting
-     `valid-after` / `valid-before`.
-4. [x] **Cross-format fuzz breadth**.
+   - [x] Reject malformed optional string claims in OIDC ID Token, RFC 9068,
+     and DPoP profile verifiers.
+   - [x] Reject malformed optional string claims in RFC 7523 client assertions,
+     logout tokens, UserInfo, JARM, SIOP, and CIBA profile verifiers.
+   - [x] Reject malformed `typ` JOSE headers instead of treating them as
+     absent in generic verifiers.
+   - [x] Reject malformed registered JWT claims (`iss`, `sub`, `jti`, `aud`)
+     in generic `verify`, even when no issuer / audience option is supplied.
+3. [x] **Cross-format fuzz breadth**.
    - [x] Add CMS -> PKIX -> PKIX_VERIFY fuzz.
    - [x] Add OCSP / CRL -> PKIX_VERIFY fuzz.
 
@@ -65,11 +68,12 @@ rejects unsupported inputs before returning trusted output.
   - [x] Reject malformed JAR `client_id` claims when present, rather than
     bypassing embedded client binding.
 - [x] **SSH allowed_signers trust policy**
-  - [x] Keep `cert-authority` fail-closed until SSH certificate verification is
-    implemented.
+  - [x] Accept `cert-authority` only through explicit OpenSSH user-certificate
+    validation and time-aware verification APIs.
   - [x] Enforce `valid-after` / `valid-before` only via explicit time-aware
     verification APIs.
-  - [x] Keep plain verification fail-closed for time-scoped entries.
+  - [x] Keep plain verification fail-closed for time-scoped and certificate
+    authority entries.
 - [x] **git signed-object canonical bytes**
   - [x] Keep raw object headers, tag objects, multi-line `gpgsig`
     continuation, duplicate signatures, and body-only `gpgsig` text
@@ -115,8 +119,9 @@ rejects unsupported inputs before returning trusted output.
 
 ### Tier 2 / 3
 
-- [ ] **PGP v6 real-gpg fixture**: blocked on GnuPG >= 2.4.9 emitting v4 by
-  default. Cross-test once rpgpie / rsop / a v6-capable gpg becomes available.
+- [ ] **PGP v6 GnuPG-specific fixture**: blocked on GnuPG 2.4.9 emitting v4
+  by default. v6 sign-side interop is covered by Sequoia `sq`; cross-test with
+  GnuPG / rsop once a compatible tool is available.
 - [ ] **Post-quantum ML-KEM / ML-DSA** (FIPS 203 / 204).
 - [ ] **Ed448 / X448** (RFC 8032 / 7748).
 - [ ] **PKCS#12 (PFX)**.
@@ -147,6 +152,11 @@ rejects unsupported inputs before returning trusted output.
   tighten the conservative 1.0% callgrind thresholds and evidence timing /
   dudect thresholds for fixed-limb private operations. Current measured status
   and archived evidence are documented in `docs/CONSTANT_TIME.md`.
+- [ ] **P-521 archived leakage evidence**: run the manual `Leakage Profile`
+  workflow for the P-521-inclusive workload set and update
+  `docs/CONSTANT_TIME.md` once repeated timing / dudect / callgrind evidence
+  passes on Linux CI artifacts. Use `scripts/run_p521_leakage_profile.sh`
+  after committing and pushing the candidate ref.
 - [ ] **AES-GCM GHASH hardware CLMUL**: current portable GHASH uses a 4-bit
   Shoup table; replace it with a backend carry-less-multiplication / SIMD path
   once MoonBit exposes a suitable intrinsic.

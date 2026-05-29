@@ -190,9 +190,11 @@ sk.sign(message, format=Raw | Der)                     // RFC 6979 deterministic
 P-256 with SHA-256, P-384 with SHA-384, and P-521 with SHA-512. Sign-side
 base-point multiplication and final nonce inverse use fixed-limb /
 fixed-iteration paths; public verify remains affine `@bigint` because inputs
-are public. See `CONSTANT_TIME.md` for the measurement caveat. P-521 is wired
-into the leakage harness, but it still needs repeated calibrated evidence
-before measured-candidate claims.
+are public. P-521 also has pinned Wycheproof P1363 vectors: normal JS tests
+run a curated subset, and `P521_WYCHEPROOF_FULL=1` runs all 318 cases. See
+`CONSTANT_TIME.md` for the measurement caveat. P-521 is wired into the leakage
+harness, but it still needs repeated calibrated evidence before
+measured-candidate claims.
 
 ### `mizchi/secp256k1`
 **Spec**: SEC 2 §2.4.1. **Tests**: 32.
@@ -286,7 +288,7 @@ Reuses the wire bytes of `protected` per RFC 9052 §4.4 step 4.
 ## Application formats
 
 ### `mizchi/jwt`
-**RFC**: 7515 / 7518 / 7519. **Tests**: 202.
+**RFC**: 7515 / 7518 / 7519. **Tests**: 214.
 
 Supported algorithms: HS256, EdDSA, RS256, ES256, ES384,
 PS256/384/512. Rejects `alg:none`, `crit`, `b64` headers.
@@ -328,7 +330,7 @@ parameters: digits outside 6..8, non-positive step, `now < T0`, or skew above
 10 steps.
 
 ### `mizchi/pgp`
-**RFC**: 9580 (with RFC 4880 backward compat). **Tests**: 15.
+**RFC**: 9580 (with RFC 4880 backward compat). **Tests**: 38.
 
 ```moonbit
 @pgp.parse_pubkey_armor(armor) -> PgpPublicKeyPacket
@@ -337,9 +339,11 @@ parameters: digits outside 6..8, non-positive step, `now < T0`, or skew above
 ```
 
 v4 + v6 packets. Ed25519 (algo 22 v4 + algo 27 v6), RSA, ECDSA P-256/384.
+Sign-side interop checks cover v4 Ed25519 with `gpg --verify` and v6
+Ed25519 with Sequoia `sq verify`.
 
 ### `mizchi/ssh`
-**Format**: SSHSIG-style subset. **Tests**: 47.
+**Format**: SSHSIG-style subset. **Tests**: 51.
 
 ```moonbit
 @ssh.parse_ssh_pubkey_text(line)
@@ -349,9 +353,10 @@ v4 + v6 packets. Ed25519 (algo 22 v4 + algo 27 v6), RSA, ECDSA P-256/384.
 @ssh.verify_with_allowed_signers(text, principal, armor, message)
 ```
 
-Ed25519, ECDSA P-256/384, RSA (rsa-sha2-256/512). Plain `ssh-rsa` (SHA-1)
-deliberately rejected. This module is a conservative SSHSIG-style verifier, not
-a full OpenSSH verifier.
+Ed25519, ECDSA P-256/384, RSA (rsa-sha2-256/512), and OpenSSH user
+certificates for `cert-authority` verification through the time-aware
+`allowed_signers` API. Plain `ssh-rsa` (SHA-1) is deliberately rejected. This
+module is a conservative SSHSIG-style verifier, not a full OpenSSH verifier.
 
 ### `mizchi/cms`
 **RFC**: 5652. **Tests**: 7.

@@ -38,8 +38,8 @@ For API-level detail, see [docs/MODULES.md](docs/MODULES.md) and
 | Wallet, box, and OTP protocols | `bip39`, `bip32`, `hpke`, `naclbox`, `totp` | BIP mnemonic/HD wallet helpers, HPKE base mode, libsodium-style box, and HOTP/TOTP. |
 | Sidecar tooling | `proofs`, `leakage_harness` | SMT proof leaves and native sparse-vs-dense leakage measurement harnesses. |
 
-`moon test` from the workspace root runs the full suite (currently 1352 native
-tests on this checkout).
+`moon test` from the workspace root runs the full suite (currently 1369
+default-target tests on this checkout).
 
 ## Cross-implementation interop
 

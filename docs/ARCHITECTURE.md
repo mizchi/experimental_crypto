@@ -96,7 +96,7 @@ RFC-level concern. Modules depend only on `moonbitlang/core`, a small
 | `jwk` | RFC 7517 / 7518 / 7638 / 8037 | JWK parse / serialise / thumbprint. Validates RSA parameters and EC / Ed25519 private-public consistency; `oct` is private-only. |
 | `totp` | RFC 4226 / 6238 | HOTP / TOTP generation, verification, and provisioning URI. Rejects invalid digit / step / skew parameters fail-closed. |
 | `pgp` | RFC 9580 (+ RFC 4880 backward compat) | OpenPGP v4 + v6 detached signature verify + sign. Ed25519, RSA, ECDSA P-256/384. |
-| `ssh` | SSHSIG-style subset | SSHSIG armor sign + verify. Ed25519, ECDSA P-256/384, RSA-SHA-2-256/512. Conservative `allowed_signers`-style parser. |
+| `ssh` | SSHSIG-style subset | SSHSIG armor sign + verify. Ed25519, ECDSA P-256/384, RSA-SHA-2-256/512, and OpenSSH user certificates for time-aware `cert-authority` verification. Conservative `allowed_signers`-style parser; not a full OpenSSH verifier. |
 | `cms` | RFC 5652 | CMS SignedData detached verify. SignerInfo with IssuerAndSerialNumber match. `verify_with_chain` composes with `pkix_verify`. |
 | `git_object` | git format | Commit / tag signature extraction. Strips `gpgsig` header for canonical signed bytes. |
 | `ocsp` | RFC 6960 | OCSP response parse + verify. Direct-signed and delegated-responder paths. SHA-1 and SHA-256 CertIDs. |

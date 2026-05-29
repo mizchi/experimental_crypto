@@ -346,6 +346,13 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add malformed UTF-8 JWT header and signed payload fixtures for the decode
   catch arms.
 - Add DPoP malformed embedded `jwk` header and claim-shape fixtures.
+- Reject malformed optional string claims in RFC 7523 client assertions,
+  Back-Channel Logout tokens, UserInfo signed JWTs, JARM responses, SIOP v2
+  ID Tokens, and CIBA ID Tokens instead of treating them as absent.
+- Reject malformed JOSE `typ` headers instead of treating a present non-string
+  value as absent in generic JWT verifiers.
+- Reject malformed registered JWT claim shapes (`iss`, `sub`, `jti`, `aud`) in
+  generic `verify`, even when issuer / audience matching is not requested.
 - Enforce RFC 7518 `sLen=hLen` for JWT PS256 / PS384 / PS512 verification,
   require caller-supplied hLen salt for PSx signing, and reject deterministic
   no-salt PSx tokens under standard JOSE `alg` names.
@@ -400,6 +407,10 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Add PGP sign-side gpg interop for v4 Ed25519 by exporting a minimal
   transferable public key, embedding issuer metadata in generated detached
   signatures, and checking the result with `gpg --verify`.
+- Add PGP sign-side Sequoia interop for v6 Ed25519 by exporting a minimal
+  RFC 9580 public key with a Direct Key self-signature, embedding v6 issuer
+  metadata in generated detached signatures, and checking the result with
+  `sq verify`.
 - Add signed git tag-object coverage.
 - Keep `parse_signed_commit` commit-only; reject tag content and raw tag objects.
 - Keep duplicate `gpgsig` and body-only `gpgsig` rejection tests.
@@ -419,6 +430,16 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   fixed-iteration complete-addition path, route ES512 signing and public-key
   derivation through it, and add P-521 nonce-inverse / sign workloads to the
   leakage harness. This is not yet an archived measured-candidate claim.
+- Add P-521 Wycheproof P1363 ECDSA/SHA-512 JSON coverage using the pinned
+  C2SP fixture. Normal JS tests run a curated 40-case subset; setting
+  `P521_WYCHEPROOF_FULL=1` runs all 318 vectors.
+- Run local P-521 leakage smoke over `p521-nonce-inv` / `p521-sign`: native
+  timing smoke passed three trials, wasm-gc / wasm dudect smoke passed, and
+  JS / wasm-gc / wasm backend timing smoke passed. Archived Linux evidence is
+  still tracked in `TODO.md`.
+- Add a P-521 leakage-profile dispatch helper plus a local P-521
+  timing/dudect summary gate smoke so the pending archived-evidence run has a
+  reproducible GitHub Actions entry point.
 - Switch ASN.1 SEQUENCE encoding to a streaming placeholder /
   length-backpatch finalization path so constructed bodies are written once
   into the parent encoder instead of first materializing a child DER buffer.
@@ -431,6 +452,8 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
   collapse, covering issuer / JWKS URI shadowing attacks.
 - Reject malformed OIDC / UserInfo `email_verified` boolean claims instead of
   silently treating present non-boolean profile metadata as absent.
+- Reject malformed optional string claims in OIDC ID Token, RFC 9068, and DPoP
+  profile verifiers instead of silently treating present bad claims as absent.
 - Reject malformed RFC 7800 `cnf` confirmation members, including unknown
   confirmation methods, non-object `jwk`, and non-string `jkt` /
   `x5t#S256`.
@@ -440,8 +463,11 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 - Reject malformed OIDC Federation optional trust metadata (`metadata`,
   `source_endpoint`, `trust_marks`, `constraints`, `metadata_policy`) instead
   of silently treating present bad fields as absent.
-- Reject SSH certificate public-key text at the generic public-key parser
-  boundary until SSH certificate validation exists.
+- Keep the generic SSH public-key text parser raw-key-only while adding
+  OpenSSH user-certificate validation for SSHSIG `cert-authority` flows:
+  CA signature, trusted CA key, user cert type, principal intersection,
+  certificate validity time, malformed extension sequences, and unknown
+  critical options all fail closed.
 - Implement BIP-32 non-hardened CKDpub by adding a secp256k1 public-key
   `scalar*G + K` tweak primitive, and cover xpub derivation against CKDpriv
   neutering plus zero-tweak behaviour.
