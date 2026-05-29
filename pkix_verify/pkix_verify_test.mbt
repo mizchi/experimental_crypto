@@ -895,6 +895,47 @@ fn name_constraints_permitted_ext(dns : String) -> @pkix.Extension {
 }
 
 ///|
+// nameConstraints with two permittedSubtrees DNS entries ([0] IMPLICIT).
+fn name_constraints_permitted2_ext(
+  dns1 : String,
+  dns2 : String,
+) -> @pkix.Extension {
+  let mk_gst = fn(dns : String) {
+    let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+      dns.get_char(i).unwrap().to_int().to_byte()
+    })
+    let base = @asn1.Element::new(
+      @asn1.Tag::context(2U),
+      @asn1.Value::Unknown(dns_bytes),
+    )
+    @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence([base])))
+  }
+  // SEQUENCE OF GeneralSubtree content = gst1 || gst2 (raw concatenation).
+  let gst1_bytes = mk_gst(dns1)
+  let gst2_bytes = mk_gst(dns2)
+  let content = Bytes::makei(gst1_bytes.length() + gst2_bytes.length(), fn(i) {
+    if i < gst1_bytes.length() {
+      gst1_bytes[i]
+    } else {
+      gst2_bytes[i - gst1_bytes.length()]
+    }
+  })
+  let permitted_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    @asn1.Value::Unknown(content),
+  )
+  let nc = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([permitted_subtrees]),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value: @asn1.encode_der(nc),
+  }
+}
+
+///|
 fn name_constraints_excluded_with_maximum_ext(dns : String) -> @pkix.Extension {
   let dns_bytes = Bytes::makei(dns.length(), fn(i) {
     dns.get_char(i).unwrap().to_int().to_byte()
@@ -1268,6 +1309,91 @@ test "nameConstraints: child narrows parent permittedSubtrees, leaf still allowe
     anchor_pk,
     "250601000000Z",
   )
+}
+
+///|
+// Regression for PR #2 review (codex): when a single child subtree is broader
+// than SEVERAL parent permitted subtrees, the intersection must keep ALL of
+// them, not just the first. Parent permits {a.example.com, b.example.com}; the
+// child re-asserts the broader {example.com}. A leaf under b.example.com (the
+// subtree that an early `break` would have dropped) must still validate.
+test "nameConstraints: intersection keeps every narrower parent subtree" {
+  let anchor_seed = "0e0f00112233445566778899aabbccddeeff0e0f00112233445566778899aabb"
+  let inter_a_seed = "1e1f00112233445566778899aabbccddeeff1e1f00112233445566778899aabb"
+  let inter_b_seed = "2e2f00112233445566778899aabbccddeeff2e2f00112233445566778899aabb"
+  let leaf_b_seed = "3e3f00112233445566778899aabbccddeeff3e3f00112233445566778899aabb"
+  let leaf_bad_seed = "4e4f00112233445566778899aabbccddeeff4e4f00112233445566778899aabb"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Multi NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A a+b.example.com",
+    "Multi NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted2_ext("a.example.com", "b.example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B example.com",
+    "Inter A a+b.example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    inter_a_seed,
+  )
+  // Leaf under b.example.com — the subtree a buggy early-break drops.
+  let (leaf_b, _) = build_ed25519_cert(
+    leaf_b_seed,
+    "Leaf B",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("host.b.example.com")],
+    inter_b_seed,
+  )
+  @pkix_verify.verify_chain(
+    leaf_b,
+    [inter_b, inter_a],
+    anchor_pk,
+    "250601000000Z",
+  )
+  // A name inside example.com but outside both a/b subtrees must still fail.
+  let (leaf_bad, _) = build_ed25519_cert(
+    leaf_bad_seed,
+    "Leaf BAD",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("host.c.example.com")],
+    inter_b_seed,
+  )
+  try
+    @pkix_verify.verify_chain(
+      leaf_bad,
+      [inter_b, inter_a],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) =>
+      @debug.assert_eq(name, "host.c.example.com")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("name outside the permitted a/b subtrees wrongly accepted")
+  }
 }
 
 ///|

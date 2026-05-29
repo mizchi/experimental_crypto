@@ -607,16 +607,23 @@ fn intersect_dns_constraints(
     }
     (Some(parent_p), Some(child_p)) => {
       let out : Array[String] = []
+      // The intersection of two DNS suffix-subtree COLLECTIONS is the union,
+      // over every (parent, child) pair, of that pair's intersection — and
+      // two suffix-subtrees intersect to the narrower one if one contains the
+      // other, else to nothing. We must visit every pair (no early break): a
+      // single child subtree can be a superset of SEVERAL distinct parent
+      // subtrees (e.g. parent {a.example.com, b.example.com} vs child
+      // {example.com}), and all of them remain in the permitted name space.
+      // Pushing the same subtree more than once is harmless for the
+      // membership check in dns_within_constraints.
       for c in child_p {
         for p in parent_p {
           // child subtree within parent subtree ⇒ child is the narrower.
           if dns_name_in_subtree(c, p) {
             out.push(c)
-            break
             // parent subtree within child subtree ⇒ parent is the narrower.
           } else if dns_name_in_subtree(p, c) {
             out.push(p)
-            break
           }
         }
       }
