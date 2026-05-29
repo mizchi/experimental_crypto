@@ -146,10 +146,17 @@ rejects unsupported inputs before returning trusted output.
     (CertificateVerify signature + server Finished MAC), derives the handshake
     and application traffic keys/IVs, and emits the client Finished. Returns the
     server certificate chain for the caller to validate with `pkix_verify`.
-    Verified end-to-end against RFC 8448 §3 (all keys + client Finished).
+    Verified end-to-end against RFC 8448 §3 (all keys + client Finished). The
+    driver validates the ServerHello before deriving keys — rejects non-TLS-1.3
+    negotiation, the RFC 8446 §4.1.3 downgrade sentinels, cipher-suite
+    confusion, HelloRetryRequest, and a missing key_share — and a black-box
+    fuzz sweep confirms no single-byte tamper of the handshake authenticates.
   - [ ] Remaining glue for a live client: drive ECDHE (x25519/p256) + record
-    (de)framing internally, HelloRetryRequest, post-handshake messages
-    (NewSessionTicket / KeyUpdate), and an incremental (non one-shot) state API.
+    (de)framing internally, *handle* (not just reject) HelloRetryRequest,
+    post-handshake messages (NewSessionTicket / KeyUpdate), an incremental
+    (non one-shot) state API, and a turnkey path that runs `pkix_verify`
+    chain + hostname validation on the returned certificate chain (today the
+    driver verifies key possession only — chain trust is the caller's job).
 
 ### Tier 2 / 3
 

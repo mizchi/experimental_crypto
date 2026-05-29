@@ -21,6 +21,22 @@ pub suberror ClientError {
   // The server flight was not the expected EncryptedExtensions, Certificate,
   // CertificateVerify, Finished sequence.
   UnexpectedFlight(String)
+  // The second handshake message was not a ServerHello.
+  NotServerHello
+  // ServerHello was a HelloRetryRequest, which this one-shot driver does not
+  // support (it would require a second ClientHello and the §4.4.1 transcript
+  // synthesis).
+  HelloRetryRequestUnsupported
+  // The negotiated version is not TLS 1.3 (no supported_versions == 0x0304).
+  NotTls13(Int?)
+  // RFC 8446 §4.1.3 downgrade sentinel present in ServerHello.random: an active
+  // attacker forced a fallback below TLS 1.3.
+  DowngradeDetected
+  // The server selected a cipher suite different from the one this driver was
+  // told to use (and would key the handshake with).
+  CipherSuiteMismatch(Int)
+  // The ServerHello carried no key_share, so the ECDHE secret is unanchored.
+  MissingKeyShare
   // The server's CertificateVerify signature did not validate.
   CertificateVerifyFailed
   // The server's Finished MAC did not validate.
@@ -58,6 +74,65 @@ pub(all) struct ClientHandshakeResult {
 }
 
 ///|
+// RFC 8446 §4.1.3: a genuine TLS 1.3 server MUST NOT set these in the last 8
+// bytes of ServerHello.random; their presence means an active attacker forced a
+// downgrade to TLS 1.2 ("DOWNGRD\x01") or below ("DOWNGRD\x00").
+fn has_downgrade_sentinel(random : Bytes) -> Bool {
+  if random.length() != 32 {
+    return false
+  }
+  let s12 = b"DOWNGRD\x01"
+  let s11 = b"DOWNGRD\x00"
+  let mut m12 = true
+  let mut m11 = true
+  for i in 0..<8 {
+    let b = random[24 + i]
+    if b != s12[i] {
+      m12 = false
+    }
+    if b != s11[i] {
+      m11 = false
+    }
+  }
+  m12 || m11
+}
+
+///|
+// Validate the ServerHello before deriving any keys from it: reject HRR, a
+// non-TLS-1.3 negotiation, a downgrade sentinel, a cipher suite other than the
+// one we will key with, and a missing key_share. `sh_message` is the full
+// ServerHello handshake message (with its 4-byte header).
+fn validate_server_hello(
+  suite : CipherSuite,
+  sh_message : Bytes,
+) -> Unit raise ClientError {
+  let (t, body, _) = parse_handshake(sh_message) catch {
+    e => raise Handshake(e)
+  }
+  if t != ServerHello {
+    raise NotServerHello
+  }
+  let sh = parse_server_hello(body) catch { e => raise Message(e) }
+  if sh.is_hello_retry_request {
+    raise HelloRetryRequestUnsupported
+  }
+  if has_downgrade_sentinel(sh.random) {
+    raise DowngradeDetected
+  }
+  match sh.selected_version {
+    Some(0x0304) => ()
+    other => raise NotTls13(other)
+  }
+  if sh.cipher_suite != suite.to_u16() {
+    raise CipherSuiteMismatch(sh.cipher_suite)
+  }
+  match sh.key_share {
+    Some(_) => ()
+    None => raise MissingKeyShare
+  }
+}
+
+///|
 // Hash(client_hello || server_hello || server_flight[0:end]).
 fn transcript_upto(
   suite : CipherSuite,
@@ -85,6 +160,10 @@ pub fn client_handshake_1rtt(
 ) -> ClientHandshakeResult raise ClientError {
   let h = suite.hash()
   let key_len = suite.key_len()
+
+  // Reject downgrade / HRR / suite-confusion before deriving anything from the
+  // ServerHello. (The transcript still uses the raw ServerHello bytes.)
+  validate_server_hello(suite, server_hello)
 
   // Handshake-stage secrets and keys (transcript = ClientHello..ServerHello).
   let th_ch_sh = h.transcript_hash(concat_bytes([client_hello, server_hello]))

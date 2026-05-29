@@ -46,6 +46,86 @@ test "RFC 8448 section 3 client_handshake_1rtt end-to-end" {
 }
 
 ///|
+// Replace `src.length()` bytes of `b` starting at `start` with `src`.
+fn cl_splice(b : Bytes, start : Int, src : Bytes) -> Bytes {
+  Bytes::makei(b.length(), fn(i) {
+    if i >= start && i < start + src.length() {
+      src[i - start]
+    } else {
+      b[i]
+    }
+  })
+}
+
+///|
+test "client_handshake_1rtt rejects ServerHello downgrade / version / suite attacks" {
+  let suite = @tls13.CipherSuite::Aes128GcmSha256
+  let ch = hs_hex(hs_client_hello)
+  let sh = hs_hex(hs_server_hello)
+  let flight = hs_hex(hs_server_flight)
+  let ecdhe = hs_hex(
+    "8bd4054fb55b9d63fdfbacf9f04b9f0d35e6d63f537563efd46272900f89492d",
+  )
+  // In the SH message, random occupies bytes 6..38; supported_versions' value
+  // is the final 2 bytes; cipher_suite is at bytes 39..41.
+
+  // (1) RFC 8446 §4.1.3 downgrade sentinel "DOWNGRD\x01" in random -> rejected.
+  let sh_downgrade = cl_splice(sh, 6 + 24, b"DOWNGRD\x01")
+  try
+    @tls13.client_handshake_1rtt(suite, ch, sh_downgrade, ecdhe, flight)
+    |> ignore
+  catch {
+    DowngradeDetected => ()
+    other => abort("expected DowngradeDetected, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a downgrade-sentinel ServerHello")
+  }
+
+  // (2) supported_versions negotiates 0x0303 (TLS 1.2) instead of 0x0304.
+  let sh_v12 = cl_splice(sh, sh.length() - 1, b"\x03")
+  try
+    @tls13.client_handshake_1rtt(suite, ch, sh_v12, ecdhe, flight) |> ignore
+  catch {
+    NotTls13(_) => ()
+    other => abort("expected NotTls13, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a non-TLS-1.3 ServerHello")
+  }
+
+  // (3) The driver is invoked with a suite different from the negotiated one.
+  try
+    @tls13.client_handshake_1rtt(
+      @tls13.CipherSuite::Aes256GcmSha384,
+      ch,
+      sh,
+      ecdhe,
+      flight,
+    )
+    |> ignore
+  catch {
+    CipherSuiteMismatch(got) => @debug.assert_eq(got, 0x1301)
+    other => abort("expected CipherSuiteMismatch, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a cipher-suite mismatch")
+  }
+
+  // (4) HelloRetryRequest random must not be treated as a normal ServerHello.
+  let sh_hrr = cl_splice(
+    sh,
+    6,
+    hs_hex("cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c"),
+  )
+  try
+    @tls13.client_handshake_1rtt(suite, ch, sh_hrr, ecdhe, flight) |> ignore
+  catch {
+    HelloRetryRequestUnsupported => ()
+    other => abort("expected HelloRetryRequestUnsupported, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a HelloRetryRequest as a ServerHello")
+  }
+}
+
+///|
 test "client_handshake_1rtt fails closed on a tampered server flight" {
   let suite = @tls13.CipherSuite::Aes128GcmSha256
   let ch = hs_hex(hs_client_hello)
