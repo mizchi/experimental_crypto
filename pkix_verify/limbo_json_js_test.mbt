@@ -138,14 +138,13 @@ fn limbo_run_case(
   inter_pems : Array[String],
   now : String,
 ) -> LimboOutcome {
-  // Decode anchor + extract its public key. Decode/alg problems on the anchor
-  // are tolerated (they only ever turn an accept into a skip; a reject case
-  // that cannot even build a key is still "not accepted").
-  let anchor_pk = try {
-    let anchor_cert = limbo_decode_cert(anchor_pem)
-    @pkix_verify.extract_public_key(anchor_cert.tbs.subject_public_key_info)
-  } catch {
-    e => return RejectedTolerable("anchor: " + repr(e))
+  // Decode the anchor as a full certificate so its own validity,
+  // basicConstraints, keyUsage, critical extensions, and nameConstraints are
+  // enforced (verify_chain_with_anchor_cert). Decode failures on the anchor are
+  // tolerated: they only ever turn an accept into a skip, and a reject case
+  // that cannot even parse its anchor is still "not accepted".
+  let anchor = limbo_decode_cert(anchor_pem) catch {
+    e => return RejectedTolerable("anchor decode: " + repr(e))
   }
   let leaf = limbo_decode_cert(leaf_pem) catch {
     e => return RejectedTolerable("leaf decode: " + repr(e))
@@ -158,7 +157,7 @@ fn limbo_run_case(
     inters.push(c)
   }
   try {
-    @pkix_verify.verify_chain(leaf, inters, anchor_pk, now)
+    @pkix_verify.verify_chain_with_anchor_cert(leaf, inters, anchor, now)
     Accepted
   } catch {
     e => limbo_classify(e)

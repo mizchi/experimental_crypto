@@ -1174,7 +1174,13 @@ pub fn verify_chain_with_options(
   opts : VerifyChainOptions,
 ) -> Unit raise PkixVerifyError {
   verify_chain_with_options_internal(
-    leaf, intermediates, trust_anchor_pubkey, now, opts, false,
+    leaf,
+    intermediates,
+    trust_anchor_pubkey,
+    now,
+    opts,
+    false,
+    None,
   )
 }
 
@@ -1190,7 +1196,88 @@ pub fn verify_chain_for_signature(
   opts : VerifyChainOptions,
 ) -> Unit raise PkixVerifyError {
   verify_chain_with_options_internal(
-    leaf, intermediates, trust_anchor_pubkey, now, opts, true,
+    leaf,
+    intermediates,
+    trust_anchor_pubkey,
+    now,
+    opts,
+    true,
+    None,
+  )
+}
+
+///|
+// Validate a trust-anchor certificate's own properties before it is used to
+// anchor a chain. The bare-pubkey entry points skip this (the caller vouches
+// for the key); the certificate-anchored entry points enforce it so a pinned
+// root cannot silently bypass its own validity window, CA status, keyUsage,
+// or critical extensions.
+fn verify_anchor_certificate(
+  anchor : @pkix.Certificate,
+  now : String,
+) -> Unit raise PkixVerifyError {
+  // Unknown critical extensions and duplicate extension OIDs.
+  check_extension_policy(anchor)
+  // The anchor must itself be temporally valid at `now`.
+  check_validity(anchor.tbs.validity, now)
+  // A trust anchor that issues certificates must be a CA with keyCertSign.
+  let (is_ca, _) = find_basic_constraints(anchor)
+  if !is_ca {
+    raise NotACA
+  }
+  if !issuer_allows_cert_sign(anchor) {
+    raise KeyUsageMissingCertSign
+  }
+}
+
+///|
+/// Like `verify_chain`, but the trust anchor is supplied as a full
+/// certificate rather than a bare public key. In addition to everything
+/// `verify_chain` checks, this enforces the anchor's OWN constraints:
+///   - the anchor's validity window against `now`,
+///   - basicConstraints `cA` and keyUsage `keyCertSign` on the anchor,
+///   - unknown critical extensions / duplicate extension OIDs on the anchor,
+///   - the anchor's `nameConstraints` (applied to the whole chain below it).
+///
+/// Use this when the caller pins a name-constrained or time-bounded root and
+/// needs those properties honoured. The anchor's self-signature is NOT
+/// re-verified (a trust anchor is trusted by configuration); its public key
+/// is used to verify the topmost intermediate exactly as in `verify_chain`.
+pub fn verify_chain_with_anchor_cert(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor : @pkix.Certificate,
+  now : String,
+  opts? : VerifyChainOptions = VerifyChainOptions::default(),
+) -> Unit raise PkixVerifyError {
+  verify_anchor_certificate(trust_anchor, now)
+  let anchor_pubkey = extract_public_key(
+    trust_anchor.tbs.subject_public_key_info,
+  )
+  let initial = find_dns_name_constraints(trust_anchor)
+  verify_chain_with_options_internal(
+    leaf, intermediates, anchor_pubkey, now, opts, false, initial,
+  )
+}
+
+///|
+/// Certificate-anchored counterpart of `verify_chain_for_signature`: same
+/// trust-anchor enforcement as `verify_chain_with_anchor_cert`, but also
+/// requires the leaf keyUsage (when present) to include digitalSignature.
+pub fn verify_chain_for_signature_with_anchor_cert(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor : @pkix.Certificate,
+  now : String,
+  opts? : VerifyChainOptions = VerifyChainOptions::default(),
+) -> Unit raise PkixVerifyError {
+  verify_anchor_certificate(trust_anchor, now)
+  let anchor_pubkey = extract_public_key(
+    trust_anchor.tbs.subject_public_key_info,
+  )
+  let initial = find_dns_name_constraints(trust_anchor)
+  verify_chain_with_options_internal(
+    leaf, intermediates, anchor_pubkey, now, opts, true, initial,
   )
 }
 
@@ -1202,6 +1289,7 @@ fn verify_chain_with_options_internal(
   now : String,
   opts : VerifyChainOptions,
   require_leaf_digital_signature : Bool,
+  initial_constraints : DnsNameConstraints?,
 ) -> Unit raise PkixVerifyError {
   check_extension_policy(leaf)
   for inter in intermediates {
@@ -1214,9 +1302,11 @@ fn verify_chain_with_options_internal(
   let mut current_pubkey = trust_anchor_pubkey
   let n = intermediates.length()
   // Active DNS name constraint set, intersected as we walk down the chain.
-  // None ⇒ no constraint yet. The trust anchor's constraints (if any) are
-  // out-of-band; we assume the caller's anchor is unconstrained.
-  let mut active_constraints : DnsNameConstraints? = None
+  // `None` ⇒ no constraint yet. `initial_constraints` carries the trust
+  // anchor's own nameConstraints when the caller supplied the anchor as a
+  // certificate (see verify_chain_with_anchor_cert); the bare-pubkey entry
+  // points pass `None`, leaving the anchor unconstrained.
+  let mut active_constraints : DnsNameConstraints? = initial_constraints
   for i = n - 1; i >= 0; i = i - 1 {
     let inter = intermediates[i]
     let (is_ca, _) = find_basic_constraints(inter)

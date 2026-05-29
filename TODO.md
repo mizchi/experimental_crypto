@@ -150,14 +150,17 @@ rejects unsupported inputs before returning trusted output.
   `pkix_verify.verify_chain` (`pkix_verify/limbo_json_js_test.mbt`,
   `scripts/gen_x509_limbo.py`, fixtures under `testdata/{x509-limbo,bettertls}`).
   Hard assertion: no `reject` case verifies (false-positive guard).
-- [ ] **Trust-anchor-level constraint enforcement**: `verify_chain` treats the
-  trust anchor as a bare public key and does NOT inspect the anchor's own
-  validity window, basicConstraints, critical extensions, or `nameConstraints`.
-  A caller that pins a name-constrained or expired root has those properties
-  silently dropped (surfaced by the excluded x509-limbo `*root*` / anchor
-  `nc::` cases). Intermediate-level constraints ARE enforced. Decide whether to
-  accept a full anchor `Certificate` (and enforce its constraints/validity) or
-  document this as a hard API contract.
+- [x] **Trust-anchor-level constraint enforcement**: added
+  `verify_chain_with_anchor_cert` / `verify_chain_for_signature_with_anchor_cert`
+  which take the anchor as a `Certificate` and enforce its validity window,
+  basicConstraints (`cA`), keyUsage (`keyCertSign`), critical extensions, and
+  `nameConstraints` (seeded into the chain's active constraint set). The
+  bare-pubkey `verify_chain` entry points still treat the anchor as
+  unconstrained (documented). The x509-limbo harness uses the cert-anchored API.
+  Remaining anchor profile rules NOT enforced (documented, fail-open only for
+  malformed-but-benign placement): basicConstraints/nameConstraints criticality,
+  `nameConstraints`-only-in-CA, non-canonical dNSName constraints, and the
+  self-issued name-constraint exemption.
 
 ## Performance / Footprint
 

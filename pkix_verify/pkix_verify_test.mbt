@@ -1481,6 +1481,152 @@ test "nameConstraints: intersection keeps narrower parent subtree" {
 }
 
 ///|
+// Trust-anchor nameConstraints are enforced by verify_chain_with_anchor_cert
+// (but intentionally NOT by the bare-pubkey verify_chain). A root pinned to
+// example.com must not be able to anchor a leaf for evil.org.
+test "ATTACK anchor nameConstraints: leaf outside anchor permittedSubtrees rejected" {
+  let anchor_seed = "00aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccdd"
+  let leaf_seed = "11bb22cc33dd44ee55ff6600778899001122334455667788990011223344eeff"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "NC Anchor example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_permitted_ext("example.com"),
+    ],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "NC Anchor example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.evil.org")],
+    anchor_seed,
+  )
+  // Certificate-anchored API enforces the anchor's own nameConstraints.
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.evil.org")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("anchor nameConstraints bypass: evil.org leaf accepted")
+  }
+  // The bare-pubkey API documents that anchor constraints are NOT enforced.
+  @pkix_verify.verify_chain(leaf, [], anchor_pk, "250601000000Z")
+}
+
+///|
+test "anchor nameConstraints: leaf within anchor permittedSubtrees accepted" {
+  let anchor_seed = "22cc33dd44ee55ff6600778899001122334455667788990011223344aabbccee"
+  let leaf_seed = "33dd44ee55ff66007788990011223344556677889900112233445566aabbccff"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "NC Anchor OK",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_permitted_ext("example.com"),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "NC Anchor OK",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    anchor_seed,
+  )
+  @pkix_verify.verify_chain_with_anchor_cert(leaf, [], anchor, "250601000000Z")
+}
+
+///|
+test "anchor enforcement: expired anchor rejected" {
+  let anchor_seed = "44ee55ff66007788990011223344556677889900112233445566aabbccdd0011"
+  let leaf_seed = "55ff66007788990011223344556677889900112233445566aabbccdd00112233"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Expired Anchor",
+    "200101000000Z",
+    "210101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Expired Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    anchor_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    Expired => ()
+    other => abort("expected Expired anchor, got: " + repr(other))
+  } noraise {
+    _ => abort("expired anchor accepted")
+  }
+}
+
+///|
+test "anchor enforcement: non-CA anchor rejected" {
+  let anchor_seed = "6600778899001122334455667788990011223344556677aabbccdd0011223344"
+  let leaf_seed = "778899001122334455667788990011223344556677aabbccdd001122334455ff"
+  // Anchor lacks basicConstraints (cA), so it must not be allowed to anchor.
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Not A CA Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Not A CA Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    anchor_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    NotACA => ()
+    other => abort("expected NotACA anchor, got: " + repr(other))
+  } noraise {
+    _ => abort("non-CA anchor accepted")
+  }
+}
+
+///|
 test "ATTACK nameConstraints: unsupported GeneralSubtree maximum is rejected" {
   let inter_seed = "7172737475767778797a7b7c7d7e7f807172737475767778797a7b7c7d7e7f80"
   let leaf_seed = "8182838485868788898a8b8c8d8e8f908182838485868788898a8b8c8d8e8f90"

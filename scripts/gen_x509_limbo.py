@@ -158,17 +158,34 @@ def order_chain(leaf_pem: str, inter_pems: list[str], trusted_pems: list[str]):
 #   eku/aki/ski -> extendedKeyUsage / authority+subject key identifiers are not
 #          part of the chain-trust decision (EKU is caller-opt-in).
 #   pc  -> policy constraints / certificate policies are out of scope.
-SKIP_SUBNS = {"nc", "eku", "aki", "ski", "pc", "san"}
+# Sub-namespaces the verifier does not implement as a trust gate: extendedKeyUsage
+# is caller-opt-in, authority/subject key identifiers are not chained, certificate
+# policies are unimplemented, and SAN identity matching is the caller's job. (NC
+# is enforced — including on the anchor — via verify_chain_with_anchor_cert.)
+SKIP_SUBNS = {"eku", "aki", "ski", "pc", "san"}
 
-# Defects that live on the trust anchor (root) are unobservable: verify_chain
-# takes the anchor as a bare public key and never inspects its validity,
-# basicConstraints, or extensions. Any id mentioning "root" tests such a
-# property. A few more ids test SAN-identity / leaf key-usage policy that the
-# verifier deliberately leaves to the caller.
+# Individual ids that hinge on a rule the verifier deliberately does not enforce,
+# even with certificate-anchored validation:
+#   *-non-critical-basic-constraints -> basicConstraints criticality is a pedantic
+#       profile rule the verifier does not require.
+#   *self-issued* -> RFC 5280 §6.1.4 exempts self-issued (non-leaf) certs from name
+#       constraints; the verifier has no self-issued special case.
+#   ca-empty-subject / ee-empty-issuer -> empty-DN edge cases / top-link DN.
+#   leaf-ku-keycertsign -> leaf keyUsage policy, out of scope.
+#   nc::invalid-dnsname-* -> dNSName constraint encoding profile rules (no
+#       leading period / wildcard); the verifier interprets rather than rejects
+#       these, and still applies the constraint, so it is not a bypass.
+#   nc::not-allowed-in-ee-* -> "nameConstraints MUST appear only in a CA cert"
+#       profile placement rule; the verifier ignores NC on a leaf rather than
+#       rejecting its presence.
 EXPLICIT_SKIP = {
-    "rfc5280::ca-empty-subject",  # empty-subject anchor
-    "rfc5280::ee-empty-issuer",  # anchor DN linkage (top link unchecked)
-    "rfc5280::leaf-ku-keycertsign",  # leaf keyUsage policy, out of scope
+    "rfc5280::root-non-critical-basic-constraints",
+    "rfc5280::ca-empty-subject",
+    "rfc5280::ee-empty-issuer",
+    "rfc5280::leaf-ku-keycertsign",
+    "rfc5280::nc::invalid-dnsname-leading-period",
+    "rfc5280::nc::not-allowed-in-ee-noncritical",
+    "rfc5280::nc::not-allowed-in-ee-critical",
 }
 
 # Features that pull a case out of verify_chain's scope (verifier-config chain
@@ -192,7 +209,7 @@ def out_of_scope(t: dict) -> bool:
         return len(parts) > 1 and parts[1] != "nameconstraints"
     if len(parts) > 1 and parts[1] in SKIP_SUBNS:
         return True
-    if "root" in t["id"] or t["id"] in EXPLICIT_SKIP:
+    if t["id"] in EXPLICIT_SKIP or "self-issued" in t["id"]:
         return True
     for f in t["features"]:
         if f in SKIP_FEATURES or f.startswith("pedantic"):
