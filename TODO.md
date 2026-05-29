@@ -132,12 +132,16 @@ rejects unsupported inputs before returning trusted output.
     key_share, supported_versions, HelloRetryRequest detection), Certificate
     (cert chain), CertificateVerify (scheme + signature), with a fail-closed
     byte reader. Verified against RFC 8448 §3.
+  - [x] Server authentication (`tls13/auth.mbt`): the SignatureScheme →
+    `rsa`(PSS)/`p256`/`p384`/`ed25519` dispatch that verifies CertificateVerify
+    over `certificate_verify_content` against the leaf certificate's key, bound
+    to the key type, refusing PKCS#1 v1.5. Verified end-to-end against RFC 8448
+    §3 (rsa_pss_rsae_sha256).
   - [ ] ClientHello builder (extensions: supported_versions, supported_groups,
-    key_share, signature_algorithms, server_name) and the SignatureScheme →
-    `rsa`/`p256`/`p384`/`ed25519` dispatch that verifies CertificateVerify over
-    `certificate_verify_content` against the leaf certificate's key.
+    key_share, signature_algorithms, server_name).
   - [ ] Client state machine driving the flights and wiring `pkix_verify` for
-    certificate-chain verification.
+    certificate-chain trust (leaf → anchor) on top of the CertificateVerify
+    possession check.
 
 ### Tier 2 / 3
 

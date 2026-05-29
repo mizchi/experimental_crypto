@@ -35,15 +35,20 @@ Implemented:
   `parse_certificate_verify` (signature scheme + signature), over a fail-closed
   byte reader that rejects truncation, length mismatches, and trailing data.
 
-All layers are verified against the RFC 8448 §3 "Simple 1-RTT Handshake" trace,
-including an end-to-end check that reconstructs the transcript and confirms the
-server Finished MAC, and the byte-exact ServerHello / Certificate /
-CertificateVerify fields.
+- **Server authentication** (`auth.mbt`): `verify_server_certificate_verify`
+  dispatches the CertificateVerify SignatureScheme to RSA-PSS / ECDSA-P256 /
+  ECDSA-P384 / Ed25519, bound to the leaf certificate's key type, verifying the
+  signature over `certificate_verify_content`. PKCS#1 v1.5 (forbidden in TLS
+  1.3) and scheme/key mismatches are refused.
 
-Not yet implemented (planned): the ClientHello builder, the SignatureScheme →
-`rsa`/`p256`/`ed25519` dispatch that verifies CertificateVerify against the leaf
-certificate's key, and the client state machine (wiring `pkix_verify` for
-chain verification).
+All layers are verified against the RFC 8448 §3 "Simple 1-RTT Handshake" trace,
+including end-to-end checks that reconstruct the transcript and confirm both the
+server Finished MAC and the server CertificateVerify signature (the full
+verify-side of server authentication).
+
+Not yet implemented (planned): the ClientHello builder, and the client state
+machine — which drives the flights and layers `pkix_verify` certificate-chain
+trust (leaf → anchor) on top of this CertificateVerify possession check.
 
 ## Example
 

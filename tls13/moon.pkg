@@ -1,6 +1,12 @@
 import {
   "mizchi/hash",
   "mizchi/aead",
+  "mizchi/pkix",
+  "mizchi/pkix_verify",
+  "mizchi/rsa",
+  "mizchi/p256",
+  "mizchi/p384",
+  "mizchi/ed25519",
 }
 
 import {
