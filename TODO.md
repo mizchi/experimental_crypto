@@ -98,8 +98,9 @@ rejects unsupported inputs before returning trusted output.
 ### Can Defer If Fail-Closed Today
 
 - **New algorithm support**: Ed448 / X448, ML-KEM / ML-DSA, AES-GCM-SIV /
-  AES-SIV, `age`, EIP-712 / EIP-191, TLS 1.3, and PKCS#12 can wait while
-  unsupported inputs raise errors.
+  AES-SIV, EIP-712 / EIP-191, and PKCS#12 can wait while unsupported inputs
+  raise errors. (`age` X25519 decrypt/encrypt and a TLS 1.3 client are now in
+  `age_format` / `tls13`.)
 - **Interop-only sign output checks**: external `gpg` / `sq` / `rsop`
   validation of signatures we produce mostly causes false negatives with other
   tools rather than false positives in our verifiers.
@@ -175,7 +176,9 @@ rejects unsupported inputs before returning trusted output.
   execution. High-level CRL trust APIs currently reject unsupported scoped /
   delta / indirect semantics fail-closed, and OCSP exposes request DER plus
   POST metadata without performing network I/O.
-- [ ] **`age`** file encryption format.
+- [x] **`age`** file encryption format (`age_format`): X25519 decrypt + STREAM,
+  verified against C2SP/CCTV; deterministic encrypt core. Remaining: `scrypt`
+  passphrase recipient, ASCII armor, CSPRNG-wrapping `encrypt` convenience.
 - [ ] **EIP-712 / EIP-191** structured Ethereum signing helpers.
 
 ## Formal Methods

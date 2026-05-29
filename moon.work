@@ -39,6 +39,7 @@ members = [
   "./hpke",
   "./totp",
   "./tls13",
+  "./age_format",
   "./proofs",
   "./pem/wrap",
   "./aead/wrap",
