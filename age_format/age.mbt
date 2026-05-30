@@ -209,9 +209,7 @@ fn parse_header(buf : Bytes) -> Header raise AgeError {
 
 ///|
 fn hkdf_sha256(ikm : Bytes, salt : Bytes, info : Bytes, len : Int) -> Bytes {
-  let prk = @hkdf.extract(@hkdf.HashAlg::Sha256, salt, ikm) catch {
-    _ => abort("hkdf extract")
-  }
+  let prk = @hkdf.extract(@hkdf.HashAlg::Sha256, salt, ikm)
   @hkdf.expand(@hkdf.HashAlg::Sha256, prk, info, len) catch {
     _ => abort("hkdf expand")
   }

@@ -63,17 +63,35 @@ test "hkdf: expand rejects L > 255 * hash_len" {
 }
 
 ///|
-test "hkdf: SHA-384 and SHA-512 are reported as unsupported" {
-  try @hkdf.extract(Sha384, b"", b"\x00") catch {
-    _ => ()
-  } noraise {
-    _ =>
-      @debug.assert_eq(true, false, msg="expected UnsupportedHash for Sha384")
+// SHA-384 / SHA-512 HKDF are now backed by @hash's self-contained HMAC, so the
+// extra HashAlg variants are usable (they used to raise UnsupportedHash). These
+// known-answer vectors come from the widely-replicated RFC-5869-style HKDF
+// extension test set (same IKM/salt/info as RFC 5869 A.1, re-run with SHA-384
+// and SHA-512); they match Python `hkdf` / OpenSSL `EVP_KDF` HKDF output.
+test "hkdf: RFC 5869 A.1 inputs under SHA-512 (L=42)" {
+  let ikm : Bytes = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+  let salt : Bytes = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+  let info : Bytes = b"\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9"
+  let prk = @hkdf.extract(Sha512, salt, ikm)
+  let expected_prk : Bytes = b"\x66\x57\x99\x82\x37\x37\xde\xd0\x4a\x88\xe4\x7e\x54\xa5\x89\x0b\xb2\xc3\xd2\x47\xc7\xa4\x25\x4a\x8e\x61\x35\x07\x23\x59\x0a\x26\xc3\x62\x38\x12\x7d\x86\x61\xb8\x8c\xf8\x0e\xf8\x02\xd5\x7e\x2f\x7c\xeb\xcf\x1e\x00\xe0\x83\x84\x8b\xe1\x99\x29\xc6\x1b\x42\x37"
+  @debug.assert_eq(prk, expected_prk)
+  let okm = @hkdf.expand(Sha512, prk, info, 42)
+  let expected_okm : Bytes = b"\x83\x23\x90\x08\x6c\xda\x71\xfb\x47\x62\x5b\xb5\xce\xb1\x68\xe4\xc8\xe2\x6a\x1a\x16\xed\x34\xd9\xfc\x7f\xe9\x2c\x14\x81\x57\x93\x38\xda\x36\x2c\xb8\xd9\xf9\x25\xd7\xcb"
+  @debug.assert_eq(okm, expected_okm)
+}
+
+///|
+test "hkdf: SHA-384 / SHA-512 round-trip (one-shot == extract+expand)" {
+  let ikm : Bytes = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+  let salt : Bytes = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c"
+  let info : Bytes = b"\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9"
+  for hash in [@hkdf.HashAlg::Sha384, @hkdf.HashAlg::Sha512] {
+    let direct = @hkdf.hkdf(hash, salt, ikm, info, 60)
+    let composed = @hkdf.expand(hash, @hkdf.extract(hash, salt, ikm), info, 60)
+    @debug.assert_eq(direct, composed)
+    @debug.assert_eq(direct.length(), 60)
   }
-  try @hkdf.extract(Sha512, b"", b"\x00") catch {
-    _ => ()
-  } noraise {
-    _ =>
-      @debug.assert_eq(true, false, msg="expected UnsupportedHash for Sha512")
-  }
+  // PRK width tracks the digest size: SHA-384 -> 48, SHA-512 -> 64.
+  @debug.assert_eq(@hkdf.extract(Sha384, salt, ikm).length(), 48)
+  @debug.assert_eq(@hkdf.extract(Sha512, salt, ikm).length(), 64)
 }

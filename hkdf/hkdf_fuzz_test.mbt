@@ -9,7 +9,7 @@
 //   (4) RFC 5869 §3.2: a non-empty salt produces a different PRK than the
 //       zero-salt fallback, so the final OKM must differ too.
 //   (5) expand rejects length > 255 * hash_len with OutputTooLong.
-//   (6) SHA-384 / SHA-512 surface as UnsupportedHash.
+//   (6) SHA-384 / SHA-512 are deterministic, length-exact, digest-sized PRK.
 //
 // Note: we use `try? ... catch` style consistently with the other fuzz
 // harnesses (asn1 / pbkdf2 / x25519) — the anti-pattern warning is expected.
@@ -70,9 +70,7 @@ test "fuzz hkdf: salt vs no-salt produce different output (RFC 5869 §3.2)" {
 
 ///|
 test "fuzz hkdf: expand rejects length > 255 * 32" {
-  let prk = @hkdf.extract(Sha256, b"", b"\x00") catch {
-    _ => abort("unreachable")
-  }
+  let prk = @hkdf.extract(Sha256, b"", b"\x00")
   try @hkdf.expand(Sha256, prk, b"", 255 * 32 + 1) catch {
     _ => ()
   } noraise {
@@ -81,17 +79,27 @@ test "fuzz hkdf: expand rejects length > 255 * 32" {
 }
 
 ///|
-test "fuzz hkdf: SHA-384 / SHA-512 are UnsupportedHash" {
-  for ikm in (@quickcheck.samples(10) : Array[Bytes]) {
-    try @hkdf.hkdf(Sha384, b"", ikm, b"", 32) catch {
-      _ => ()
-    } noraise {
-      _ => fail("Sha384 should error")
-    }
-    try @hkdf.hkdf(Sha512, b"", ikm, b"", 32) catch {
-      _ => ()
-    } noraise {
-      _ => fail("Sha512 should error")
+// SHA-384 / SHA-512 are now first-class (backed by @hash), so fuzz the same
+// invariants as SHA-256: deterministic, exact requested length, and a
+// digest-sized PRK from extract() (48 for SHA-384, 64 for SHA-512).
+test "fuzz hkdf: SHA-384 / SHA-512 deterministic and length-exact" {
+  for triple in (@quickcheck.samples(30) : Array[(Bytes, Bytes, Int)]) {
+    let (ikm, salt, raw_len) = triple
+    let positive = if raw_len < 0 { -raw_len } else { raw_len }
+    let length = positive % 200 + 1 // 1..200
+    for hash in [@hkdf.HashAlg::Sha384, @hkdf.HashAlg::Sha512] {
+      let a = @hkdf.hkdf(hash, salt, ikm, b"", length) catch {
+        _ => abort("unreachable")
+      }
+      let b = @hkdf.hkdf(hash, salt, ikm, b"", length) catch {
+        _ => abort("unreachable")
+      }
+      @debug.assert_eq(a, b)
+      @debug.assert_eq(a.length(), length)
     }
   }
+  let prk384 = @hkdf.extract(Sha384, b"salt", b"\x00")
+  let prk512 = @hkdf.extract(Sha512, b"salt", b"\x00")
+  @debug.assert_eq(prk384.length(), 48)
+  @debug.assert_eq(prk512.length(), 64)
 }

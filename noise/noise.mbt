@@ -70,9 +70,7 @@ fn slice(b : Bytes, start : Int, len : Int) -> Bytes {
 // ikm), "", n*32), which matches RFC 5869 with empty info — exactly what
 // mizchi/hkdf computes.
 fn noise_hkdf(ck : Bytes, ikm : Bytes, num : Int) -> Array[Bytes] {
-  let prk = @hkdf.extract(@hkdf.HashAlg::Sha256, ck, ikm) catch {
-    _ => abort("noise hkdf extract")
-  }
+  let prk = @hkdf.extract(@hkdf.HashAlg::Sha256, ck, ikm)
   let okm = @hkdf.expand(@hkdf.HashAlg::Sha256, prk, b"", num * 32) catch {
     _ => abort("noise hkdf expand")
   }
