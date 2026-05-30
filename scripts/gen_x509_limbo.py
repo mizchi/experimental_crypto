@@ -193,6 +193,18 @@ SKIP_SUBNS = {"eku", "aki", "ski", "pc", "san"}
 # topmost issuer not linked to the anchor subject; ca-empty-subject: empty CA
 # subject) are now enforced by verify_chain_with_anchor_cert, so they are no
 # longer skipped — they flow into limbo.json as ordinary reject cases.
+#
+# A second, MORE permissive sweep (scripts/audit_x509_limbo.py: all 2213 reject
+# cases minus only revocation/online/webpki + identity-mismatch, including the
+# bettertls::pathbuilding topologies normally dropped by the shared-subject-DN
+# path-building filter) accepted 25 reject cases and confirmed every one is
+# out-of-scope-by-design. Notably the 5 accepted bettertls::pathbuilding cases
+# (tc5/tc12/tc44/tc71/tc77) all reduce to EKU NESTING: their only path to the
+# trusted root crosses an emailProtection/clientAuth intermediate that may not
+# delegate serverAuth, so each rejects once required_eku=serverAuth is supplied
+# (verified by the audit harness; locked in synthetically by the "ATTACK EKU
+# nesting" regression test). They are accepted by default only because EKU is
+# caller-opt-in — not a chain-trust false positive.
 EXPLICIT_SKIP = {
     "rfc5280::root-non-critical-basic-constraints",
     "rfc5280::leaf-ku-keycertsign",

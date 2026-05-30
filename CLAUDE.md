@@ -67,6 +67,24 @@
   subagent が 2 時間 AES / GHASH を疑って debug した。RFC / NIST の一次資料を
   そのまま貼り付けるのが安全。
 
+## pkix_verify の偽陽性監査 (差分監査)
+
+- 委譲済み (identity/EKU/policy-tree/revocation) を除き、verifier が "trusted" を
+  返してよいのは完全検証済みの場合のみ。reject ケースを accept したら偽陽性=即修正。
+- **全コーパス sweep**: `scripts/gen_x509_limbo.py` の trimmed fixture (committed,
+  CI で常時実行) が一次防御。より広い one-shot 監査は
+  `python3 scripts/audit_x509_limbo.py` で全 2213 reject ケース (revocation/online/
+  webpki と identity 不一致のみ除外、path-building topology も best-effort 順序で投入)
+  を `testdata/x509-limbo/audit_reject.json` (~7.6MB, **.gitignore**) に出力し、
+  `pkix_verify/audit_reject_js_test.mbt` が verifier に通して「accept された
+  reject ケースが EKU-gated でも文書化済み out-of-scope クラスでもなければ hard fail」
+  と判定する。fixture 不在時は no-op (CI ではスキップ)。
+- 最新 sweep の結論: 2213 中 accept 25、**全て out-of-scope-by-design で新規偽陽性
+  ゼロ**。bettertls::pathbuilding の 5 件は EKU nesting (emailProtection/clientAuth
+  中間が serverAuth を委譲不可) に還元され、`required_eku=serverAuth` で reject する
+  (`ATTACK EKU nesting` テストで固定)。過去に発見・修正した実 gap は anchor name
+  linkage と empty CA subject (RFC 5280 §6.1 / §4.1.2.6) の 2 件。
+
 ## bench
 
 - `moon bench --release -p mizchi/<mod>` で **package 単位** に走らせるのが確実。
@@ -118,7 +136,14 @@ getrandom (target 別 backend、aes/ed25519/x25519 の rng source)
   一度だけ構築して確定長で直接書く single-pass にし、`finish()` の全バッファ
   再コピーを排除 (encode flat ≒ decode の 2.4×→1.4×、nested 1.5×→1.1×)。
   placeholder+patch 系は whitebox test 用に温存。
-- `gcm.mbt` の GHASH を carry-less multiplication 経由に (今は bit-by-bit)
+- ~~`gcm.mbt` の GHASH を carry-less multiplication 経由に (今は bit-by-bit)~~ →
+  実態は既に **4-bit Shoup テーブル** (`build_ghash_table` / `gf128_mul_table` /
+  `rem_4bit`)。bit-by-bit ではない (doc コメントの "matches the previous bit-by-bit
+  ghash" が移植済みの証跡)。carry-less mul は PCLMULQDQ 等の HW intrinsic 前提で、
+  wasm-gc / js / CLMUL 無し native では table 法に勝てないので **見送り**。残る
+  移植可能なレバーは 8-bit table (256 entry / 4KB) で内ループ 32→16 反復だが、GCM
+  全体の支配項は AES ラウンド (16KiB seal ≈ 289µs の GHASH 寄与は小) で、table 構築
+  コスト 16→256 倍が小メッセージで逆効果になりうるため費用対効果は薄い。
 
 ## コミット / push
 
