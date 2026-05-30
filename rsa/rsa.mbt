@@ -42,6 +42,22 @@ pub(all) struct RsaPublicKey {
   n_bytes_len : Int
 }
 
+///|
+/// Build an RSA public key from raw big-endian modulus (`n`) and exponent
+/// (`e`) bytes — e.g. a COSE_Key (RFC 8230 §4) or a JWK `n` / `e`. Unlike the
+/// DER decoders these are unsigned (no 0x00 sign byte), so the bytes are read
+/// directly via OS2IP. The public parameters are validated (odd modulus > 1,
+/// odd exponent in `[3, n)`) so a malformed key fails closed here.
+pub fn RsaPublicKey::from_components(
+  n_bytes : Bytes,
+  e_bytes : Bytes,
+) -> RsaPublicKey raise RsaError {
+  let n = BigInt::from_octets(n_bytes[:])
+  let e = BigInt::from_octets(e_bytes[:])
+  validate_rsa_public_params(n, e)
+  { n, e, n_bytes_len: (n.bit_length() + 7) / 8 }
+}
+
 // ─── decoders ────────────────────────────────────────────────────────────
 
 ///|

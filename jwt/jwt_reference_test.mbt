@@ -120,6 +120,84 @@ test "reference RFC 7519 section 3.1 example JWT octets verify" {
 }
 
 ///|
+const REF_B64U_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+///|
+fn ref_split_jwt(token : String) -> (String, String, String) {
+  let parts : Array[String] = []
+  let cur = StringBuilder::new()
+  for c in token {
+    if c == '.' {
+      parts.push(cur.to_string())
+      cur.reset()
+    } else {
+      cur.write_char(c)
+    }
+  }
+  parts.push(cur.to_string())
+  (parts[0], parts[1], parts[2])
+}
+
+///|
+// Re-encode a base64url string non-canonically by setting an UNUSED low bit of
+// the final character. The decoded octets are unchanged (RFC 4648 drops the
+// unused trailing bits), so this is purely an alternate textual encoding — the
+// exact signature-malleability case a strict decoder must reject.
+fn ref_noncanonical_last(s : String) -> String {
+  let last = s.get_char(s.length() - 1).unwrap()
+  let mut idx = -1
+  for i in 0..<REF_B64U_ALPHABET.length() {
+    if REF_B64U_ALPHABET.get_char(i).unwrap() == last {
+      idx = i
+    }
+  }
+  if idx < 0 {
+    abort("ref_noncanonical_last: char not in alphabet")
+  }
+  // Bit 0 is unused in both the 2-char (4 unused bits) and 3-char (2 unused
+  // bits) final quanta, and toggling it does not change idx >> 2 / idx >> 4,
+  // so the decoded octets are identical.
+  let new_idx = idx | 1
+  let newc = REF_B64U_ALPHABET.get_char(new_idx).unwrap()
+  let buf = StringBuilder::new()
+  for i in 0..<(s.length() - 1) {
+    buf.write_char(s.get_char(i).unwrap())
+  }
+  buf.write_char(newc)
+  buf.to_string()
+}
+
+///|
+// RFC 7515 §2 / RFC 4648 §3.5: a JWS segment whose final base64url character
+// carries non-zero unused bits is non-canonical and MUST be rejected. Two
+// distinct encodings of the same signature octets would otherwise both verify
+// (token malleability).
+test "reference non-canonical base64url signature segment is rejected" {
+  let secret = b"reference-secret-0123456789abcdef"
+  let header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}"
+  let payload = "{\"exp\":2000000000}"
+  let token = ref_sign_hs256_raw(header, payload, secret)
+  let opts : @jwt.VerifyOptions = {
+    ..ref_verify_options(1000000000L),
+    typ_allowed: Some(["JWT"]),
+  }
+  // Sanity: the canonical token verifies.
+  let _ = @jwt.verify(token, @jwt.VerifyKey::Hs256(secret~), opts)
+  // Tamper only the signature's last char into its non-canonical sibling.
+  let (h, p, s) = ref_split_jwt(token)
+  let tampered = h + "." + p + "." + ref_noncanonical_last(s)
+  if tampered == token {
+    abort("test setup: signature was already non-canonical")
+  }
+  try @jwt.verify(tampered, @jwt.VerifyKey::Hs256(secret~), opts) catch {
+    InvalidToken(_) => ()
+    other => abort("expected InvalidToken, got " + repr(other))
+  } noraise {
+    _ => abort("accepted non-canonical base64url signature (malleable)")
+  }
+}
+
+///|
 test "reference RFC 7519 section 6.1 unsecured JWT is rejected" {
   let token = "eyJhbGciOiJub25lIn0." +
     "eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFt" +

@@ -9,5 +9,10 @@ import {
 
 import {
   "moonbitlang/core/debug",
+  "moonbitlang/core/json",
   "mizchi/pem",
 } for "test"
+
+options(
+  targets: { "limbo_json_js_test.mbt": [ "js" ] },
+)

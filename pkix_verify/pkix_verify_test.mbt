@@ -867,6 +867,75 @@ fn name_constraints_excluded_ext(dns : String) -> @pkix.Extension {
 }
 
 ///|
+// nameConstraints with a single permittedSubtrees DNS entry ([0] IMPLICIT).
+fn name_constraints_permitted_ext(dns : String) -> @pkix.Extension {
+  let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+    dns.get_char(i).unwrap().to_int().to_byte()
+  })
+  let base = @asn1.Element::new(
+    @asn1.Tag::context(2U),
+    @asn1.Value::Unknown(dns_bytes),
+  )
+  let gst = @asn1.Element::new(@asn1.tag_sequence, Sequence([base]))
+  let gst_bytes = @asn1.encode_der(gst)
+  // [0] IMPLICIT SEQUENCE OF GeneralSubtree — context-specific constructed.
+  let permitted_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    @asn1.Value::Unknown(gst_bytes),
+  )
+  let nc = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([permitted_subtrees]),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value: @asn1.encode_der(nc),
+  }
+}
+
+///|
+// nameConstraints with two permittedSubtrees DNS entries ([0] IMPLICIT).
+fn name_constraints_permitted2_ext(
+  dns1 : String,
+  dns2 : String,
+) -> @pkix.Extension {
+  let mk_gst = fn(dns : String) {
+    let dns_bytes = Bytes::makei(dns.length(), fn(i) {
+      dns.get_char(i).unwrap().to_int().to_byte()
+    })
+    let base = @asn1.Element::new(
+      @asn1.Tag::context(2U),
+      @asn1.Value::Unknown(dns_bytes),
+    )
+    @asn1.encode_der(@asn1.Element::new(@asn1.tag_sequence, Sequence([base])))
+  }
+  // SEQUENCE OF GeneralSubtree content = gst1 || gst2 (raw concatenation).
+  let gst1_bytes = mk_gst(dns1)
+  let gst2_bytes = mk_gst(dns2)
+  let content = Bytes::makei(gst1_bytes.length() + gst2_bytes.length(), fn(i) {
+    if i < gst1_bytes.length() {
+      gst1_bytes[i]
+    } else {
+      gst2_bytes[i - gst1_bytes.length()]
+    }
+  })
+  let permitted_subtrees = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    @asn1.Value::Unknown(content),
+  )
+  let nc = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([permitted_subtrees]),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 30]),
+    critical: true,
+    value: @asn1.encode_der(nc),
+  }
+}
+
+///|
 fn name_constraints_excluded_with_maximum_ext(dns : String) -> @pkix.Extension {
   let dns_bytes = Bytes::makei(dns.length(), fn(i) {
     dns.get_char(i).unwrap().to_int().to_byte()
@@ -1107,6 +1176,534 @@ test "nameConstraints excludedSubtrees lets through a different DNS suffix" {
     inter.tbs.subject_public_key_info,
   )
   @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+}
+
+///|
+// RFC 5280 §6.1.4(g): when intersecting permittedSubtrees down the chain
+// produces the EMPTY set (two CAs whose permitted DNS subtrees are disjoint),
+// the resulting permitted name space is empty and every subsequent name MUST
+// be rejected. A buggy verifier that treats "empty permitted set" the same as
+// "no permitted constraint" lets a CA escape the subtree it was restricted to.
+//
+// Chain: anchor (unconstrained) -> Inter A (permitted example.com)
+//        -> Inter B (permitted evil.org) -> leaf (SAN www.evil.org).
+// Inter A may only certify under example.com, so a leaf for evil.org issued
+// through B MUST NOT validate.
+test "ATTACK RFC 5280 §6.1.4(g): disjoint permittedSubtrees intersection denies all" {
+  let anchor_seed = "0011223344556677889900aabbccddeeff0011223344556677889900aabbccdd"
+  let inter_a_seed = "1122334455667788990011aabbccddeeff1122334455667788990011aabbccdd"
+  let inter_b_seed = "2233445566778899001122aabbccddeeff2233445566778899001122aabbccdd"
+  let leaf_seed = "3344556677889900112233aabbccddeeff3344556677889900112233aabbccdd"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Disjoint NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A example.com",
+    "Disjoint NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B evil.org",
+    "Inter A example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("evil.org")),
+    inter_a_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Inter B evil.org",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.evil.org")],
+    inter_b_seed,
+  )
+  // intermediates[0] is the leaf's direct parent (Inter B), [1] is Inter A.
+  try
+    @pkix_verify.verify_chain(
+      leaf,
+      [inter_b, inter_a],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.evil.org")
+    other => abort("expected NameConstraintViolation, got: " + repr(other) + "")
+  } noraise {
+    _ =>
+      abort(
+        "name-constraints bypass: leaf for evil.org accepted despite Inter A being restricted to example.com",
+      )
+  }
+}
+
+///|
+// Positive counterpart: a child CA that NARROWS the parent's permitted subtree
+// (sub.example.com ⊆ example.com) must still allow a leaf inside the narrowed
+// space. Guards against the empty-set fix over-rejecting legitimate chains.
+test "nameConstraints: child narrows parent permittedSubtrees, leaf still allowed" {
+  let anchor_seed = "0a0b0c0d0e0f00112233445566778899aabbccddeeff0a0b0c0d0e0f00112233"
+  let inter_a_seed = "1a1b1c1d1e1f00112233445566778899aabbccddeeff1a1b1c1d1e1f00112233"
+  let inter_b_seed = "2a2b2c2d2e2f00112233445566778899aabbccddeeff2a2b2c2d2e2f00112233"
+  let leaf_seed = "3a3b3c3d3e3f00112233445566778899aabbccddeeff3a3b3c3d3e3f00112233"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Narrow NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  // Parent permits example.com; child narrows to sub.example.com.
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A example.com",
+    "Narrow NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B sub.example.com",
+    "Inter A example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("sub.example.com")),
+    inter_a_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Inter B sub.example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("host.sub.example.com")],
+    inter_b_seed,
+  )
+  @pkix_verify.verify_chain(
+    leaf,
+    [inter_b, inter_a],
+    anchor_pk,
+    "250601000000Z",
+  )
+}
+
+///|
+// Regression for PR #2 review (codex): when a single child subtree is broader
+// than SEVERAL parent permitted subtrees, the intersection must keep ALL of
+// them, not just the first. Parent permits {a.example.com, b.example.com}; the
+// child re-asserts the broader {example.com}. A leaf under b.example.com (the
+// subtree that an early `break` would have dropped) must still validate.
+test "nameConstraints: intersection keeps every narrower parent subtree" {
+  let anchor_seed = "0e0f00112233445566778899aabbccddeeff0e0f00112233445566778899aabb"
+  let inter_a_seed = "1e1f00112233445566778899aabbccddeeff1e1f00112233445566778899aabb"
+  let inter_b_seed = "2e2f00112233445566778899aabbccddeeff2e2f00112233445566778899aabb"
+  let leaf_b_seed = "3e3f00112233445566778899aabbccddeeff3e3f00112233445566778899aabb"
+  let leaf_bad_seed = "4e4f00112233445566778899aabbccddeeff4e4f00112233445566778899aabb"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Multi NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A a+b.example.com",
+    "Multi NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted2_ext("a.example.com", "b.example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B example.com",
+    "Inter A a+b.example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    inter_a_seed,
+  )
+  // Leaf under b.example.com — the subtree a buggy early-break drops.
+  let (leaf_b, _) = build_ed25519_cert(
+    leaf_b_seed,
+    "Leaf B",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("host.b.example.com")],
+    inter_b_seed,
+  )
+  @pkix_verify.verify_chain(
+    leaf_b,
+    [inter_b, inter_a],
+    anchor_pk,
+    "250601000000Z",
+  )
+  // A name inside example.com but outside both a/b subtrees must still fail.
+  let (leaf_bad, _) = build_ed25519_cert(
+    leaf_bad_seed,
+    "Leaf BAD",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("host.c.example.com")],
+    inter_b_seed,
+  )
+  try
+    @pkix_verify.verify_chain(
+      leaf_bad,
+      [inter_b, inter_a],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) =>
+      @debug.assert_eq(name, "host.c.example.com")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("name outside the permitted a/b subtrees wrongly accepted")
+  }
+}
+
+///|
+// Same intersection but with parent/child order of specificity swapped: the
+// PARENT is the narrower subtree (sub.example.com) and the child re-asserts the
+// broader example.com. The intersection must keep the narrower sub.example.com,
+// so a leaf within it is allowed while example.com-but-not-sub names are not.
+// Guards the parent⊆child branch of intersect_dns_constraints.
+test "nameConstraints: intersection keeps narrower parent subtree" {
+  let anchor_seed = "0c0d0e0f00112233445566778899aabbccddeeff0c0d0e0f0011223344556677"
+  let inter_a_seed = "1c1d1e1f00112233445566778899aabbccddeeff1c1d1e1f0011223344556677"
+  let inter_b_seed = "2c2d2e2f00112233445566778899aabbccddeeff2c2d2e2f0011223344556677"
+  let leaf_ok_seed = "3c3d3e3f00112233445566778899aabbccddeeff3c3d3e3f0011223344556677"
+  let leaf_bad_seed = "4c4d4e4f00112233445566778899aabbccddeeff4c4d4e4f0011223344556677"
+  let ca_exts = fn(nc : @pkix.Extension) {
+    [basic_constraints_ca_ext(), key_usage_ext(true, true), nc]
+  }
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Swap NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter_a, _) = build_ed25519_cert(
+    inter_a_seed,
+    "Inter A sub.example.com",
+    "Swap NC Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("sub.example.com")),
+    anchor_seed,
+  )
+  let (inter_b, _) = build_ed25519_cert(
+    inter_b_seed,
+    "Inter B example.com",
+    "Inter A sub.example.com",
+    "250101000000Z",
+    "260101000000Z",
+    ca_exts(name_constraints_permitted_ext("example.com")),
+    inter_a_seed,
+  )
+  // Leaf inside sub.example.com is allowed.
+  let (leaf_ok, _) = build_ed25519_cert(
+    leaf_ok_seed,
+    "Leaf OK",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("api.sub.example.com")],
+    inter_b_seed,
+  )
+  @pkix_verify.verify_chain(
+    leaf_ok,
+    [inter_b, inter_a],
+    anchor_pk,
+    "250601000000Z",
+  )
+  // Leaf at example.com but outside sub.example.com must be rejected.
+  let (leaf_bad, _) = build_ed25519_cert(
+    leaf_bad_seed,
+    "Leaf BAD",
+    "Inter B example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    inter_b_seed,
+  )
+  try
+    @pkix_verify.verify_chain(
+      leaf_bad,
+      [inter_b, inter_a],
+      anchor_pk,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.example.com")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("name outside narrower sub.example.com subtree wrongly accepted")
+  }
+}
+
+///|
+// Trust-anchor nameConstraints are enforced by verify_chain_with_anchor_cert
+// (but intentionally NOT by the bare-pubkey verify_chain). A root pinned to
+// example.com must not be able to anchor a leaf for evil.org.
+test "ATTACK anchor nameConstraints: leaf outside anchor permittedSubtrees rejected" {
+  let anchor_seed = "00aa11bb22cc33dd44ee55ff66007788990011223344556677889900aabbccdd"
+  let leaf_seed = "11bb22cc33dd44ee55ff6600778899001122334455667788990011223344eeff"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "NC Anchor example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_permitted_ext("example.com"),
+    ],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "NC Anchor example.com",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.evil.org")],
+    anchor_seed,
+  )
+  // Certificate-anchored API enforces the anchor's own nameConstraints.
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.evil.org")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("anchor nameConstraints bypass: evil.org leaf accepted")
+  }
+  // The bare-pubkey API documents that anchor constraints are NOT enforced.
+  @pkix_verify.verify_chain(leaf, [], anchor_pk, "250601000000Z")
+}
+
+///|
+test "anchor nameConstraints: leaf within anchor permittedSubtrees accepted" {
+  let anchor_seed = "22cc33dd44ee55ff6600778899001122334455667788990011223344aabbccee"
+  let leaf_seed = "33dd44ee55ff66007788990011223344556677889900112233445566aabbccff"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "NC Anchor OK",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_permitted_ext("example.com"),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "NC Anchor OK",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    anchor_seed,
+  )
+  @pkix_verify.verify_chain_with_anchor_cert(leaf, [], anchor, "250601000000Z")
+}
+
+///|
+test "anchor enforcement: expired anchor rejected" {
+  let anchor_seed = "44ee55ff66007788990011223344556677889900112233445566aabbccdd0011"
+  let leaf_seed = "55ff66007788990011223344556677889900112233445566aabbccdd00112233"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Expired Anchor",
+    "200101000000Z",
+    "210101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Expired Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    anchor_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    Expired => ()
+    other => abort("expected Expired anchor, got: " + repr(other))
+  } noraise {
+    _ => abort("expired anchor accepted")
+  }
+}
+
+///|
+test "anchor enforcement: non-CA anchor rejected" {
+  let anchor_seed = "6600778899001122334455667788990011223344556677aabbccdd0011223344"
+  let leaf_seed = "778899001122334455667788990011223344556677aabbccdd001122334455ff"
+  // Anchor lacks basicConstraints (cA), so it must not be allowed to anchor.
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Not A CA Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Not A CA Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    anchor_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    NotACA => ()
+    other => abort("expected NotACA anchor, got: " + repr(other))
+  } noraise {
+    _ => abort("non-CA anchor accepted")
+  }
+}
+
+///|
+// RFC 5280 §6.1.3(b)/§6.1.4: name constraints are NOT applied to a self-issued
+// (subject == issuer) intermediate that is not the final cert. A CA key-rollover
+// chain root(NC example.com) -> self-issued ICA(SAN not-example.com) -> leaf must
+// validate when the LEAF is within the permitted subtree, even though the
+// self-issued ICA's own SAN is outside it.
+test "anchor nameConstraints: self-issued intermediate is exempt; leaf still checked" {
+  let root_seed = "88990011223344556677aabbccddeeff00112233445566778899aabbccddee00"
+  let ica_seed = "990011223344556677aabbccddeeff00112233445566778899aabbccddee0011"
+  let leaf_ok_seed = "0011223344556677aabbccddeeff00112233445566778899aabbccddee001122"
+  let leaf_bad_seed = "11223344556677aabbccddeeff00112233445566778899aabbccddee00112233"
+  // Root and the self-issued ICA share the DN "Rollover CA"; the ICA is signed
+  // by the root's key (key rollover), so it is self-issued (subject == issuer).
+  let (root, _) = build_self_signed_ed25519(
+    root_seed,
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      name_constraints_permitted_ext("example.com"),
+    ],
+  )
+  let (ica, _) = build_ed25519_cert(
+    ica_seed,
+    "Rollover CA", // subject == issuer ⇒ self-issued
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      san_ext("ica.not-example.com"),
+    ],
+    root_seed,
+  )
+  // Leaf inside the permitted subtree: the self-issued ICA's offending SAN is
+  // exempt, so the chain validates.
+  let (leaf_ok, _) = build_ed25519_cert(
+    leaf_ok_seed,
+    "Leaf OK",
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.example.com")],
+    ica_seed,
+  )
+  @pkix_verify.verify_chain_with_anchor_cert(
+    leaf_ok,
+    [ica],
+    root,
+    "250601000000Z",
+  )
+  // Leaf OUTSIDE the permitted subtree must still be rejected: the exemption
+  // never applies to the final certificate.
+  let (leaf_bad, _) = build_ed25519_cert(
+    leaf_bad_seed,
+    "Leaf BAD",
+    "Rollover CA",
+    "250101000000Z",
+    "260101000000Z",
+    [san_ext("www.evil.org")],
+    ica_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf_bad,
+      [ica],
+      root,
+      "250601000000Z",
+    )
+  catch {
+    NameConstraintViolation(name) => @debug.assert_eq(name, "www.evil.org")
+    other => abort("expected NameConstraintViolation, got: " + repr(other))
+  } noraise {
+    _ => abort("self-issued exemption leaked to the final leaf certificate")
+  }
 }
 
 ///|
@@ -1555,5 +2152,145 @@ test "pathLenConstraint=1 with one intermediate before leaf passes" {
     [i0_cert, i1_cert],
     anchor_pk,
     "250601000000Z",
+  )
+}
+
+///|
+// extendedKeyUsage extension carrying a single arbitrary purpose OID.
+fn eku_ext_for(oid : @asn1.ObjectIdentifier) -> @pkix.Extension {
+  let value = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(oid))]),
+    ),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 37]),
+    critical: false,
+    value,
+  }
+}
+
+///|
+// EKU nesting: a sub-CA restricted to clientAuth must NOT be able to delegate
+// serverAuth to a leaf. anchor -> inter(EKU=clientAuth) -> leaf(EKU=serverAuth),
+// caller requires serverAuth. Before EKU nesting this was a false positive
+// (only the leaf's EKU was checked); it must now be rejected.
+test "ATTACK EKU nesting: clientAuth-only sub-CA cannot delegate serverAuth" {
+  let anchor_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee01"
+  let inter_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee02"
+  let leaf_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee03"
+  let client_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 2,
+  ])
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "EKU Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter clientAuth",
+    "EKU Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      eku_ext_for(client_auth),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf serverAuth",
+    "Inter clientAuth",
+    "250101000000Z",
+    "260101000000Z",
+    [eku_ext_for(server_auth)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(server_auth),
+  }
+  try
+    @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor_pk,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    ExtendedKeyUsageMissing(oid) => @debug.assert_eq(oid, server_auth)
+    other => abort("EKU nesting not enforced: " + repr(other) + "")
+  } noraise {
+    _ =>
+      abort(
+        "EKU nesting bypass: clientAuth-only sub-CA delegated serverAuth to the leaf",
+      )
+  }
+}
+
+///|
+// Positive counterpart: a sub-CA that DOES permit serverAuth (and a leaf with
+// serverAuth) must still verify when serverAuth is required — guards the EKU
+// nesting check against over-rejecting legitimate chains.
+test "EKU nesting: sub-CA permits serverAuth, leaf serverAuth, required -> ok" {
+  let anchor_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee11"
+  let inter_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee12"
+  let leaf_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee13"
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "EKU Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter serverAuth",
+    "EKU Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      eku_ext_for(server_auth),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf serverAuth",
+    "Inter serverAuth",
+    "250101000000Z",
+    "260101000000Z",
+    [eku_ext_for(server_auth)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(server_auth),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor_pk,
+    "250601000000Z",
+    opts,
   )
 }

@@ -98,8 +98,9 @@ rejects unsupported inputs before returning trusted output.
 ### Can Defer If Fail-Closed Today
 
 - **New algorithm support**: Ed448 / X448, ML-KEM / ML-DSA, AES-GCM-SIV /
-  AES-SIV, `age`, EIP-712 / EIP-191, TLS 1.3, and PKCS#12 can wait while
-  unsupported inputs raise errors.
+  AES-SIV, EIP-712 / EIP-191, and PKCS#12 can wait while unsupported inputs
+  raise errors. (`age` X25519 decrypt/encrypt and a TLS 1.3 client are now in
+  `age_format` / `tls13`.)
 - **Interop-only sign output checks**: external `gpg` / `sq` / `rsop`
   validation of signatures we produce mostly causes false negatives with other
   tools rather than false positives in our verifiers.
@@ -114,8 +115,52 @@ rejects unsupported inputs before returning trusted output.
 
 ### Tier 1
 
-- [ ] **TLS 1.3 client**: handshake + key schedule (HKDF-Expand-Label) +
-  record layer. All cryptographic primitives are already here.
+- [ ] **TLS 1.3 client** (`tls13`): handshake + key schedule (HKDF-Expand-Label)
+  + record layer. All cryptographic primitives are already here.
+  - [x] Key schedule (RFC 8446 §7.1): HKDF-Extract/Expand, HKDF-Expand-Label,
+    Derive-Secret, the full secret chain, traffic key/IV, and Finished key, for
+    SHA-256 and SHA-384. Verified byte-for-byte against RFC 8448 §3.
+  - [x] Record layer: AEAD framing (TLSCiphertext) + per-record nonce
+    (sequence number XOR write IV) + content-type padding, for AES-128-GCM,
+    AES-256-GCM, and ChaCha20-Poly1305. Verified byte-for-byte against the
+    RFC 8448 §3 server handshake flight (`tls13/record.mbt`).
+  - [x] Handshake message framing (`handshake_message` / `parse_handshake` /
+    `parse_handshake_flight`), the Finished MAC (`finished_mac` / `build_finished`
+    / constant-time `verify_finished`), and the CertificateVerify signed-content
+    builder. End-to-end verified against RFC 8448 §3 (server Finished)
+    (`tls13/handshake.mbt`).
+  - [x] Server-flight parsers (`tls13/messages.mbt`): ServerHello (suite,
+    key_share, supported_versions, HelloRetryRequest detection), Certificate
+    (cert chain), CertificateVerify (scheme + signature), with a fail-closed
+    byte reader. Verified against RFC 8448 §3.
+  - [x] Server authentication (`tls13/auth.mbt`): the SignatureScheme →
+    `rsa`(PSS)/`p256`/`p384`/`ed25519` dispatch that verifies CertificateVerify
+    over `certificate_verify_content` against the leaf certificate's key, bound
+    to the key type, refusing PKCS#1 v1.5. Verified end-to-end against RFC 8448
+    §3 (rsa_pss_rsae_sha256).
+  - [x] ClientHello builder + parser (`tls13/client_hello.mbt`): emits a
+    spec-compliant first flight with supported_versions, supported_groups,
+    signature_algorithms, key_share, and optional SNI; round-trips through
+    `parse_client_hello`.
+  - [x] Client 1-RTT handshake driver (`tls13/client.mbt`): one-shot
+    orchestration that runs the key schedule, authenticates the server
+    (CertificateVerify signature + server Finished MAC), derives the handshake
+    and application traffic keys/IVs, and emits the client Finished. Returns the
+    server certificate chain for the caller to validate with `pkix_verify`.
+    Verified end-to-end against RFC 8448 §3 (all keys + client Finished). The
+    driver validates the ServerHello before deriving keys — rejects non-TLS-1.3
+    negotiation, the RFC 8446 §4.1.3 downgrade sentinels, cipher-suite
+    confusion, HelloRetryRequest, and a missing key_share — and a black-box
+    fuzz sweep confirms no single-byte tamper of the handshake authenticates.
+  - [x] Turnkey full server authentication
+    (`client_handshake_1rtt_verified`): validates the certificate chain to a
+    trust anchor with `pkix_verify` and matches the leaf SAN against an expected
+    hostname (RFC 6125 exact + single-label wildcard), on top of the
+    CertificateVerify/Finished possession check.
+  - [ ] Remaining glue for a live client: drive ECDHE (x25519/p256) + record
+    (de)framing internally, *handle* (not just reject) HelloRetryRequest,
+    post-handshake messages (NewSessionTicket / KeyUpdate), and an incremental
+    (non one-shot) state API.
 
 ### Tier 2 / 3
 
@@ -131,7 +176,9 @@ rejects unsupported inputs before returning trusted output.
   execution. High-level CRL trust APIs currently reject unsupported scoped /
   delta / indirect semantics fail-closed, and OCSP exposes request DER plus
   POST metadata without performing network I/O.
-- [ ] **`age`** file encryption format.
+- [x] **`age`** file encryption format (`age_format`): X25519 decrypt + STREAM,
+  verified against C2SP/CCTV; deterministic encrypt core. Remaining: `scrypt`
+  passphrase recipient, ASCII armor, CSPRNG-wrapping `encrypt` convenience.
 - [ ] **EIP-712 / EIP-191** structured Ethereum signing helpers.
 
 ## Formal Methods
@@ -145,6 +192,26 @@ rejects unsupported inputs before returning trusted output.
 
 - [ ] **JWT remaining coverage holes**: continue adding reference fixtures for
   profile-specific JWT/OIDC/FAPI branches as they are touched.
+- [x] **x509-limbo / BetterTLS path-validation differential corpus**: replay
+  the C2SP/x509-limbo + Netflix BetterTLS name-constraint suites against
+  `pkix_verify.verify_chain` (`pkix_verify/limbo_json_js_test.mbt`,
+  `scripts/gen_x509_limbo.py`, fixtures under `testdata/{x509-limbo,bettertls}`).
+  Hard assertion: no `reject` case verifies (false-positive guard).
+- [x] **Trust-anchor-level constraint enforcement**: added
+  `verify_chain_with_anchor_cert` / `verify_chain_for_signature_with_anchor_cert`
+  which take the anchor as a `Certificate` and enforce its validity window,
+  basicConstraints (`cA`), keyUsage (`keyCertSign`), critical extensions, and
+  `nameConstraints` (seeded into the chain's active constraint set). The
+  bare-pubkey `verify_chain` entry points still treat the anchor as
+  unconstrained (documented). The x509-limbo harness uses the cert-anchored API.
+  Also implements the RFC 5280 §6.1.3(b)/§6.1.4 self-issued name-constraint
+  exemption (a self-issued, non-final intermediate is exempt from the SAN check;
+  the final leaf is always checked). Remaining anchor profile rules NOT enforced
+  (documented, fail-open only for malformed-but-benign placement):
+  basicConstraints/nameConstraints criticality, `nameConstraints`-only-in-CA,
+  and non-canonical dNSName constraints. Path building (multiple candidate certs
+  sharing a subject DN) remains out of scope — `verify_chain` takes a single
+  pre-ordered intermediate list.
 
 ## Performance / Footprint
 

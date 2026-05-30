@@ -373,9 +373,14 @@ pub fn extract_dns_san(
 
 ///|
 priv struct DnsNameConstraints {
-  // Permitted-subtrees (empty means "no permitted constraint" i.e. all
-  // allowed); excluded-subtrees take precedence over permitted (RFC 5280).
-  permitted : Array[String]
+  // Permitted-subtrees. `None` means "no permittedSubtrees constraint" (every
+  // name allowed unless excluded). `Some(list)` means the permitted DNS name
+  // space is exactly `list`; in particular `Some([])` is the EMPTY name space
+  // — RFC 5280 §6.1.4(g): when intersecting disjoint permitted subtrees down
+  // the chain yields the empty set, every subsequent name MUST be rejected.
+  // Conflating `Some([])` with `None` is a name-constraints bypass.
+  // Excluded-subtrees take precedence over permitted (RFC 5280).
+  permitted : Array[String]?
   excluded : Array[String]
 }
 
@@ -471,7 +476,10 @@ fn parse_dns_name_constraints(
       }
     }
   }
-  { permitted, excluded }
+  // Distinguish "permittedSubtrees absent" (None ⇒ unconstrained) from
+  // "permittedSubtrees present" (Some, possibly empty ⇒ a real, possibly
+  // empty, permitted name space).
+  { permitted: if saw_permitted { Some(permitted) } else { None }, excluded }
 }
 
 ///|
@@ -560,11 +568,15 @@ fn ascii_lower(s : String) -> String {
 //
 // - excluded: union of the two excluded sets (any new excluded entry
 //   blocks names previously permitted).
-// - permitted: if either side is empty, take the other; if both are
-//   non-empty, keep each child entry that lies WITHIN at least one
-//   parent entry. Names that the child wanted to allow but the parent
-//   already forbade are dropped — meaning subsequent SANs that match
-//   those orphaned subtrees will fail the permitted-check below.
+// - permitted: `None` (no constraint) on a side means "take the other side".
+//   If both sides constrain, the result is the set intersection of the two
+//   subtree collections. The intersection of two DNS suffix-subtrees is the
+//   MORE SPECIFIC of the pair when one contains the other, and empty when
+//   they are disjoint. So we keep, for every overlapping (parent, child)
+//   pair, the narrower subtree. If no pair overlaps, the result is
+//   `Some([])` — the empty permitted name space — and `dns_within_constraints`
+//   will then reject every name (RFC 5280 §6.1.4(g)), rather than silently
+//   treating it as "unconstrained".
 fn intersect_dns_constraints(
   parent : DnsNameConstraints,
   child : DnsNameConstraints,
@@ -576,29 +588,47 @@ fn intersect_dns_constraints(
   for e in child.excluded {
     new_excluded.push(e)
   }
-  let new_permitted : Array[String] = if parent.permitted.length() == 0 {
-    let copy : Array[String] = []
-    for p in child.permitted {
-      copy.push(p)
+  let new_permitted : Array[String]? = match
+    (parent.permitted, child.permitted) {
+    (None, None) => None
+    (None, Some(c)) => {
+      let copy : Array[String] = []
+      for p in c {
+        copy.push(p)
+      }
+      Some(copy)
     }
-    copy
-  } else if child.permitted.length() == 0 {
-    let copy : Array[String] = []
-    for p in parent.permitted {
-      copy.push(p)
+    (Some(p), None) => {
+      let copy : Array[String] = []
+      for x in p {
+        copy.push(x)
+      }
+      Some(copy)
     }
-    copy
-  } else {
-    let out : Array[String] = []
-    for c in child.permitted {
-      for p in parent.permitted {
-        if dns_name_in_subtree(c, p) {
-          out.push(c)
-          break
+    (Some(parent_p), Some(child_p)) => {
+      let out : Array[String] = []
+      // The intersection of two DNS suffix-subtree COLLECTIONS is the union,
+      // over every (parent, child) pair, of that pair's intersection — and
+      // two suffix-subtrees intersect to the narrower one if one contains the
+      // other, else to nothing. We must visit every pair (no early break): a
+      // single child subtree can be a superset of SEVERAL distinct parent
+      // subtrees (e.g. parent {a.example.com, b.example.com} vs child
+      // {example.com}), and all of them remain in the permitted name space.
+      // Pushing the same subtree more than once is harmless for the
+      // membership check in dns_within_constraints.
+      for c in child_p {
+        for p in parent_p {
+          // child subtree within parent subtree ⇒ child is the narrower.
+          if dns_name_in_subtree(c, p) {
+            out.push(c)
+            // parent subtree within child subtree ⇒ parent is the narrower.
+          } else if dns_name_in_subtree(p, c) {
+            out.push(p)
+          }
         }
       }
+      Some(out)
     }
-    out
   }
   { permitted: new_permitted, excluded: new_excluded }
 }
@@ -610,15 +640,20 @@ fn dns_within_constraints(dns : String, cons : DnsNameConstraints) -> Bool {
       return false
     }
   }
-  if cons.permitted.length() == 0 {
-    return true
-  }
-  for p in cons.permitted {
-    if dns_name_in_subtree(dns, p) {
-      return true
+  // `None` ⇒ no permittedSubtrees constraint, so the name is permitted.
+  // `Some(list)` ⇒ the name MUST fall within one of `list`. An empty `list`
+  // is the empty permitted name space and rejects everything.
+  match cons.permitted {
+    None => true
+    Some(permitted) => {
+      for p in permitted {
+        if dns_name_in_subtree(dns, p) {
+          return true
+        }
+      }
+      false
     }
   }
-  false
 }
 
 ///|
@@ -1139,7 +1174,13 @@ pub fn verify_chain_with_options(
   opts : VerifyChainOptions,
 ) -> Unit raise PkixVerifyError {
   verify_chain_with_options_internal(
-    leaf, intermediates, trust_anchor_pubkey, now, opts, false,
+    leaf,
+    intermediates,
+    trust_anchor_pubkey,
+    now,
+    opts,
+    false,
+    None,
   )
 }
 
@@ -1155,7 +1196,88 @@ pub fn verify_chain_for_signature(
   opts : VerifyChainOptions,
 ) -> Unit raise PkixVerifyError {
   verify_chain_with_options_internal(
-    leaf, intermediates, trust_anchor_pubkey, now, opts, true,
+    leaf,
+    intermediates,
+    trust_anchor_pubkey,
+    now,
+    opts,
+    true,
+    None,
+  )
+}
+
+///|
+// Validate a trust-anchor certificate's own properties before it is used to
+// anchor a chain. The bare-pubkey entry points skip this (the caller vouches
+// for the key); the certificate-anchored entry points enforce it so a pinned
+// root cannot silently bypass its own validity window, CA status, keyUsage,
+// or critical extensions.
+fn verify_anchor_certificate(
+  anchor : @pkix.Certificate,
+  now : String,
+) -> Unit raise PkixVerifyError {
+  // Unknown critical extensions and duplicate extension OIDs.
+  check_extension_policy(anchor)
+  // The anchor must itself be temporally valid at `now`.
+  check_validity(anchor.tbs.validity, now)
+  // A trust anchor that issues certificates must be a CA with keyCertSign.
+  let (is_ca, _) = find_basic_constraints(anchor)
+  if !is_ca {
+    raise NotACA
+  }
+  if !issuer_allows_cert_sign(anchor) {
+    raise KeyUsageMissingCertSign
+  }
+}
+
+///|
+/// Like `verify_chain`, but the trust anchor is supplied as a full
+/// certificate rather than a bare public key. In addition to everything
+/// `verify_chain` checks, this enforces the anchor's OWN constraints:
+///   - the anchor's validity window against `now`,
+///   - basicConstraints `cA` and keyUsage `keyCertSign` on the anchor,
+///   - unknown critical extensions / duplicate extension OIDs on the anchor,
+///   - the anchor's `nameConstraints` (applied to the whole chain below it).
+///
+/// Use this when the caller pins a name-constrained or time-bounded root and
+/// needs those properties honoured. The anchor's self-signature is NOT
+/// re-verified (a trust anchor is trusted by configuration); its public key
+/// is used to verify the topmost intermediate exactly as in `verify_chain`.
+pub fn verify_chain_with_anchor_cert(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor : @pkix.Certificate,
+  now : String,
+  opts? : VerifyChainOptions = VerifyChainOptions::default(),
+) -> Unit raise PkixVerifyError {
+  verify_anchor_certificate(trust_anchor, now)
+  let anchor_pubkey = extract_public_key(
+    trust_anchor.tbs.subject_public_key_info,
+  )
+  let initial = find_dns_name_constraints(trust_anchor)
+  verify_chain_with_options_internal(
+    leaf, intermediates, anchor_pubkey, now, opts, false, initial,
+  )
+}
+
+///|
+/// Certificate-anchored counterpart of `verify_chain_for_signature`: same
+/// trust-anchor enforcement as `verify_chain_with_anchor_cert`, but also
+/// requires the leaf keyUsage (when present) to include digitalSignature.
+pub fn verify_chain_for_signature_with_anchor_cert(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor : @pkix.Certificate,
+  now : String,
+  opts? : VerifyChainOptions = VerifyChainOptions::default(),
+) -> Unit raise PkixVerifyError {
+  verify_anchor_certificate(trust_anchor, now)
+  let anchor_pubkey = extract_public_key(
+    trust_anchor.tbs.subject_public_key_info,
+  )
+  let initial = find_dns_name_constraints(trust_anchor)
+  verify_chain_with_options_internal(
+    leaf, intermediates, anchor_pubkey, now, opts, true, initial,
   )
 }
 
@@ -1167,6 +1289,7 @@ fn verify_chain_with_options_internal(
   now : String,
   opts : VerifyChainOptions,
   require_leaf_digital_signature : Bool,
+  initial_constraints : DnsNameConstraints?,
 ) -> Unit raise PkixVerifyError {
   check_extension_policy(leaf)
   for inter in intermediates {
@@ -1179,9 +1302,11 @@ fn verify_chain_with_options_internal(
   let mut current_pubkey = trust_anchor_pubkey
   let n = intermediates.length()
   // Active DNS name constraint set, intersected as we walk down the chain.
-  // None ⇒ no constraint yet. The trust anchor's constraints (if any) are
-  // out-of-band; we assume the caller's anchor is unconstrained.
-  let mut active_constraints : DnsNameConstraints? = None
+  // `None` ⇒ no constraint yet. `initial_constraints` carries the trust
+  // anchor's own nameConstraints when the caller supplied the anchor as a
+  // certificate (see verify_chain_with_anchor_cert); the bare-pubkey entry
+  // points pass `None`, leaving the anchor unconstrained.
+  let mut active_constraints : DnsNameConstraints? = initial_constraints
   for i = n - 1; i >= 0; i = i - 1 {
     let inter = intermediates[i]
     let (is_ca, _) = find_basic_constraints(inter)
@@ -1197,11 +1322,35 @@ fn verify_chain_with_options_internal(
     if !issuer_allows_cert_sign(inter) {
       raise KeyUsageMissingCertSign
     }
+    // EKU nesting (matches Go crypto/x509 and browser behaviour): when the
+    // caller requires a purpose, a CA that itself carries an extendedKeyUsage
+    // extension must also permit that purpose (or anyExtendedKeyUsage),
+    // otherwise it is not entitled to delegate it to the leaf. A CA with no EKU
+    // extension stays unrestricted (RFC 5280 §4.2.1.12). Without this, a
+    // purpose-restricted sub-CA could issue a leaf trusted for a purpose the
+    // CA was never authorised for — a false positive.
+    match opts.required_eku {
+      Some(o) => enforce_required_eku(inter, o)
+      None => ()
+    }
     // Active nameConstraints from any ancestor must hold for THIS cert's
     // SAN as well — a CA cannot escape its parent's constraints just by
     // issuing further sub-CAs.
+    //
+    // RFC 5280 §6.1.3(b)/§6.1.4: name constraints are NOT applied to a
+    // self-issued certificate (subject == issuer) UNLESS it is the final
+    // certificate in the path. Every cert in this loop is an intermediate
+    // (never final — the leaf is checked separately below), so a self-issued
+    // intermediate is exempt from the SAN check. Its own constraints still
+    // propagate via the intersection step below, and certs beneath it are
+    // still checked, so this does not open a bypass: the final leaf is always
+    // checked regardless of self-issuance.
+    let inter_self_issued = names_match(inter.tbs.subject, inter.tbs.issuer)
     match active_constraints {
-      Some(cons) => enforce_name_constraints(cons, inter)
+      Some(cons) =>
+        if !inter_self_issued {
+          enforce_name_constraints(cons, inter)
+        }
       None => ()
     }
     // Signature: inter is signed by current_pubkey.

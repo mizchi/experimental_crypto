@@ -247,23 +247,40 @@ fn base64url_decode(s : String) -> Bytes raise JwtError {
   // base64url alphabet so the count corresponds 1:1 to the decoded length.
   let buf = StringBuilder::new()
   let mut n = 0
+  let mut last_val = 0
   for c in s {
     // Reject any character that is outside the base64url alphabet up front;
     // the underlying decoder is lenient and we want a single failure mode.
-    let is_valid = (c >= 'A' && c <= 'Z') ||
-      (c >= 'a' && c <= 'z') ||
-      (c >= '0' && c <= '9') ||
-      c == '-' ||
-      c == '_'
-    if !is_valid {
+    let val = if c >= 'A' && c <= 'Z' {
+      c.to_int() - 'A'.to_int()
+    } else if c >= 'a' && c <= 'z' {
+      c.to_int() - 'a'.to_int() + 26
+    } else if c >= '0' && c <= '9' {
+      c.to_int() - '0'.to_int() + 52
+    } else if c == '-' {
+      62
+    } else if c == '_' {
+      63
+    } else {
       raise InvalidToken("invalid base64url character")
     }
+    last_val = val
     let c2 = if c == '-' { '+' } else if c == '_' { '/' } else { c }
     buf.write_char(c2)
     n = n + 1
   }
   if n % 4 == 1 {
     raise InvalidToken("invalid base64url length")
+  }
+  // RFC 7515 §2 / RFC 4648 §3.5: reject non-canonical encodings. A final
+  // quantum of 2 chars leaves the last sextet with 4 unused low bits; of 3
+  // chars, 2 unused low bits. Those MUST be zero — otherwise two distinct
+  // strings decode to the same octets (signature / token malleability).
+  if n % 4 == 2 && (last_val & 0x0F) != 0 {
+    raise InvalidToken("non-canonical base64url (trailing bits set)")
+  }
+  if n % 4 == 3 && (last_val & 0x03) != 0 {
+    raise InvalidToken("non-canonical base64url (trailing bits set)")
   }
   let pad_count = (4 - n % 4) % 4
   for _ in 0..<pad_count {
