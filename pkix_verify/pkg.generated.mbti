@@ -48,6 +48,7 @@ pub suberror PkixVerifyError {
   ExtendedKeyUsageMissing(@asn1.ObjectIdentifier)
   CertificatePolicyMissing(@asn1.ObjectIdentifier)
   PolicyConstraintsUnsupported
+  EmptyDistinguishedName(String)
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)

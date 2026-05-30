@@ -173,7 +173,6 @@ SKIP_SUBNS = {"eku", "aki", "ski", "pc", "san"}
 # even with certificate-anchored validation:
 #   *-non-critical-basic-constraints -> basicConstraints criticality is a pedantic
 #       profile rule the verifier does not require.
-#   ca-empty-subject / ee-empty-issuer -> empty-DN edge cases / top-link DN.
 #   leaf-ku-keycertsign -> leaf keyUsage policy, out of scope.
 #   nc::invalid-dnsname-* -> dNSName constraint encoding profile rules (no
 #       leading period / wildcard); the verifier interprets rather than rejects
@@ -181,10 +180,21 @@ SKIP_SUBNS = {"eku", "aki", "ski", "pc", "san"}
 #   nc::not-allowed-in-ee-* -> "nameConstraints MUST appear only in a CA cert"
 #       profile placement rule; the verifier ignores NC on a leaf rather than
 #       rejecting its presence.
+#
+# A differential audit (running every soundness-gated *reject* case the filters
+# above drop, then checking which verify_chain_with_anchor_cert accepts) found
+# NO security false positives: the remaining accepted reject-cases are all
+# out-of-scope by design — EKU is caller-opt-in, SAN identity is the caller's,
+# missing AKI/SKI are path-building hints (and a *critical* AKI/SKI is rejected
+# fail-closed), over-long serials and non-critical basicConstraints are pedantic
+# profile rules, and nc::permitted-dns-match-noncritical is an RFC-5280-vs-webpki
+# disagreement the verifier resolves the RFC way. The two empty-DN cases that the
+# audit DID expose as real RFC 5280 §6.1 completeness gaps (ee-empty-issuer:
+# topmost issuer not linked to the anchor subject; ca-empty-subject: empty CA
+# subject) are now enforced by verify_chain_with_anchor_cert, so they are no
+# longer skipped — they flow into limbo.json as ordinary reject cases.
 EXPLICIT_SKIP = {
     "rfc5280::root-non-critical-basic-constraints",
-    "rfc5280::ca-empty-subject",
-    "rfc5280::ee-empty-issuer",
     "rfc5280::leaf-ku-keycertsign",
     "rfc5280::nc::invalid-dnsname-leading-period",
     "rfc5280::nc::not-allowed-in-ee-noncritical",

@@ -64,6 +64,12 @@ pub suberror PkixVerifyError {
   // fail-closed: silently ignoring a non-critical requireExplicitPolicy would
   // accept a chain a conformant verifier must reject.
   PolicyConstraintsUnsupported
+  // RFC 5280 §4.1.2.6: "Where it is non-empty, the subject field MUST contain
+  // an X.500 distinguished name". A CA's subject is the issuer name of every
+  // certificate it signs, so an empty-subject CA makes name chaining ambiguous
+  // (it would match any empty issuer). Raised when a trust anchor presented as
+  // a certificate has an empty subject DN.
+  EmptyDistinguishedName(String)
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
@@ -1350,6 +1356,36 @@ fn verify_anchor_certificate(
   if !issuer_allows_cert_sign(anchor) {
     raise KeyUsageMissingCertSign
   }
+  // RFC 5280 §4.1.2.6: a CA subject MUST be a non-empty DN. An empty-subject
+  // anchor would match any empty issuer name, making the name chaining below
+  // ambiguous (closes x509-limbo rfc5280::ca-empty-subject).
+  if anchor.tbs.subject.rdns.is_empty() {
+    raise EmptyDistinguishedName("trust anchor subject")
+  }
+}
+
+///|
+// RFC 5280 §6.1.3(a)(4): the topmost certificate's issuer name MUST equal the
+// trust anchor's subject name. The anchor's public key verifying the signature
+// is necessary but not sufficient — the DN linkage to the anchor must hold too,
+// otherwise a certificate that merely happens to be signed by the anchor key
+// but names a different (or empty) issuer would validate. The bare-pubkey entry
+// points cannot perform this check (no anchor DN is available, so the caller
+// vouches for the binding); the certificate-anchored ones must. Closes
+// x509-limbo rfc5280::ee-empty-issuer.
+fn enforce_anchor_linkage(
+  leaf : @pkix.Certificate,
+  intermediates : Array[@pkix.Certificate],
+  trust_anchor : @pkix.Certificate,
+) -> Unit raise PkixVerifyError {
+  let topmost = if intermediates.is_empty() {
+    leaf
+  } else {
+    intermediates[intermediates.length() - 1]
+  }
+  if !names_match(topmost.tbs.issuer, trust_anchor.tbs.subject) {
+    raise IssuerSubjectMismatch
+  }
 }
 
 ///|
@@ -1373,6 +1409,7 @@ pub fn verify_chain_with_anchor_cert(
   opts? : VerifyChainOptions = VerifyChainOptions::default(),
 ) -> Unit raise PkixVerifyError {
   verify_anchor_certificate(trust_anchor, now)
+  enforce_anchor_linkage(leaf, intermediates, trust_anchor)
   let anchor_pubkey = extract_public_key(
     trust_anchor.tbs.subject_public_key_info,
   )
@@ -1394,6 +1431,7 @@ pub fn verify_chain_for_signature_with_anchor_cert(
   opts? : VerifyChainOptions = VerifyChainOptions::default(),
 ) -> Unit raise PkixVerifyError {
   verify_anchor_certificate(trust_anchor, now)
+  enforce_anchor_linkage(leaf, intermediates, trust_anchor)
   let anchor_pubkey = extract_public_key(
     trust_anchor.tbs.subject_public_key_info,
   )
