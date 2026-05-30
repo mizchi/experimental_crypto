@@ -1233,6 +1233,7 @@ fn verify_basic_signature(
     }
     @pkix_verify.verify_chain_for_signature(resp_cert, [], issuer_pk, now, {
       required_eku: Some(id_kp_ocsp_signing()),
+      required_policy: None,
     }) catch {
       KeyUsageMissingDigitalSignature =>
         raise ResponderMissingDigitalSignatureKeyUsage

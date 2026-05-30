@@ -922,7 +922,7 @@ pub fn verify_with_chain(
     sd.extra_certs,
     trust_anchor_pubkey,
     now,
-    { required_eku: None },
+    { required_eku: None, required_policy: None },
   ) catch {
     _ => return false
   }
