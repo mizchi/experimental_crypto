@@ -2700,3 +2700,118 @@ test "policyConstraints: critical on leaf is rejected fail-closed" {
   let r = try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
   assert_true(r is Err(_))
 }
+
+///|
+// RFC 5280 §6.1.3(a)(4): the topmost cert's issuer name must be linked to the
+// trust ANCHOR's subject, not merely signed by the anchor key. A leaf signed by
+// the anchor key but naming a DIFFERENT issuer DN must be rejected by the
+// certificate-anchored entry point. (Closes the gap x509-limbo rfc5280::
+// ee-empty-issuer exercises with an empty issuer name.)
+test "ATTACK anchor linkage: leaf signed by anchor key but wrong issuer DN is rejected" {
+  let anchor_seed = "5151515151515151515151515151515151515151515151515151515151510a01"
+  let leaf_seed = "5151515151515151515151515151515151515151515151515151515151510a02"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Linkage Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  // Leaf is genuinely signed by the anchor's key (issuer_seed = anchor_seed)
+  // but its issuer DN names a different CA than the anchor's subject.
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "leaf.example.com",
+    "Some Other CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    anchor_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      anchor,
+      "250601000000Z",
+    )
+  catch {
+    IssuerSubjectMismatch => ()
+    other => abort("expected IssuerSubjectMismatch, got " + repr(other))
+  } noraise {
+    _ =>
+      abort(
+        "anchor linkage bypass: a leaf signed by the anchor key but naming a different issuer was accepted",
+      )
+  }
+}
+
+///|
+// Positive counterpart: the same leaf, issued under the anchor's real subject
+// DN, verifies — guards the linkage check against over-rejection.
+test "anchor linkage: leaf naming the anchor subject verifies" {
+  let anchor_seed = "5151515151515151515151515151515151515151515151515151515151510a11"
+  let leaf_seed = "5151515151515151515151515151515151515151515151515151515151510a12"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Linkage Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "leaf.example.com",
+    "Linkage Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    anchor_seed,
+  )
+  @pkix_verify.verify_chain_with_anchor_cert(leaf, [], anchor, "250601000000Z")
+}
+
+///|
+// RFC 5280 §4.1.2.6: a trust anchor presented as a certificate with an EMPTY
+// subject DN must be rejected — an empty-subject CA would match any empty issuer
+// name. (Closes x509-limbo rfc5280::ca-empty-subject.)
+test "anchor with empty subject DN is rejected" {
+  let anchor_seed = "5151515151515151515151515151515151515151515151515151515151510a21"
+  let leaf_seed = "5151515151515151515151515151515151515151515151515151515151510a22"
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Empty Subject Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  // Force an empty subject RDNSequence on the anchor. The anchor self-signature
+  // is not re-verified (trusted by configuration), so the mutation is sound for
+  // exercising the empty-subject gate, which runs before any key use.
+  let empty_anchor : @pkix.Certificate = {
+    ..anchor,
+    tbs: { ..anchor.tbs, subject: { rdns: [] } },
+  }
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "leaf.example.com",
+    "Empty Subject Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    anchor_seed,
+  )
+  try
+    @pkix_verify.verify_chain_with_anchor_cert(
+      leaf,
+      [],
+      empty_anchor,
+      "250601000000Z",
+    )
+  catch {
+    EmptyDistinguishedName(_) => ()
+    other => abort("expected EmptyDistinguishedName, got " + repr(other))
+  } noraise {
+    _ => abort("empty-subject anchor was accepted")
+  }
+}

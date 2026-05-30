@@ -129,6 +129,8 @@ fn limbo_classify(e : @pkix_verify.PkixVerifyError) -> LimboOutcome {
     KeyUsageMissingCertSign => RejectedHard("KeyUsageMissingCertSign")
     NameConstraintViolation(n) =>
       RejectedHard("NameConstraintViolation(" + n + ")")
+    EmptyDistinguishedName(w) =>
+      RejectedHard("EmptyDistinguishedName(" + w + ")")
     other => RejectedHard(repr(other))
   }
 }
