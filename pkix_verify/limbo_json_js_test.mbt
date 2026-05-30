@@ -115,6 +115,8 @@ fn limbo_classify(e : @pkix_verify.PkixVerifyError) -> LimboOutcome {
     ExtendedKeyUsageMissing(_) => RejectedTolerable("EKU policy")
     UnknownCriticalExtension(_) =>
       RejectedTolerable("critical extension not processed (fail-closed)")
+    PolicyConstraintsUnsupported =>
+      RejectedTolerable("policyConstraints not processed (fail-closed)")
     MalformedExtension(m) =>
       RejectedTolerable("malformed/unsupported extension: " + m)
     Pkix(_) | Asn1(_) => RejectedTolerable("parser limitation")
@@ -233,4 +235,13 @@ test "x509-limbo rfc5280 path validation (no false positives)" {
 ///|
 test "BetterTLS name-constraints path validation (no false positives)" {
   limbo_run_suite("testdata/bettertls/nameconstraints.json")
+}
+
+///|
+// The x509-limbo rfc5280::pc namespace: a chain whose intermediate carries a
+// (non-critical) policyConstraints extension MUST be rejected. The verifier
+// does not run the §6.1 policy tree, so it rejects fail-closed rather than
+// silently ignoring a requireExplicitPolicy a conformant verifier must honour.
+test "x509-limbo policyConstraints path validation (no false positives)" {
+  limbo_run_suite("testdata/x509-limbo/policy.json")
 }

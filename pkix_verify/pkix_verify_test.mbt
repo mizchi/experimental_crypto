@@ -2498,3 +2498,83 @@ test "required_policy: cert without a policies extension does not block" {
     opts,
   )
 }
+
+///|
+// policyConstraints (RFC 5280 §4.2.1.11), even NON-critical, must be honoured.
+// Since the verifier does not run the §6.1 policy tree it rejects fail-closed.
+// A non-critical policyConstraints would otherwise be silently ignored, which
+// is the rfc5280::pc::ica-noncritical-pc false positive.
+fn policy_constraints_ext(critical : Bool) -> @pkix.Extension {
+  // PolicyConstraints ::= SEQUENCE { requireExplicitPolicy [0] INTEGER OPTIONAL }
+  // requireExplicitPolicy = 0 (context tag [0], primitive, IMPLICIT INTEGER).
+  let req = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=false),
+    @asn1.Value::Unknown(b"\x00"),
+  )
+  let value = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence([req])),
+  )
+  { oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 36]), critical, value }
+}
+
+///|
+test "policyConstraints: non-critical on intermediate is rejected fail-closed" {
+  let inter_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee01"
+  let leaf_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee02"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "PC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      policy_constraints_ext(false),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "PC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    PolicyConstraintsUnsupported => ()
+    other => abort("expected PolicyConstraintsUnsupported, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a chain with an unprocessed policyConstraints")
+  }
+}
+
+///|
+test "policyConstraints: critical on leaf is rejected fail-closed" {
+  let inter_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee11"
+  let leaf_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee12"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "PC CA 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "PC CA 2",
+    "250101000000Z",
+    "260101000000Z",
+    [policy_constraints_ext(true)],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let r = try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+  assert_true(r is Err(_))
+}

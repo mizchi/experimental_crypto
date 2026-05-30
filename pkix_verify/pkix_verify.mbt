@@ -58,6 +58,12 @@ pub suberror PkixVerifyError {
   // caller required via VerifyChainOptions.required_policy (and does not
   // assert anyPolicy). RFC 5280 §4.2.1.4.
   CertificatePolicyMissing(@asn1.ObjectIdentifier)
+  // RFC 5280 §4.2.1.11 policyConstraints (requireExplicitPolicy /
+  // inhibitPolicyMapping). We do not yet run the §6.1 policy tree, so a cert
+  // carrying this extension — critical OR non-critical — is rejected
+  // fail-closed: silently ignoring a non-critical requireExplicitPolicy would
+  // accept a chain a conformant verifier must reject.
+  PolicyConstraintsUnsupported
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
@@ -236,6 +242,28 @@ fn any_policy_oid() -> @asn1.ObjectIdentifier {
 }
 
 ///|
+// policyConstraints, RFC 5280 §4.2.1.11.
+fn policy_constraints_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 36])
+}
+
+///|
+// Reject a cert that carries a policyConstraints extension. We do not yet run
+// the RFC 5280 §6.1 policy tree, and requireExplicitPolicy / inhibitPolicyMapping
+// MUST be honoured even when the extension is non-critical — so processing it as
+// "absent" would be a false positive. Fail closed instead (the critical case is
+// already caught by check_critical_extensions; this also covers non-critical).
+fn reject_if_policy_constraints(
+  cert : @pkix.Certificate,
+) -> Unit raise PkixVerifyError {
+  for ext in cert.tbs.extensions {
+    if ext.oid == policy_constraints_oid() {
+      raise PolicyConstraintsUnsupported
+    }
+  }
+}
+
+///|
 fn is_recognised_critical_extension(oid : @asn1.ObjectIdentifier) -> Bool {
   oid == basic_constraints_oid() ||
   oid == key_usage_oid() ||
@@ -275,6 +303,9 @@ fn check_extension_policy(
 ) -> Unit raise PkixVerifyError {
   check_duplicate_extensions(cert)
   check_critical_extensions(cert)
+  // policyConstraints must be honoured even when non-critical; we don't yet
+  // run the §6.1 policy tree, so reject fail-closed rather than ignore it.
+  reject_if_policy_constraints(cert)
 }
 
 // ─── keyUsage (RFC 5280 §4.2.1.3 + §6.1.4(n)) ────────────────────────────

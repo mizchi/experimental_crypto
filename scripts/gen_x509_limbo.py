@@ -157,7 +157,12 @@ def order_chain(leaf_pem: str, inter_pems: list[str], trusted_pems: list[str]):
 #          bettertls suite instead.
 #   eku/aki/ski -> extendedKeyUsage / authority+subject key identifiers are not
 #          part of the chain-trust decision (EKU is caller-opt-in).
-#   pc  -> policy constraints / certificate policies are out of scope.
+#   pc  -> policy constraints / certificate policies. The verifier does not run
+#          the §6.1 policy tree, but it DOES reject `policyConstraints`
+#          fail-closed, so the `pc` reject-cases are a valid false-positive
+#          oracle. The single `ica-noncritical-pc` case is emitted separately
+#          into testdata/x509-limbo/policy.json (see emit_policy below); it is
+#          not folded into the main rfc5280 fixture.
 # Sub-namespaces the verifier does not implement as a trust gate: extendedKeyUsage
 # is caller-opt-in, authority/subject key identifiers are not chained, certificate
 # policies are unimplemented, and SAN identity matching is the caller's job. (NC
@@ -276,6 +281,47 @@ def build_case(t: dict):
     }
 
 
+def build_policy_case(t: dict):
+    """Build a fixture case for an rfc5280::pc:: (policy) testcase.
+
+    These are skipped by `build_case` (pc is in SKIP_SUBNS) because the verifier
+    does not run the §6.1 policy tree. It DOES, however, reject policyConstraints
+    fail-closed, so the pc reject-cases are a valid false-positive oracle. We
+    reuse the same ordering / time logic as build_case, minus the scope filter.
+    """
+    if t.get("crls") or not t["trusted_certs"]:
+        return None
+    epn = t.get("expected_peer_name")
+    if not epn:
+        return None
+    leaf_pem = t["peer_certificate"]
+    try:
+        leaf = cert_of(leaf_pem)
+    except Exception:
+        return None
+    if epn["value"] not in leaf_san_values(leaf):
+        return None
+    expect = "accept" if t["expected_result"] == "SUCCESS" else "reject"
+    ordered, anchor, complete = order_chain(
+        leaf_pem, t["untrusted_intermediates"], t["trusted_certs"]
+    )
+    if anchor is None or (expect == "accept" and not complete):
+        return None
+    vt = t["validation_time"]
+    try:
+        now = "20240101000000Z" if vt is None else rfc3339_to_generalized(vt)
+    except Exception:
+        return None
+    return {
+        "id": t["id"],
+        "expect": expect,
+        "now": now,
+        "leaf": leaf_pem,
+        "intermediates": ordered,
+        "anchor": anchor,
+    }
+
+
 def write_fixture(path: str, version: str, source: str, cases: list[dict]):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as fh:
@@ -297,10 +343,17 @@ def main() -> int:
     limbo = load_limbo(src)
     version = str(limbo.get("version", "?"))
 
-    rfc5280, bettertls = [], []
+    rfc5280, bettertls, policy = [], [], []
     for t in limbo["testcases"]:
         ns = t["id"].split("::")[0]
         if ns in ("online", "webpki", "crl"):
+            continue
+        parts = t["id"].split("::")
+        if ns == "rfc5280" and len(parts) > 1 and parts[1] == "pc":
+            # Policy / policyConstraints cases — emitted to policy.json.
+            pc = build_policy_case(t)
+            if pc is not None:
+                policy.append(pc)
             continue
         case = build_case(t)
         if case is None:
@@ -309,6 +362,7 @@ def main() -> int:
             bettertls.append(case)
         else:
             rfc5280.append(case)
+    policy.sort(key=lambda c: c["id"])
 
     # Deterministic sampling of the large BetterTLS suite, keeping the
     # reject/accept split and spanning the combinatorial space evenly.
@@ -335,6 +389,12 @@ def main() -> int:
         version,
         "C2SP/x509-limbo bettertls:: namespace (Netflix BetterTLS corpus), sampled",
         bettertls_sampled,
+    )
+    write_fixture(
+        os.path.join(REPO_ROOT, "testdata", "x509-limbo", "policy.json"),
+        version,
+        "C2SP/x509-limbo rfc5280::pc namespace (certificate policy / policyConstraints)",
+        policy,
     )
     return 0
 
