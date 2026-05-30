@@ -4,8 +4,9 @@
 // for attestation certificate chains.
 //
 // Supported credential public keys: ES256 (P-256), ES384 (P-384), EdDSA
-// (Ed25519). RS256 credential keys (e.g. Windows Hello) are not yet supported
-// and raise UnsupportedAlgorithm. Attestation statement formats: packed (x5c
+// (Ed25519), and RS256/384/512 (RSA PKCS#1 v1.5 — e.g. Windows Hello / TPM).
+// RSASSA-PSS (PS256/384/512) credential keys are not yet supported and raise
+// UnsupportedAlgorithm. Attestation statement formats: packed (x5c
 // and self), fido-u2f, none. Certificate-chain trust (x5c -> a trusted root /
 // metadata) is the caller's job, as in TLS — verify_attestation returns the
 // trust path.
@@ -106,6 +107,10 @@ pub(all) enum CredentialPublicKey {
   Es256(@p256.PublicKey)
   Es384(@p384.PublicKey)
   EdDSA(@ed25519.PublicKey)
+  // RSASSA-PKCS1-v1_5 (RS256/384/512) — the Windows Hello / TPM common case.
+  Rs256(@rsa.RsaPublicKey)
+  Rs384(@rsa.RsaPublicKey)
+  Rs512(@rsa.RsaPublicKey)
 }
 
 ///|
@@ -161,8 +166,21 @@ pub fn parse_cose_key(cose : Bytes) -> CredentialPublicKey raise WebAuthnError {
         },
       )
     }
-    // RSA (kty 3) — RS256 not yet supported.
-    3L => raise UnsupportedAlgorithm(alg.to_int())
+    // RSA (kty 3): RS256/384/512 (PKCS#1 v1.5). n at -1, e at -2 (RFC 8230 §4).
+    // RSASSA-PSS (PS256/384/512) is not yet supported and fails closed below.
+    3L => {
+      let n = cbor_bytes(map_int(m, -1L, "n"), "n")
+      let e = cbor_bytes(map_int(m, -2L, "e"), "e")
+      let pk = @rsa.RsaPublicKey::from_components(n, e) catch {
+        err => raise ParseError(repr(err))
+      }
+      match alg {
+        -257L => Rs256(pk)
+        -258L => Rs384(pk)
+        -259L => Rs512(pk)
+        _ => raise UnsupportedAlgorithm(alg.to_int())
+      }
+    }
     _ => raise UnsupportedKeyType("kty " + kty.to_string())
   }
 }
@@ -186,6 +204,19 @@ pub fn CredentialPublicKey::verify(
         false,
       )
     EdDSA(pk) => pk.verify(message, signature)
+    // RSASSA-PKCS1-v1_5: verify hashes `message` with the alg's digest.
+    Rs256(pk) =>
+      (try? pk.verify(message, signature, @rsa.HashAlg::Sha256)).unwrap_or(
+        false,
+      )
+    Rs384(pk) =>
+      (try? pk.verify(message, signature, @rsa.HashAlg::Sha384)).unwrap_or(
+        false,
+      )
+    Rs512(pk) =>
+      (try? pk.verify(message, signature, @rsa.HashAlg::Sha512)).unwrap_or(
+        false,
+      )
   }
 }
 

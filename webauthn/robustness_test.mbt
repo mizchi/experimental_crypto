@@ -116,23 +116,23 @@ test "parse_cose_key rejects an OKP key on the wrong curve" {
 }
 
 ///|
-test "parse_cose_key still rejects RSA credential keys (deferred)" {
-  // kty=3 (RSA), alg=-257 (RS256). Documents the current deferral: RSA
-  // credential public keys are not yet accepted, so they fail closed.
+test "parse_cose_key rejects an RSA key with an unsupported alg" {
+  // kty=3 (RSA) with alg=-100 (Nint 99) — a well-formed RSA key, but an alg
+  // outside RS256/384/512, so it must fail closed. (RS256/384/512 are now
+  // supported and covered by rsa_credential_test.mbt; PS256 deferral too.)
   let cose = @cose_cbor.encode(
     Map([
       (Uint(1UL), Uint(3UL)),
-      (Uint(3UL), Nint(256UL)),
+      (Uint(3UL), Nint(99UL)),
       (Nint(0UL), Bytes(Bytes::makei(64, fn(_i) { b'\x01' }))),
       (Nint(1UL), Bytes(b"\x01\x00\x01")),
     ]),
   )
   try @webauthn.parse_cose_key(cose) |> ignore catch {
     UnsupportedAlgorithm(_) => ()
-    UnsupportedKeyType(_) => ()
-    e => abort("expected an unsupported-key error, got " + repr(e))
+    e => abort("expected UnsupportedAlgorithm, got " + repr(e))
   } noraise {
-    _ => abort("accepted an RSA credential key (not yet supported)")
+    _ => abort("accepted an RSA key with an unsupported alg")
   }
 }
 
