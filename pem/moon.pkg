@@ -1,6 +1,6 @@
 import {
   "moonbitlang/core/encoding/base64",
-  "mizchi/pem/wrap",
+  "mizchi/experimental_crypto/pem/wrap",
 }
 
 import {

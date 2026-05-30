@@ -25,3 +25,13 @@ The handshake is pure: the caller supplies the local static and ephemeral
 private keys (the ephemeral MUST come from a CSPRNG, unique per handshake), and
 owns the socket. Not yet implemented: PSK modifiers, rekey, fallback patterns,
 and the deferred/one-way pattern families.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

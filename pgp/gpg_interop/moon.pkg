@@ -1,6 +1,6 @@
 import {
-  "mizchi/ed25519",
-  "mizchi/pgp",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/pgp",
 }
 
 options(

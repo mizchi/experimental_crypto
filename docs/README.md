@@ -8,3 +8,13 @@
 | [SECURITY.md](SECURITY.md) | Audit history, attack-test coverage, documented caveats |
 | [CONSTANT_TIME.md](CONSTANT_TIME.md) | Fixed-limb / branchless status and leakage-measurement plan |
 | [../TODO.md](../TODO.md) | Open items: gaps, missing algorithms, performance work |
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

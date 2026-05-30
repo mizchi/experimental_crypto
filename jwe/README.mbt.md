@@ -65,3 +65,13 @@ pub fn decrypt(token : String, key : DecryptionKey) -> Bytes raise JweError
 - No RNG path in v0: the caller MUST pass `cek`, `iv`, and `oaep_seed`
   explicitly. This is deliberate (deterministic tests, no hidden
   side-effect), not a permanent design.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

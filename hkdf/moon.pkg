@@ -1,6 +1,6 @@
 import {
   "moonbitlang/x/crypto",
-  "mizchi/hkdf/wrap",
+  "mizchi/experimental_crypto/hkdf/wrap",
 }
 
 import {

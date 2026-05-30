@@ -1,6 +1,6 @@
 import {
-  "mizchi/hash",
-  "mizchi/secp256k1",
+  "mizchi/experimental_crypto/hash",
+  "mizchi/experimental_crypto/secp256k1",
   "moonbitlang/core/bigint",
 }
 

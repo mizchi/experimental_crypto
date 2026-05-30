@@ -1,20 +1,27 @@
-# CLAUDE.md — moonbit-crypto
+# CLAUDE.md — experimental_crypto
 
-このリポジトリは **moon.work 直下に 13 個の crypto / PKI module** をぶら下げた MoonBit
-ワークスペース。Claude Code がここで作業するときに踏みやすい罠と回避策を最小限に絞ってまとめる。
-重複した情報はあえて書かない (README.md が「何があるか」、ここが「どう書くか」)。
+このリポジトリは **単一モジュール `mizchi/experimental_crypto`** で、35+ の crypto / PKI /
+JOSE building block を **サブパッケージ**としてぶら下げた MoonBit module。Claude Code が
+ここで作業するときに踏みやすい罠と回避策を最小限に絞ってまとめる。重複した情報はあえて
+書かない (README.md が「何があるか」、ここが「どう書くか」)。
 
-## Workspace 配線
+(旧構成は `moon.work` に 50+ の個別 module をぶら下げたワークスペースだった。2026-05 に
+単一モジュールへ統合。git 履歴の "consolidate" コミット参照。)
 
-- メンバー間の path dep は **moon.mod と moon.pkg の両方** に書く必要がある:
-  - `moon.mod`: `import { "user/dep@0.1.0" }` (version 制約のため必須。registry に
-    publish されていなくても workspace 内 member に解決される)
-  - `moon.pkg`: `import { "user/dep" }` (パッケージとしての import)
+## モジュール配線 (単一モジュール)
+
+- ルートに `moon.mod` 1 つ (`name = "mizchi/experimental_crypto"`)。外部依存は
+  `moonbitlang/x@0.4.43` のみ (ルート `moon.mod` の `import` に宣言)。
+- サブパッケージ間 dep は **`moon.pkg` の `import` だけ**で書く (per-package `moon.mod` は
+  もう無い)。フルパスで指定する: `import { "mizchi/experimental_crypto/asn1" }`。
+  **import alias は最終パス要素**なので `@asn1` / `@pkix` のまま変わらない (統合で .mbt
+  ソースを書き換えずに済んだのはこのため)。
 - **test only** の dep は `moon.pkg` に `import { ... } for "test"` を追加する。
   例: `pkix` が `pem` を fixture テストでのみ使う。
-- `moon work init` で `moon.work` を生成。新規 member は `moon work use ./<path>` で追加。
-- `moon new --user <u> --name <n> <path>` は library only でも `cmd/main/` を生成するので
-  ライブラリ用なら `rm -rf <path>/cmd` する。
+- 新規サブパッケージは `<name>/moon.pkg` を作るだけ (moon.work への登録は不要)。
+  `moon new` が生成する `cmd/main/` や per-package `moon.mod` はライブラリには不要なので消す。
+- `*/wrap` は proof-carrying ヘルパ サブパッケージ (`options("proof-enabled": true)`)。
+  `pem` / `hkdf` がそれぞれ自分の `wrap` を import するので消さないこと。
 
 ## MoonBit のクセ (このリポジトリで実害があったもの)
 
@@ -149,5 +156,5 @@ getrandom (target 別 backend、aes/ed25519/x25519 の rng source)
 
 - 機能単位で commit (`feat(<mod>): ...`, `perf(<mod>): ...`, `test(<mod>, ...): ...`,
   `bench(...): ...`, `docs: ...`)
-- `git push` は `origin/main` (https://github.com/mizchi/moonbit-crypto)
+- `git push` は `origin/main` (https://github.com/mizchi/experimental_crypto)
 - 同名の `mizchi/misc` (古い雑多 repo) とは別物。混同しないこと

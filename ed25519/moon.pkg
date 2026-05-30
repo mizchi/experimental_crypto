@@ -1,10 +1,10 @@
 import {
-  "mizchi/crypto_bigint",
+  "mizchi/experimental_crypto/crypto_bigint",
   "moonbitlang/core/bigint",
   "moonbitlang/core/debug",
-  "mizchi/asn1",
-  "mizchi/pkcs8",
-  "mizchi/pkix",
+  "mizchi/experimental_crypto/asn1",
+  "mizchi/experimental_crypto/pkcs8",
+  "mizchi/experimental_crypto/pkix",
 }
 
 import {
@@ -12,7 +12,7 @@ import {
   "moonbitlang/core/bench",
   "moonbitlang/core/quickcheck",
   "moonbitlang/core/json",
-  "mizchi/pem",
+  "mizchi/experimental_crypto/pem",
 } for "test"
 
 options(

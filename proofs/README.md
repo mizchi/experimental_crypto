@@ -131,13 +131,13 @@ bash proofs/setup.sh
 ```
 
 `setup.sh` initialises a project-local opam switch
-(`./.opam/moonbit-crypto`) with OCaml 4.14.2 + Why3 1.7.2 + zarith, then
+(`./.opam/experimental_crypto`) with OCaml 4.14.2 + Why3 1.7.2 + zarith, then
 runs `why3 config detect` so the discovered solvers (z3, plus cvc5 /
 alt-ergo if present) are registered. After that, every shell needs:
 
 ```bash
 export OPAMROOT="$PWD/.opam"
-eval "$(opam env --switch=moonbit-crypto --set-switch)"
+eval "$(opam env --switch=experimental_crypto --set-switch)"
 ```
 
 (or use the nix devShell, which does this for you).
@@ -145,7 +145,7 @@ eval "$(opam env --switch=moonbit-crypto --set-switch)"
 ## Running the prover
 
 ```bash
-eval "$(opam env --switch=moonbit-crypto --set-switch)"
+eval "$(opam env --switch=experimental_crypto --set-switch)"
 cd proofs && moon prove
 ```
 

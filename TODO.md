@@ -1,6 +1,6 @@
 # Known Issues / TODO
 
-Active backlog for `mizchi/moonbit-crypto`. Completed items were moved to
+Active backlog for `mizchi/experimental_crypto`. Completed items were moved to
 `DONE.md`.
 
 ## Security Implementation Priority

@@ -55,3 +55,13 @@ let app_secret = ctx_s.export(b"app-secret-v1", 32)
 - **`DeriveKeyPair`** — RFC 9180 §7.1.3 ikm-driven key generation. Currently
   callers pass `sk_e` directly; this is fine for tests and for callers
   generating ephemerals via `mizchi/getrandom`.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

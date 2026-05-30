@@ -1,9 +1,9 @@
 import {
-  "mizchi/asn1",
+  "mizchi/experimental_crypto/asn1",
 }
 
 import {
   "moonbitlang/core/debug",
-  "mizchi/pem",
+  "mizchi/experimental_crypto/pem",
   "moonbitlang/core/quickcheck",
 } for "test"

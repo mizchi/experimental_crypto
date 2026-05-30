@@ -29,3 +29,13 @@ nonce-bearing responses because it cannot bind them to a request. OCSP request
 construction emits unsigned OCSPRequest DER and optional HTTP POST metadata;
 URL selection, network I/O, TLS policy, timeouts, and archive cutoff are out
 of scope.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

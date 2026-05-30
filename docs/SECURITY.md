@@ -1,6 +1,6 @@
 # Security Posture
 
-`mizchi/moonbit-crypto` has been through **three rounds of independent
+`mizchi/experimental_crypto` has been through **three rounds of independent
 code review** plus a focused PKCS#8 / sign-side audit. This document
 records the findings, the fixes, and the residual caveats so readers can
 audit the audit.

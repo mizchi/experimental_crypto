@@ -27,3 +27,13 @@ could recover memory-derived material with no programmatic
 defence. Treat Argon2 working memory as confidential at the OS
 level (e.g. via process-private memory and `mlock` if available
 to the runtime).
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

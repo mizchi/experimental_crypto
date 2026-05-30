@@ -1,11 +1,11 @@
 import {
-  "mizchi/x25519",
-  "mizchi/aead",
-  "mizchi/hkdf",
-  "mizchi/hash",
+  "mizchi/experimental_crypto/x25519",
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/hkdf",
+  "mizchi/experimental_crypto/hash",
 }
 
 import {
   "moonbitlang/core/debug",
-  "mizchi/x25519",
+  "mizchi/experimental_crypto/x25519",
 } for "test"

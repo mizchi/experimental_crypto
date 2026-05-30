@@ -18,3 +18,13 @@ and checks `thisUpdate <= now < nextUpdate`. `cRLNumber` is accepted only as a
 non-critical DER INTEGER. Other CRL and CRL-entry extensions are rejected
 rather than ignored, including delta CRLs, issuing distribution points, and
 indirect-CRL `certificateIssuer` entry semantics.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts
