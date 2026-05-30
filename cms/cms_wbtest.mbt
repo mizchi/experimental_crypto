@@ -177,3 +177,47 @@ test "ATTACK cms: ECDSA signatureAlgorithm and digestAlgorithm must match" {
     _ => abort("accepted ECDSA signatureAlgorithm/digestAlgorithm mismatch")
   }
 }
+
+///|
+// RFC 5652 §5.3 subjectKeyIdentifier SignerIdentifier. The root CA fixture
+// carries an id-ce-subjectKeyIdentifier extension; confirm (a) we can read its
+// KeyIdentifier, (b) a [0] SKI sid resolves to that cert via cert_matches_sid,
+// (c) a wrong KeyIdentifier does not, and (d) parse_signer_identifier decodes
+// the [0] IMPLICIT primitive form into a SubjectKeyId. This is the path that
+// previously raised UnsupportedSid.
+fn ski_fixture_cert() -> @pkix.Certificate raise {
+  @pkix.parse_certificate(
+    hex_wb(
+      "308202d8308201c0a003020102020900a77e5117403e54ff300d06092a864886f70d01010b050030193117301506035504030c0e6d697a6368692d746573742d6361301e170d3236303532363131313832335a170d3336303532333131313832335a30193117301506035504030c0e6d697a6368692d746573742d636130820122300d06092a864886f70d01010105000382010f003082010a0282010100dce2d67d96298d7d7488c43aa300c6cbd2174df92b7ce79b0abc9c212228f34acfb004deca8a6fcd3de41fba58b4ecdfb50893863733bcf394ea15eed35fc620cf3239ee61d16349dcdad1901b11ffb0237111b3557a86aa72ac02732fef4d2997fc91c9abc10c185248217a749fc560781c383be58e96703ffd24c0a9db5dda732699097fd4133a84bb862ee95ff3831cb0912347400512144cb3c733d21841dd5544a337a41d438e2ee70e6d1d71614324d1bb7058aa367645894dcccd354ce3d39b654a9d77986754cf45c82acc1549cada47603ee112ec33008a1c9c8c2b95d6d6010a4a0d2af848581c169ea64c4d098a6a7ad19d728254f029276534570203010001a3233021300f0603551d130101ff040530030101ff300e0603551d0f0101ff040403020106300d06092a864886f70d01010b05000382010100adaf2008e2fefa0b1e8f53f442da59aeb85c18dab3682a9e7bb6eab87ab6ecfc6a074a6628b1044b5e8abd14eee3f0e57f6291ec1b832af71625db6a775a667d55a0814e73cdc5ef0c5c076065b19e7a61d14bd62781929c2b2dadbf7df290c618782f69e6e088193dc4a0954d530f0b0ad0b7a19844adac5f4b05bdc58354c8edf214abe667b2a4f66a1ffd9c0400dfb0839b7ab9a2a08d37042a278ab9186c15ebdb87008f4522f19dba689917964a4b3ae36789515ccc5607db053b888383986ddbe8055a4e9c19d4056a48ecfee27f80e2878e71a68a5d3e2e66272fda2a9482ee62198b7d152e656a6a1ba2012a736f886a8a354649efdeef60b0cbe733",
+    ),
+  )
+}
+
+///|
+test "cms SKI: cert_matches_sid resolves a cert by its SubjectKeyIdentifier" {
+  let cert = ski_fixture_cert()
+  let ski = match cert_subject_key_id(cert) {
+    Some(b) => b
+    None => abort("fixture root cert is expected to carry an SKI extension")
+  }
+  // The genuine SKI matches.
+  @debug.assert_eq(cert_matches_sid(cert, SubjectKeyId(ski)), true)
+  // A different KeyIdentifier does not.
+  @debug.assert_eq(
+    cert_matches_sid(cert, SubjectKeyId(b"\xde\xad\xbe\xef")),
+    false,
+  )
+}
+
+///|
+test "cms SKI: parse_signer_identifier decodes [0] subjectKeyIdentifier" {
+  // [0] IMPLICIT OCTET STRING with a 4-byte KeyIdentifier: 80 04 01020304.
+  let elem = @asn1.Element::new(
+    @asn1.Tag::context(0U),
+    Unknown(b"\x01\x02\x03\x04"),
+  )
+  match parse_signer_identifier(elem) {
+    SubjectKeyId(b) => @debug.assert_eq(b, b"\x01\x02\x03\x04")
+    IssuerAndSerial(_, _) => abort("expected SubjectKeyId from a [0] sid")
+  }
+}
