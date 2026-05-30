@@ -24,7 +24,26 @@ pub suberror WebAuthnError {
   AttestationFailure(String)
   // A clientDataJSON field did not match what was expected.
   ClientDataInvalid(String)
+  // authData.rpIdHash did not match SHA-256(expected rpId).
+  RpIdMismatch
+  // The User Present (UP) flag was not set (no user interaction).
+  UserNotPresent
+  // User Verification (UV) was required by policy but not performed.
+  UserNotVerified
 } derive(Debug)
+
+///|
+/// The level of attestation a verified credential carries.
+pub(all) enum AttestationType {
+  // `none` format: NO cryptographic attestation — the credential and AAGUID
+  // are entirely self-asserted and MUST NOT be treated as device-attested.
+  NoAttestation
+  // `packed` self-attestation: the credential key signed its own attestation.
+  SelfAttestation
+  // An x5c certificate chain is present; the caller MUST validate it to a
+  // trusted root / FIDO Metadata before trusting the AAGUID.
+  CertificateAttestation
+} derive(Eq, Debug)
 
 // ─── small byte/CBOR helpers ─────────────────────────────────────────────
 
@@ -259,17 +278,59 @@ pub fn parse_authenticator_data(
 // ─── assertion (WebAuthn §6.3.3 / verify step) ───────────────────────────
 
 ///|
-/// Verify a WebAuthn assertion signature: the credential signs
-/// `authenticatorData || clientDataHash`. `credential_cose_key` is the COSE_Key
-/// stored at registration. Returns whether the signature is valid.
+/// SHA-256 of an rpId string — the value to compare against authData.rpIdHash.
+pub fn rp_id_hash(rp_id : String) -> Bytes {
+  @hash.sha256(
+    Bytes::makei(rp_id.length(), fn(i) {
+      (rp_id.get_char(i).unwrap().to_int() & 0xff).to_byte()
+    }),
+  )
+}
+
+///|
+// Enforce the relying-party policy on parsed authenticatorData (WebAuthn §7.x):
+// rpIdHash binding, User Present, and (if required) User Verified.
+fn check_authenticator_policy(
+  ad : AuthenticatorData,
+  expected_rp_id_hash : Bytes,
+  require_user_verification : Bool,
+) -> Unit raise WebAuthnError {
+  if ad.rp_id_hash != expected_rp_id_hash {
+    raise RpIdMismatch
+  }
+  if !ad.user_present() {
+    raise UserNotPresent
+  }
+  if require_user_verification && !ad.user_verified() {
+    raise UserNotVerified
+  }
+}
+
+///|
+/// Verify a WebAuthn assertion (authentication). Enforces the relying-party
+/// policy — authData.rpIdHash MUST equal `rp_id_hash`, User Present MUST be set,
+/// User Verified is required iff `require_user_verification` — and then the
+/// credential signature over `authenticatorData || clientDataHash`. Raises on
+/// any failure (a non-raising return means the assertion is valid).
+///
+/// `client_data_hash` MUST be `SHA-256(clientDataJSON)` for the clientDataJSON
+/// whose `type` / `challenge` / `origin` you have checked with
+/// `verify_client_data` (use `client_data_hash` to derive it). Skipping that
+/// check leaves you open to replay / cross-origin attacks.
 pub fn verify_assertion(
   credential_cose_key : Bytes,
   authenticator_data : Bytes,
   client_data_hash : Bytes,
   signature : Bytes,
-) -> Bool raise WebAuthnError {
+  rp_id_hash~ : Bytes,
+  require_user_verification? : Bool = false,
+) -> Unit raise WebAuthnError {
+  let ad = parse_authenticator_data(authenticator_data)
+  check_authenticator_policy(ad, rp_id_hash, require_user_verification)
   let key = parse_cose_key(credential_cose_key)
-  key.verify(cat(authenticator_data, client_data_hash), signature)
+  if !key.verify(cat(authenticator_data, client_data_hash), signature) {
+    raise SignatureInvalid
+  }
 }
 
 // ─── attestation (WebAuthn §6.5) ─────────────────────────────────────────
@@ -278,6 +339,9 @@ pub fn verify_assertion(
 /// The result of a successful attestation verification.
 pub(all) struct AttestationResult {
   fmt : String
+  // What level of attestation this credential actually carries — DO NOT treat
+  // NoAttestation as device-attested.
+  attestation_type : AttestationType
   credential_id : Bytes
   credential_public_key : Bytes // COSE_Key bytes
   sign_count : UInt
@@ -332,6 +396,8 @@ fn require_attested(
 pub fn verify_attestation(
   attestation_object : Bytes,
   client_data_hash : Bytes,
+  rp_id_hash~ : Bytes,
+  require_user_verification? : Bool = false,
 ) -> AttestationResult raise WebAuthnError {
   let obj = @cose_cbor.decode(attestation_object) catch { e => raise Cbor(e) }
   let fmt = match @cose_cbor.map_get_str(obj, "fmt") {
@@ -347,22 +413,42 @@ pub fn verify_attestation(
     None => raise ParseError("attestationObject.attStmt")
   }
   let ad = parse_authenticator_data(auth_data_bytes)
+  // Relying-party policy: rpIdHash binding + User Present + (optional) UV. A
+  // registration with the wrong rpId, no user interaction, or missing UV is
+  // rejected before the (cheaper) credential is trusted.
+  check_authenticator_policy(ad, rp_id_hash, require_user_verification)
   let (cred_id, cred_key, aaguid) = require_attested(ad)
   let signed = cat(auth_data_bytes, client_data_hash)
-  match fmt {
-    "none" => ()
-    "packed" => verify_packed(att_stmt, signed, cred_key, ad)
-    "fido-u2f" =>
+  let x5c = x5c_of(att_stmt)
+  let att_type = match fmt {
+    "none" => {
+      if x5c.length() != 0 {
+        raise AttestationFailure("none attestation must not carry x5c")
+      }
+      NoAttestation
+    }
+    "packed" => {
+      verify_packed(att_stmt, signed, cred_key, ad)
+      if x5c.length() > 0 {
+        CertificateAttestation
+      } else {
+        SelfAttestation
+      }
+    }
+    "fido-u2f" => {
       verify_fido_u2f(att_stmt, ad, cred_id, cred_key, client_data_hash)
+      CertificateAttestation
+    }
     _ => raise AttestationFailure("unsupported attestation format " + fmt)
   }
   {
     fmt,
+    attestation_type: att_type,
     credential_id: cred_id,
     credential_public_key: cred_key,
     sign_count: ad.sign_count,
     aaguid,
-    trust_path: x5c_of(att_stmt),
+    trust_path: x5c,
   }
 }
 
