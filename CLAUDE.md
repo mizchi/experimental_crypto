@@ -111,7 +111,9 @@ getrandom (target 別 backend、aes/ed25519/x25519 の rng source)
 - `crypto_bigint` を本物の limb 演算に置き換える (今は @bigint ラッパ)
 - `ed25519` を 10-limb field arithmetic に移植 (今は @bigint Edwards 曲線、x25519 と
   同じ手順で大幅に速くなるはず)
-- `aead/XChaCha20Poly1305` (HChaCha20 sub-key 派生を追加すれば動く)
+- ~~`aead/XChaCha20Poly1305` (HChaCha20 sub-key 派生)~~ → 済。`hchacha20`
+  (chacha20.mbt) + `xchacha20_poly1305_seal/open` 実装済みで、draft-irtf-cfrg-
+  xchacha §A.1 (HChaCha20 KAT) / §A.3 (AEAD) と fuzz round-trip でテスト済み。
 - ~~`asn1` の `Encoder::write_element` double-pass 解消~~ → 済。size-tree を
   一度だけ構築して確定長で直接書く single-pass にし、`finish()` の全バッファ
   再コピーを排除 (encode flat ≒ decode の 2.4×→1.4×、nested 1.5×→1.1×)。
