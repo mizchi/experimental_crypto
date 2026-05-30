@@ -14,5 +14,8 @@ import {
 } for "test"
 
 options(
-  targets: { "limbo_json_js_test.mbt": [ "js" ] },
+  targets: {
+    "limbo_json_js_test.mbt": [ "js" ],
+    "audit_reject_js_test.mbt": [ "js" ],
+  },
 )
