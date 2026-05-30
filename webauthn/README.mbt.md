@@ -18,8 +18,8 @@ authenticatorData formats, the EC/EdDSA verifiers (`p256` / `p384` /
   (UP / UV / AT), signCount, and the attested credential data (aaguid,
   credentialId, COSE_Key).
 - **COSE_Key** (`parse_cose_key`): ES256 (P-256), ES384 (P-384), EdDSA
-  (Ed25519), and RS256/384/512 (RSA PKCS#1 v1.5, e.g. Windows Hello / TPM).
-  RSASSA-PSS (PS256/384/512) is not yet supported and fails closed.
+  (Ed25519), RS256/384/512 (RSA PKCS#1 v1.5, e.g. Windows Hello / TPM), and
+  PS256/384/512 (RSASSA-PSS, salt length = digest length).
 - **clientDataJSON** (`verify_client_data`): binds `type`, `challenge`, and
   `origin` (anti-phishing / anti-replay).
 
@@ -30,6 +30,5 @@ self-consistent ES256 assertion.
 
 Certificate-chain trust (x5c → a trusted root / FIDO Metadata Service) is the
 caller's job, as with TLS: `verify_attestation` returns the `trust_path` for
-`pkix_verify`. Not yet implemented: RSASSA-PSS (PS256) credential keys, the
-`tpm`, `android-key`, `android-safetynet`, and `apple` attestation formats,
-and extension processing.
+`pkix_verify`. Not yet implemented: the `tpm`, `android-key`,
+`android-safetynet`, and `apple` attestation formats, and extension processing.

@@ -120,12 +120,51 @@ test "RS256 wrong rpId is rejected before signature work" {
 }
 
 ///|
-test "PS256 (RSASSA-PSS) credential keys remain deferred and fail closed" {
-  // alg = -37 (PS256) -> Nint(36). Not yet supported -> must reject.
-  try @webauthn.parse_cose_key(rsa_cose(36UL)) |> ignore catch {
-    UnsupportedAlgorithm(_) => ()
-    e => abort("expected UnsupportedAlgorithm, got " + repr(e))
+test "verify PS256 / PS384 / PS512 assertions (RSASSA-PSS, openssl vector)" {
+  // alg = -37/-38/-39 (PS256/384/512) -> Nint(36/37/38).
+  @webauthn.verify_assertion(
+    rsa_cose(36UL),
+    wh(wa_authdata),
+    wh(wa_cdh),
+    wh(ps256_sig),
+    rp_id_hash=wh(wa_rpidhash),
+    require_user_verification=true,
+  )
+  @webauthn.verify_assertion(
+    rsa_cose(37UL),
+    wh(wa_authdata),
+    wh(wa_cdh),
+    wh(ps384_sig),
+    rp_id_hash=wh(wa_rpidhash),
+    require_user_verification=true,
+  )
+  @webauthn.verify_assertion(
+    rsa_cose(38UL),
+    wh(wa_authdata),
+    wh(wa_cdh),
+    wh(ps512_sig),
+    rp_id_hash=wh(wa_rpidhash),
+    require_user_verification=true,
+  )
+}
+
+///|
+test "a PKCS#1 v1.5 signature does not verify under PS256 (padding binding)" {
+  // An RS256 (PKCS#1 v1.5) signature presented under the PS256 (PSS) alg must
+  // be rejected — the padding scheme is bound to the COSE alg.
+  try
+    @webauthn.verify_assertion(
+      rsa_cose(36UL),
+      wh(wa_authdata),
+      wh(wa_cdh),
+      wh(rs256_sig),
+      rp_id_hash=wh(wa_rpidhash),
+    )
+    |> ignore
+  catch {
+    SignatureInvalid => ()
+    e => abort("expected SignatureInvalid, got " + repr(e))
   } noraise {
-    _ => abort("accepted a PS256 RSA credential key (not supported)")
+    _ => abort("accepted a PKCS#1 v1.5 signature under PS256")
   }
 }

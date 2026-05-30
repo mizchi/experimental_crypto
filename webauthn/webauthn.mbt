@@ -4,9 +4,8 @@
 // for attestation certificate chains.
 //
 // Supported credential public keys: ES256 (P-256), ES384 (P-384), EdDSA
-// (Ed25519), and RS256/384/512 (RSA PKCS#1 v1.5 — e.g. Windows Hello / TPM).
-// RSASSA-PSS (PS256/384/512) credential keys are not yet supported and raise
-// UnsupportedAlgorithm. Attestation statement formats: packed (x5c
+// (Ed25519), RS256/384/512 (RSA PKCS#1 v1.5 — e.g. Windows Hello / TPM), and
+// PS256/384/512 (RSASSA-PSS). Attestation statement formats: packed (x5c
 // and self), fido-u2f, none. Certificate-chain trust (x5c -> a trusted root /
 // metadata) is the caller's job, as in TLS — verify_attestation returns the
 // trust path.
@@ -111,6 +110,10 @@ pub(all) enum CredentialPublicKey {
   Rs256(@rsa.RsaPublicKey)
   Rs384(@rsa.RsaPublicKey)
   Rs512(@rsa.RsaPublicKey)
+  // RSASSA-PSS (PS256/384/512), salt length = digest length.
+  Ps256(@rsa.RsaPublicKey)
+  Ps384(@rsa.RsaPublicKey)
+  Ps512(@rsa.RsaPublicKey)
 }
 
 ///|
@@ -178,6 +181,9 @@ pub fn parse_cose_key(cose : Bytes) -> CredentialPublicKey raise WebAuthnError {
         -257L => Rs256(pk)
         -258L => Rs384(pk)
         -259L => Rs512(pk)
+        -37L => Ps256(pk)
+        -38L => Ps384(pk)
+        -39L => Ps512(pk)
         _ => raise UnsupportedAlgorithm(alg.to_int())
       }
     }
@@ -215,6 +221,19 @@ pub fn CredentialPublicKey::verify(
       )
     Rs512(pk) =>
       (try? pk.verify(message, signature, @rsa.HashAlg::Sha512)).unwrap_or(
+        false,
+      )
+    // RSASSA-PSS: salt length = digest length (verify_pss default).
+    Ps256(pk) =>
+      (try? pk.verify_pss(message, signature, @rsa.HashAlg::Sha256)).unwrap_or(
+        false,
+      )
+    Ps384(pk) =>
+      (try? pk.verify_pss(message, signature, @rsa.HashAlg::Sha384)).unwrap_or(
+        false,
+      )
+    Ps512(pk) =>
+      (try? pk.verify_pss(message, signature, @rsa.HashAlg::Sha512)).unwrap_or(
         false,
       )
   }
