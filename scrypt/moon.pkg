@@ -1,5 +1,5 @@
 import {
-  "mizchi/pbkdf2",
+  "mizchi/experimental_crypto/pbkdf2",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/string",
 }

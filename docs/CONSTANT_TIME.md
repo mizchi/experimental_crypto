@@ -35,10 +35,10 @@ This workspace uses four different levels of side-channel language:
 ### Latest Archived Evidence
 
 Manual `Leakage Profile` run
-[`26587352022`](https://github.com/mizchi/moonbit-crypto/actions/runs/26587352022)
+[`26587352022`](https://github.com/mizchi/experimental_crypto/actions/runs/26587352022)
 on head `1ff288146603df1dc9b6b1829b3b30a3dc5a81f2` passed
 `profile_evidence_gate.sh` on 2026-05-28 UTC. Artifact
-[`7271878741`](https://github.com/mizchi/moonbit-crypto/actions/runs/26587352022/artifacts/7271878741)
+[`7271878741`](https://github.com/mizchi/experimental_crypto/actions/runs/26587352022/artifacts/7271878741)
 archives the merged TSVs for the private-operation workload set at that
 revision. It predates the `p521-sign` and `p521-nonce-inv` workloads:
 

@@ -24,3 +24,13 @@ relocated copies of the state before the wipe runs. It shortens
 the window during which a heap dump could substitute the
 ipad/opad state for the password's HMAC key in an offline
 dictionary attack.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

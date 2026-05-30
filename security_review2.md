@@ -1,4 +1,4 @@
-# Security Review #2: moonbit-crypto
+# Security Review #2: experimental_crypto
 
 Audit performed on commit `fe49bd5`. Scope: self-impl crypto correctness
 (SHA-256 / SHA-512 / BLAKE2b / ChaCha20 / AES T-table), padding /

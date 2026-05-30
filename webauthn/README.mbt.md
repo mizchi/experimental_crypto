@@ -32,3 +32,13 @@ Certificate-chain trust (x5c → a trusted root / FIDO Metadata Service) is the
 caller's job, as with TLS: `verify_attestation` returns the `trust_path` for
 `pkix_verify`. Not yet implemented: the `tpm`, `android-key`,
 `android-safetynet`, and `apple` attestation formats, and extension processing.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

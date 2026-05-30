@@ -14,3 +14,13 @@ Sign-side external interop is intentionally narrow: v4 Ed25519 exports a
 minimal transferable public key verified by `gpg --verify`, and v6 Ed25519
 exports a minimal RFC 9580 key plus Direct Key self-signature verified by
 Sequoia `sq verify`.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

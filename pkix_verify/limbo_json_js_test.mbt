@@ -196,7 +196,10 @@ fn limbo_run_suite(rel_path : String) -> Unit {
     } else {
       match outcome {
         Accepted => accept_ok = accept_ok + 1
-        RejectedTolerable(_) => accept_skip = accept_skip + 1
+        RejectedTolerable(reason) => {
+          ignore(reason)
+          accept_skip = accept_skip + 1
+        }
         RejectedHard(why) =>
           failures.push(
             "OVER-REJECTION: accept-case refused: " + id + " (" + why + ")",

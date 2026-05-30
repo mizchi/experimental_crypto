@@ -1,8 +1,8 @@
 import {
-  "mizchi/aead",
-  "mizchi/crypto_bigint",
-  "mizchi/rsa",
-  "mizchi/hash",
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/crypto_bigint",
+  "mizchi/experimental_crypto/rsa",
+  "mizchi/experimental_crypto/hash",
   "moonbitlang/core/bigint",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/encoding/utf8",
@@ -11,10 +11,10 @@ import {
 }
 
 import {
-  "mizchi/aead",
+  "mizchi/experimental_crypto/aead",
   "moonbitlang/core/debug",
   "moonbitlang/core/quickcheck",
-  "mizchi/rsa",
+  "mizchi/experimental_crypto/rsa",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/json",

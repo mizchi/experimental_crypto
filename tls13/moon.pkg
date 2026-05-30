@@ -1,12 +1,12 @@
 import {
-  "mizchi/hash",
-  "mizchi/aead",
-  "mizchi/pkix",
-  "mizchi/pkix_verify",
-  "mizchi/rsa",
-  "mizchi/p256",
-  "mizchi/p384",
-  "mizchi/ed25519",
+  "mizchi/experimental_crypto/hash",
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pkix_verify",
+  "mizchi/experimental_crypto/rsa",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
+  "mizchi/experimental_crypto/ed25519",
 }
 
 import {

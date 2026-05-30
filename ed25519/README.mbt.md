@@ -29,3 +29,13 @@ Several sign-side secrets are **not** fully wipe-able from MoonBit:
 This is best-effort only — MoonBit gives no guarantee against
 compiler dead-store elimination, and the GC may have already
 relocated copies before the wipe runs.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

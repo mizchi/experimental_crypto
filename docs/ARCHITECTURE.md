@@ -1,6 +1,6 @@
 # Architecture
 
-`mizchi/moonbit-crypto` is a `moon.work` workspace of **35 library/protocol
+`mizchi/experimental_crypto` is a `moon.work` workspace of **35 library/protocol
 modules** plus the `proofs` and `leakage_harness` sidecars, each solving one
 RFC-level concern. Modules depend only on `moonbitlang/core`, a small
 `moonbitlang/x` dependency for platform hooks, and each other.

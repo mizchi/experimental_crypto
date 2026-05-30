@@ -1,5 +1,5 @@
 {
-  description = "mizchi/moonbit-crypto — MoonBit + Why3 (all-nix, no opam) for moon prove";
+  description = "mizchi/experimental_crypto — MoonBit + Why3 (all-nix, no opam) for moon prove";
 
   inputs = {
     # Main pinned to unstable for cvc5 1.3.x / z3 4.16.x and the moonbit
@@ -94,10 +94,10 @@
         shellHook = ''
           export MOON_HOME=${moonbit}
           if [ ! -f proofs/why3.conf ]; then
-            echo "[moonbit-crypto] First time: generate the multi-solver Why3 config:"
+            echo "[experimental_crypto] First time: generate the multi-solver Why3 config:"
             echo "    bash proofs/setup.sh"
           else
-            echo "[moonbit-crypto] dev shell ready: why3=$(why3 --version 2>/dev/null | head -1)"
+            echo "[experimental_crypto] dev shell ready: why3=$(why3 --version 2>/dev/null | head -1)"
           fi
         '';
       in

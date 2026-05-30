@@ -1,10 +1,10 @@
 import {
-  "mizchi/asn1",
-  "mizchi/pkix",
-  "mizchi/pem",
-  "mizchi/pbkdf2",
-  "mizchi/scrypt",
-  "mizchi/aead",
+  "mizchi/experimental_crypto/asn1",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pem",
+  "mizchi/experimental_crypto/pbkdf2",
+  "mizchi/experimental_crypto/scrypt",
+  "mizchi/experimental_crypto/aead",
   "moonbitlang/core/debug",
 }
 

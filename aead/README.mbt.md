@@ -96,3 +96,13 @@ for OS-level memory protection. AES-GCM round keys and GHASH state
 are not wiped today.
 
 See the workspace-root `security_review.md` for the full audit.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

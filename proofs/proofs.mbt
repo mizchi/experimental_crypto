@@ -3,7 +3,7 @@
 // invariants in SMT, not to re-derive cryptographic theorems.
 //
 // To verify:
-//   eval "$(opam env --switch=moonbit-crypto)"
+//   eval "$(opam env --switch=experimental_crypto)"
 //   moon prove -p mizchi/proofs
 
 ///|

@@ -1,16 +1,16 @@
 import {
-  "mizchi/pkix",
-  "mizchi/ed25519",
-  "mizchi/rsa",
-  "mizchi/asn1",
-  "mizchi/p256",
-  "mizchi/p384",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/rsa",
+  "mizchi/experimental_crypto/asn1",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
 }
 
 import {
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
-  "mizchi/pem",
+  "mizchi/experimental_crypto/pem",
 } for "test"
 
 options(

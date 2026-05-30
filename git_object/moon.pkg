@@ -1,5 +1,5 @@
 import {
-  "mizchi/ssh",
-  "mizchi/ed25519",
+  "mizchi/experimental_crypto/ssh",
+  "mizchi/experimental_crypto/ed25519",
   "moonbitlang/core/debug",
 } for "test"

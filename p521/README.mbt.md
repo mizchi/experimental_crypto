@@ -9,3 +9,13 @@ P-521 sign-side base-point multiplication and final nonce inversion use
 fixed-limb / fixed-iteration paths, but the current implementation still needs
 repeated calibrated leakage evidence before any measured constant-time claim.
 Public verification remains affine because its inputs are public.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

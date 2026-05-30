@@ -32,3 +32,13 @@ Fail-closed surface:
   `valid-after` / `valid-before`; use the explicit time-aware API instead.
 - Unknown or duplicate `allowed_signers` options are rejected rather than
   ignored.
+
+## Security Disclaimer ⚠️
+
+This implementation of these cryptographic algorithms is provided without any
+security endorsement or professional certification. The experimental_crypto
+project should be considered:
+
+- An educational reference implementation
+- Experimental cryptography software
+- Not reviewed by third-party security experts

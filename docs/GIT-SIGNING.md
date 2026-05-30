@@ -1,6 +1,6 @@
 # Git Commit Signing
 
-`mizchi/moonbit-crypto` covers all three formats git supports for
+`mizchi/experimental_crypto` covers all three formats git supports for
 `gpg.format`:
 
 | `gpg.format` | Format | Modules involved |
