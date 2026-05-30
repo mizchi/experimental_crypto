@@ -145,12 +145,10 @@ fn labeled_extract(
   salt : Bytes,
   label : Bytes,
   ikm : Bytes,
-) -> Bytes raise HpkeError {
+) -> Bytes {
   // labeled_ikm = "HPKE-v1" || suite_id || label || ikm
   let lab_ikm = bytes_concat4(b"HPKE-v1", suite_id, label, ikm)
-  @hkdf.extract(@hkdf.HashAlg::Sha256, salt, lab_ikm) catch {
-    _ => raise KdfFailure
-  }
+  @hkdf.extract(@hkdf.HashAlg::Sha256, salt, lab_ikm)
 }
 
 ///|
