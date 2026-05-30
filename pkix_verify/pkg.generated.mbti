@@ -22,6 +22,10 @@ pub fn verify_chain(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, Stri
 
 pub fn verify_chain_for_signature(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String, VerifyChainOptions) -> Unit raise PkixVerifyError
 
+pub fn verify_chain_for_signature_with_anchor_cert(@pkix.Certificate, Array[@pkix.Certificate], @pkix.Certificate, String, opts? : VerifyChainOptions) -> Unit raise PkixVerifyError
+
+pub fn verify_chain_with_anchor_cert(@pkix.Certificate, Array[@pkix.Certificate], @pkix.Certificate, String, opts? : VerifyChainOptions) -> Unit raise PkixVerifyError
+
 pub fn verify_chain_with_options(@pkix.Certificate, Array[@pkix.Certificate], PublicKey, String, VerifyChainOptions) -> Unit raise PkixVerifyError
 
 pub fn verify_signature(Bytes, @pkix.AlgorithmIdentifier, @asn1.BitString, PublicKey) -> Unit raise PkixVerifyError
@@ -42,6 +46,8 @@ pub suberror PkixVerifyError {
   KeyUsageMissingDigitalSignature
   NameConstraintViolation(String)
   ExtendedKeyUsageMissing(@asn1.ObjectIdentifier)
+  CertificatePolicyMissing(@asn1.ObjectIdentifier)
+  PolicyConstraintsUnsupported
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
@@ -60,6 +66,7 @@ pub(all) enum PublicKey {
 
 pub(all) struct VerifyChainOptions {
   required_eku : @asn1.ObjectIdentifier?
+  required_policy : @asn1.ObjectIdentifier?
 }
 pub fn VerifyChainOptions::default() -> Self
 

@@ -2500,6 +2500,128 @@ test "required_policy: cert without a policies extension does not block" {
 }
 
 ///|
+// Policy nesting (mirrors EKU nesting): an INTERMEDIATE that declares only a
+// DIFFERENT policy narrows the path away from the caller's requested policy,
+// so the chain must be rejected even though the leaf asserts the required one.
+// anchor -> inter(policy=other) -> leaf(policy=required), required=policy.
+// Before enforcing required_policy on intermediates this was a false positive
+// (only the leaf was checked).
+test "ATTACK policy nesting: intermediate narrowing a different policy is rejected" {
+  let anchor_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a01"
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a02"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a03"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let other = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 2])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Policy Nest Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter other-policy",
+    "Policy Nest Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(other),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf required-policy",
+    "Inter other-policy",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  try
+    @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor_pk,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    CertificatePolicyMissing(oid) => @debug.assert_eq(oid, policy)
+    other2 => abort("policy nesting not enforced: " + repr(other2))
+  } noraise {
+    _ =>
+      abort(
+        "policy nesting bypass: an intermediate asserting only a different policy was accepted",
+      )
+  }
+}
+
+///|
+// Positive counterpart: an intermediate that DOES assert the required policy
+// (and a leaf that does too) must still verify — guards the intermediate
+// policy check against over-rejecting legitimate chains.
+test "policy nesting: intermediate asserts required policy, leaf too -> ok" {
+  let anchor_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a11"
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a12"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a13"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Policy Nest Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter required-policy",
+    "Policy Nest Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(policy),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf required-policy",
+    "Inter required-policy",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor_pk,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
 // policyConstraints (RFC 5280 §4.2.1.11), even NON-critical, must be honoured.
 // Since the verifier does not run the §6.1 policy tree it rejects fail-closed.
 // A non-critical policyConstraints would otherwise be silently ignored, which

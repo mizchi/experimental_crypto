@@ -1455,6 +1455,19 @@ fn verify_chain_with_options_internal(
       Some(o) => enforce_required_eku(inter, o)
       None => ()
     }
+    // Caller-required certificate policy nesting (mirrors EKU above): if the
+    // caller requires a policy, an intermediate that declares
+    // certificatePolicies must assert it (or anyPolicy), otherwise the issuing
+    // CA has explicitly narrowed the path away from the requested policy and
+    // is not entitled to delegate it to the leaf. An intermediate with no
+    // certificatePolicies extension stays unconstrained (see
+    // enforce_required_policy). Without this an intermediate that only lists a
+    // different policy, beneath a leaf that asserts the required one, would be
+    // accepted — a false positive.
+    match opts.required_policy {
+      Some(p) => enforce_required_policy(inter, p)
+      None => ()
+    }
     // Active nameConstraints from any ancestor must hold for THIS cert's
     // SAN as well — a CA cannot escape its parent's constraints just by
     // issuing further sub-CAs.
