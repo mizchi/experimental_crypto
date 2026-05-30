@@ -16,7 +16,6 @@ pub(all) enum HashAlg {
 pub suberror HkdfError {
   OutputTooLong
   InvalidLength
-  UnsupportedHash(HashAlg)
 } derive(Debug)
 
 ///|
@@ -51,11 +50,7 @@ fn truncate(b : Bytes, n : Int) -> Bytes {
 }
 
 ///|
-pub fn extract(
-  hash : HashAlg,
-  salt : Bytes,
-  ikm : Bytes,
-) -> Bytes raise HkdfError {
+pub fn extract(hash : HashAlg, salt : Bytes, ikm : Bytes) -> Bytes {
   let effective_salt = if salt.length() == 0 {
     Bytes::makei(output_size(hash), fn(_) { b'\x00' })
   } else {
