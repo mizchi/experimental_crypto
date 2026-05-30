@@ -118,7 +118,14 @@ getrandom (target 別 backend、aes/ed25519/x25519 の rng source)
   一度だけ構築して確定長で直接書く single-pass にし、`finish()` の全バッファ
   再コピーを排除 (encode flat ≒ decode の 2.4×→1.4×、nested 1.5×→1.1×)。
   placeholder+patch 系は whitebox test 用に温存。
-- `gcm.mbt` の GHASH を carry-less multiplication 経由に (今は bit-by-bit)
+- ~~`gcm.mbt` の GHASH を carry-less multiplication 経由に (今は bit-by-bit)~~ →
+  実態は既に **4-bit Shoup テーブル** (`build_ghash_table` / `gf128_mul_table` /
+  `rem_4bit`)。bit-by-bit ではない (doc コメントの "matches the previous bit-by-bit
+  ghash" が移植済みの証跡)。carry-less mul は PCLMULQDQ 等の HW intrinsic 前提で、
+  wasm-gc / js / CLMUL 無し native では table 法に勝てないので **見送り**。残る
+  移植可能なレバーは 8-bit table (256 entry / 4KB) で内ループ 32→16 反復だが、GCM
+  全体の支配項は AES ラウンド (16KiB seal ≈ 289µs の GHASH 寄与は小) で、table 構築
+  コスト 16→256 倍が小メッセージで逆効果になりうるため費用対効果は薄い。
 
 ## コミット / push
 
