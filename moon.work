@@ -41,6 +41,7 @@ members = [
   "./tls13",
   "./age_format",
   "./noise",
+  "./webauthn",
   "./proofs",
   "./pem/wrap",
   "./aead/wrap",
