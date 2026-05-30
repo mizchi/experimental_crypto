@@ -9,7 +9,7 @@
 //   (4) RFC 5869 §3.2: a non-empty salt produces a different PRK than the
 //       zero-salt fallback, so the final OKM must differ too.
 //   (5) expand rejects length > 255 * hash_len with OutputTooLong.
-//   (6) SHA-384 / SHA-512 surface as UnsupportedHash.
+//   (6) SHA-384 / SHA-512 are deterministic, length-exact, digest-sized PRK.
 //
 // Note: we use `try? ... catch` style consistently with the other fuzz
 // harnesses (asn1 / pbkdf2 / x25519) — the anti-pattern warning is expected.

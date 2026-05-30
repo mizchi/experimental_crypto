@@ -1,9 +1,8 @@
 // RFC 5869 HKDF (HMAC-based Extract-and-Expand Key Derivation Function).
-// Built on top of moonbitlang/x/crypto.hmac with the SHA-2 family.
-//
-// SHA-384 / SHA-512 are not yet provided by moonbitlang/x; only SHA-224 and
-// SHA-256 are usable from x/crypto at present. The HashAlg enum keeps the
-// extra variants so callers can switch to them once x/crypto grows them.
+// Built on top of mizchi/experimental_crypto/hash, which ships self-contained
+// HMAC-SHA-256 / SHA-384 / SHA-512 (and SHA-224 via SHA-256 truncation), so the
+// full SHA-2 family is available — TLS 1.3's SHA-384 suites, RFC 5869 §A.x
+// SHA-256 vectors, and SHA-512 expansion all work through one code path.
 
 ///|
 pub(all) enum HashAlg {
@@ -31,31 +30,16 @@ pub fn output_size(hash : HashAlg) -> Int {
 }
 
 ///|
-fn hmac_compute(
-  hash : HashAlg,
-  key : Bytes,
-  msg : Bytes,
-) -> Bytes raise HkdfError {
+fn hmac_compute(hash : HashAlg, key : Bytes, msg : Bytes) -> Bytes {
   match hash {
-    Sha256 =>
-      fixed_to_bytes(@crypto.hmac(@crypto.SHA256::new(), key[:], msg[:]))
-    // x/crypto.SHA224 exists too; SHA224 shares SHA256's compression so HMAC
-    // works with the SHA256 hasher when configured with the SHA-224 IV. The
-    // current x/crypto API only exposes SHA256::new(), so we expose Sha224 as
-    // an alias that maps to SHA256 + truncate at output_size().
-    Sha224 => {
-      let full = fixed_to_bytes(
-        @crypto.hmac(@crypto.SHA256::new(), key[:], msg[:]),
-      )
-      truncate(full, output_size(Sha224))
-    }
-    _ => raise UnsupportedHash(hash)
+    Sha256 => @hash.hmac_sha256(key, msg)
+    Sha384 => @hash.hmac_sha384(key, msg)
+    Sha512 => @hash.hmac_sha512(key, msg)
+    // SHA-224 shares SHA-256's compression function and HMAC construction; the
+    // only difference is the digest is truncated to 28 bytes. @hash exposes
+    // SHA-256 HMAC, so derive SHA-224 HMAC by truncating at output_size().
+    Sha224 => truncate(@hash.hmac_sha256(key, msg), output_size(Sha224))
   }
-}
-
-///|
-fn fixed_to_bytes(fa : FixedArray[Byte]) -> Bytes {
-  Bytes::makei(fa.length(), fn(i) { fa[i] })
 }
 
 ///|
