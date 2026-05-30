@@ -40,6 +40,7 @@ members = [
   "./totp",
   "./tls13",
   "./age_format",
+  "./noise",
   "./proofs",
   "./pem/wrap",
   "./aead/wrap",
