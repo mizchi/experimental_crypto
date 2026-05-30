@@ -927,13 +927,102 @@ pub fn Encoder::new() -> Encoder {
 
 ///|
 pub fn Encoder::write_element(self : Encoder, element : Element) -> Unit {
-  // Single-pass encoding: compute payload size first (alloc-free traversal),
-  // then write tag + length + payload directly into the outer buffer.
-  // Depth is bounded the same way the decoder bounds it (MAX_DEPTH=32);
-  // without this an attacker-constructed Element with deeply nested
-  // Sequence/Set could overflow the native stack via mutual recursion of
-  // value_encoded_size and element_encoded_size.
-  write_element_at(self, element, 0)
+  // Single-pass DER encoding: walk the element once to build a size tree (the
+  // exact content length of every TLV, bottom-up), then write tag + length +
+  // payload with the final length octets directly. This keeps `finish()` on
+  // its no-rewrite fast path — the older placeholder+patch scheme copied the
+  // whole buffer in `finish()` to collapse 5-byte length placeholders, which
+  // was the bulk of why encode ran ~2.4x decode. Depth is bounded (MAX_DEPTH)
+  // during the size walk, the same way the decoder bounds nesting, so a deeply
+  // nested attacker Element cannot overflow the native stack.
+  let sz = element_size_tree(element, 0)
+  write_sized(self, element, sz)
+}
+
+///|
+// Content length of each element, computed bottom-up so the writer never has
+// to backfill a length. SET carries its already-sorted item encodings (DER
+// SET-OF ordering needs the encoded bytes anyway, so we keep them for write).
+priv enum EncSize {
+  SizePrim(Int)
+  SizeSeq(Int, Array[EncSize])
+  SizeSet(Int, Array[Bytes])
+}
+
+///|
+fn enc_payload(s : EncSize) -> Int {
+  match s {
+    SizePrim(n) => n
+    SizeSeq(n, _) => n
+    SizeSet(n, _) => n
+  }
+}
+
+///|
+// Bytes a tag identifier occupies: 1 for tag number < 31, else 1 + the
+// base-128 high-tag-number octets. Mirrors `write_tag` exactly.
+fn tag_encoded_size(tag : Tag) -> Int {
+  if tag.number < 31U {
+    1
+  } else {
+    1 + base128_size(tag.number)
+  }
+}
+
+///|
+fn element_size_tree(elem : Element, depth : Int) -> EncSize {
+  if depth > MAX_DEPTH {
+    abort("asn1 encoder: depth exceeds MAX_DEPTH")
+  }
+  match elem.value {
+    Sequence(items) => {
+      let kids : Array[EncSize] = []
+      let mut payload = 0
+      for it in items {
+        let k = element_size_tree(it, depth + 1)
+        let kp = enc_payload(k)
+        payload = payload +
+          tag_encoded_size(it.tag) +
+          length_encoded_size(kp) +
+          kp
+        kids.push(k)
+      }
+      SizeSeq(payload, kids)
+    }
+    Set(items) => {
+      let sorted = sorted_set_item_encodings(items, depth)
+      let mut payload = 0
+      for b in sorted {
+        payload = payload + b.length()
+      }
+      SizeSet(payload, sorted)
+    }
+    _ => SizePrim(primitive_value_size(elem.value))
+  }
+}
+
+///|
+fn write_sized(enc : Encoder, elem : Element, sz : EncSize) -> Unit {
+  write_tag(enc, elem.tag)
+  match (elem.value, sz) {
+    (Sequence(items), SizeSeq(payload, kids)) => {
+      write_length(enc, payload)
+      for i in 0..<items.length() {
+        write_sized(enc, items[i], kids[i])
+      }
+    }
+    (Set(_), SizeSet(payload, sorted)) => {
+      write_length(enc, payload)
+      for b in sorted {
+        enc.buf.write_bytes(b)
+      }
+    }
+    (value, SizePrim(payload)) => {
+      write_length(enc, payload)
+      encode_value_at(enc, value, 0)
+    }
+    _ => abort("asn1 encoder: size tree does not match element shape")
+  }
 }
 
 ///|
