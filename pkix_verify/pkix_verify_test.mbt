@@ -1844,6 +1844,7 @@ test "required_eku: leaf without EKU passes (unrestricted per RFC 5280)" {
     required_eku: Some(
       @asn1.ObjectIdentifier::from_arcs([1U, 3, 6, 1, 5, 5, 7, 3, 1]),
     ),
+    required_policy: None,
   }
   @pkix_verify.verify_chain_with_options(
     leaf,
@@ -1886,6 +1887,7 @@ test "required_eku: leaf with mismatching EKU is rejected" {
   ])
   let opts : @pkix_verify.VerifyChainOptions = {
     required_eku: Some(client_auth),
+    required_policy: None,
   }
   try
     @pkix_verify.verify_chain_with_options(
@@ -1934,6 +1936,7 @@ test "required_eku: leaf with matching EKU passes" {
   ])
   let opts : @pkix_verify.VerifyChainOptions = {
     required_eku: Some(server_auth),
+    required_policy: None,
   }
   @pkix_verify.verify_chain_with_options(
     leaf,
@@ -1970,7 +1973,10 @@ test "ATTACK required leaf digitalSignature: keyUsage without bit 0 is rejected"
   let anchor = @pkix_verify.extract_public_key(
     inter.tbs.subject_public_key_info,
   )
-  let opts : @pkix_verify.VerifyChainOptions = { required_eku: None }
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: None,
+  }
   try
     @pkix_verify.verify_chain_for_signature(
       leaf,
@@ -2220,6 +2226,7 @@ test "ATTACK EKU nesting: clientAuth-only sub-CA cannot delegate serverAuth" {
   )
   let opts : @pkix_verify.VerifyChainOptions = {
     required_eku: Some(server_auth),
+    required_policy: None,
   }
   try
     @pkix_verify.verify_chain_with_options(
@@ -2285,6 +2292,7 @@ test "EKU nesting: sub-CA permits serverAuth, leaf serverAuth, required -> ok" {
   )
   let opts : @pkix_verify.VerifyChainOptions = {
     required_eku: Some(server_auth),
+    required_policy: None,
   }
   @pkix_verify.verify_chain_with_options(
     leaf,
@@ -2293,4 +2301,402 @@ test "EKU nesting: sub-CA permits serverAuth, leaf serverAuth, required -> ok" {
     "250601000000Z",
     opts,
   )
+}
+
+///|
+// certificatePolicies extension asserting a single policy OID.
+//   certificatePolicies ::= SEQUENCE OF PolicyInformation
+//   PolicyInformation   ::= SEQUENCE { policyIdentifier OBJECT IDENTIFIER }
+fn cert_policies_ext(policy : @asn1.ObjectIdentifier) -> @pkix.Extension {
+  let info = @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(policy))]),
+  )
+  let value = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence([info])),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32]),
+    critical: false,
+    value,
+  }
+}
+
+///|
+// A leaf+CA both asserting the required policy must verify when that policy is
+// required.
+test "required_policy: chain asserting the policy passes" {
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee01"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee02"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Policy CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(policy),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Policy CA",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
+// A leaf that declares a DIFFERENT policy than required is rejected.
+test "required_policy: leaf asserting a different policy is rejected" {
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee11"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee12"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let other = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 2])
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "Policy CA 2",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(policy),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "Policy CA 2",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(other)],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  try
+    @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    CertificatePolicyMissing(oid) => @debug.assert_eq(oid, policy)
+    other2 => abort("expected CertificatePolicyMissing, got " + repr(other2))
+  } noraise {
+    _ => abort("accepted a leaf asserting the wrong certificate policy")
+  }
+}
+
+///|
+// anyPolicy (2.5.29.32.0) on a cert satisfies any required policy.
+test "required_policy: anyPolicy satisfies a required policy" {
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee21"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee22"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let any_policy = @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32, 0])
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "AnyPolicy CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(any_policy),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "AnyPolicy CA",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
+// A cert with NO certificatePolicies extension does not narrow the set, so a
+// required policy is still satisfied as long as no cert contradicts it. (This
+// is the conservative caller-required model, not full RFC 5280 §6.1 — the
+// latter would reject when requireExplicitPolicy is in force; documented.)
+test "required_policy: cert without a policies extension does not block" {
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee31"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccddee32"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "NoPolicy CA",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "NoPolicy CA",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
+// Policy nesting (mirrors EKU nesting): an INTERMEDIATE that declares only a
+// DIFFERENT policy narrows the path away from the caller's requested policy,
+// so the chain must be rejected even though the leaf asserts the required one.
+// anchor -> inter(policy=other) -> leaf(policy=required), required=policy.
+// Before enforcing required_policy on intermediates this was a false positive
+// (only the leaf was checked).
+test "ATTACK policy nesting: intermediate narrowing a different policy is rejected" {
+  let anchor_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a01"
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a02"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a03"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let other = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 2])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Policy Nest Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter other-policy",
+    "Policy Nest Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(other),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf required-policy",
+    "Inter other-policy",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  try
+    @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor_pk,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    CertificatePolicyMissing(oid) => @debug.assert_eq(oid, policy)
+    other2 => abort("policy nesting not enforced: " + repr(other2))
+  } noraise {
+    _ =>
+      abort(
+        "policy nesting bypass: an intermediate asserting only a different policy was accepted",
+      )
+  }
+}
+
+///|
+// Positive counterpart: an intermediate that DOES assert the required policy
+// (and a leaf that does too) must still verify — guards the intermediate
+// policy check against over-rejecting legitimate chains.
+test "policy nesting: intermediate asserts required policy, leaf too -> ok" {
+  let anchor_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a11"
+  let inter_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a12"
+  let leaf_seed = "70717273747576777879aabbccddeeff70717273747576777879aabbccdd0a13"
+  let policy = @asn1.ObjectIdentifier::from_arcs([2U, 23, 140, 1, 2, 1])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "Policy Nest Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter required-policy",
+    "Policy Nest Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      cert_policies_ext(policy),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf required-policy",
+    "Inter required-policy",
+    "250101000000Z",
+    "260101000000Z",
+    [cert_policies_ext(policy)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: None,
+    required_policy: Some(policy),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor_pk,
+    "250601000000Z",
+    opts,
+  )
+}
+
+///|
+// policyConstraints (RFC 5280 §4.2.1.11), even NON-critical, must be honoured.
+// Since the verifier does not run the §6.1 policy tree it rejects fail-closed.
+// A non-critical policyConstraints would otherwise be silently ignored, which
+// is the rfc5280::pc::ica-noncritical-pc false positive.
+fn policy_constraints_ext(critical : Bool) -> @pkix.Extension {
+  // PolicyConstraints ::= SEQUENCE { requireExplicitPolicy [0] INTEGER OPTIONAL }
+  // requireExplicitPolicy = 0 (context tag [0], primitive, IMPLICIT INTEGER).
+  let req = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=false),
+    @asn1.Value::Unknown(b"\x00"),
+  )
+  let value = @asn1.encode_der(
+    @asn1.Element::new(@asn1.tag_sequence, Sequence([req])),
+  )
+  { oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 36]), critical, value }
+}
+
+///|
+test "policyConstraints: non-critical on intermediate is rejected fail-closed" {
+  let inter_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee01"
+  let leaf_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee02"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "PC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      policy_constraints_ext(false),
+    ],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "PC CA",
+    "250101000000Z",
+    "260101000000Z",
+    [],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  try @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z") catch {
+    PolicyConstraintsUnsupported => ()
+    other => abort("expected PolicyConstraintsUnsupported, got " + repr(other))
+  } noraise {
+    _ => abort("accepted a chain with an unprocessed policyConstraints")
+  }
+}
+
+///|
+test "policyConstraints: critical on leaf is rejected fail-closed" {
+  let inter_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee11"
+  let leaf_seed = "80818283848586878889aabbccddeeff80818283848586878889aabbccddee12"
+  let (inter, _) = build_self_signed_ed25519(
+    inter_seed,
+    "PC CA 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf",
+    "PC CA 2",
+    "250101000000Z",
+    "260101000000Z",
+    [policy_constraints_ext(true)],
+    inter_seed,
+  )
+  let anchor = @pkix_verify.extract_public_key(
+    inter.tbs.subject_public_key_info,
+  )
+  let r = try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+  assert_true(r is Err(_))
 }

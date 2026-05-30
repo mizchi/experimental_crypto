@@ -54,6 +54,16 @@ pub suberror PkixVerifyError {
   // The leaf cert's extendedKeyUsage does not contain the OID the caller
   // required via VerifyChainOptions.required_eku.
   ExtendedKeyUsageMissing(@asn1.ObjectIdentifier)
+  // A certificate on the path does not assert the certificate policy the
+  // caller required via VerifyChainOptions.required_policy (and does not
+  // assert anyPolicy). RFC 5280 §4.2.1.4.
+  CertificatePolicyMissing(@asn1.ObjectIdentifier)
+  // RFC 5280 §4.2.1.11 policyConstraints (requireExplicitPolicy /
+  // inhibitPolicyMapping). We do not yet run the §6.1 policy tree, so a cert
+  // carrying this extension — critical OR non-critical — is rejected
+  // fail-closed: silently ignoring a non-critical requireExplicitPolicy would
+  // accept a chain a conformant verifier must reject.
+  PolicyConstraintsUnsupported
   Pkix(@pkix.PkixError)
   Rsa(@rsa.RsaError)
   Ed25519(@ed25519.Ed25519Error)
@@ -220,6 +230,40 @@ fn name_constraints_oid() -> @asn1.ObjectIdentifier {
 }
 
 ///|
+fn certificate_policies_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32])
+}
+
+///|
+// The special `anyPolicy` OID 2.5.29.32.0 (RFC 5280 §4.2.1.4): a certificate
+// asserting it claims every policy, so it satisfies any caller-required policy.
+fn any_policy_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 32, 0])
+}
+
+///|
+// policyConstraints, RFC 5280 §4.2.1.11.
+fn policy_constraints_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 36])
+}
+
+///|
+// Reject a cert that carries a policyConstraints extension. We do not yet run
+// the RFC 5280 §6.1 policy tree, and requireExplicitPolicy / inhibitPolicyMapping
+// MUST be honoured even when the extension is non-critical — so processing it as
+// "absent" would be a false positive. Fail closed instead (the critical case is
+// already caught by check_critical_extensions; this also covers non-critical).
+fn reject_if_policy_constraints(
+  cert : @pkix.Certificate,
+) -> Unit raise PkixVerifyError {
+  for ext in cert.tbs.extensions {
+    if ext.oid == policy_constraints_oid() {
+      raise PolicyConstraintsUnsupported
+    }
+  }
+}
+
+///|
 fn is_recognised_critical_extension(oid : @asn1.ObjectIdentifier) -> Bool {
   oid == basic_constraints_oid() ||
   oid == key_usage_oid() ||
@@ -259,6 +303,9 @@ fn check_extension_policy(
 ) -> Unit raise PkixVerifyError {
   check_duplicate_extensions(cert)
   check_critical_extensions(cert)
+  // policyConstraints must be honoured even when non-critical; we don't yet
+  // run the §6.1 policy tree, so reject fail-closed rather than ignore it.
+  reject_if_policy_constraints(cert)
 }
 
 // ─── keyUsage (RFC 5280 §4.2.1.3 + §6.1.4(n)) ────────────────────────────
@@ -730,6 +777,74 @@ fn enforce_required_eku(
   }
 }
 
+// ─── certificatePolicies (RFC 5280 §4.2.1.4) ─────────────────────────────
+
+///|
+// Extract the policy OIDs asserted by a cert's certificatePolicies extension.
+//   certificatePolicies ::= SEQUENCE SIZE (1..MAX) OF PolicyInformation
+//   PolicyInformation   ::= SEQUENCE { policyIdentifier OBJECT IDENTIFIER, ... }
+// Returns None if the extension is absent. The policyQualifiers (if any) after
+// the identifier are ignored — only the policy OID matters for matching.
+fn extract_cert_policies(
+  cert : @pkix.Certificate,
+) -> Array[@asn1.ObjectIdentifier]? raise PkixVerifyError {
+  for ext in cert.tbs.extensions {
+    if ext.oid == certificate_policies_oid() {
+      let elem = @asn1.decode_der(ext.value) catch { e => raise Asn1(e) }
+      let infos = match elem.value {
+        Sequence(xs) => xs
+        _ => raise MalformedExtension("certificatePolicies: expected SEQUENCE")
+      }
+      if infos.length() == 0 {
+        raise MalformedExtension("certificatePolicies: empty SEQUENCE")
+      }
+      let out : Array[@asn1.ObjectIdentifier] = []
+      for info in infos {
+        let fields = match info.value {
+          Sequence(xs) => xs
+          _ => raise MalformedExtension("PolicyInformation: expected SEQUENCE")
+        }
+        if fields.length() == 0 {
+          raise MalformedExtension(
+            "PolicyInformation: missing policyIdentifier",
+          )
+        }
+        match fields[0].value {
+          Oid(o) => out.push(o)
+          _ => raise MalformedExtension("policyIdentifier: expected OID")
+        }
+      }
+      return Some(out)
+    }
+  }
+  None
+}
+
+///|
+// Enforce a caller-required certificate policy on a single cert. A cert with no
+// certificatePolicies extension is treated as unconstrained (it does not narrow
+// the policy set), matching the conservative "caller-required policy" model:
+// we require that NO cert on the path that DOES declare policies contradicts
+// the requirement. A cert that declares policies must include `required` or
+// anyPolicy, otherwise the requested policy is not valid for this path.
+fn enforce_required_policy(
+  cert : @pkix.Certificate,
+  required : @asn1.ObjectIdentifier,
+) -> Unit raise PkixVerifyError {
+  match extract_cert_policies(cert) {
+    None => ()
+    Some(policies) => {
+      let any_oid = any_policy_oid()
+      for o in policies {
+        if o == required || o == any_oid {
+          return
+        }
+      }
+      raise CertificatePolicyMissing(required)
+    }
+  }
+}
+
 // ─── public key extraction ───────────────────────────────────────────────
 
 ///|
@@ -1128,11 +1243,18 @@ pub(all) struct VerifyChainOptions {
   // anyExtendedKeyUsage). If the leaf has no EKU extension the constraint
   // is satisfied (RFC 5280 §4.2.1.12).
   required_eku : @asn1.ObjectIdentifier?
+  // If set, every cert on the path that declares a certificatePolicies
+  // extension MUST assert this policy OID (or anyPolicy). A cert with no
+  // certificatePolicies extension does not narrow the set. This is the
+  // conservative "caller-required policy" check (RFC 5280 §4.2.1.4); it does
+  // not build the full §6.1 valid_policy_tree (no policy mapping). Default
+  // None leaves policy unchecked.
+  required_policy : @asn1.ObjectIdentifier?
 }
 
 ///|
 pub fn VerifyChainOptions::default() -> VerifyChainOptions {
-  { required_eku: None }
+  { required_eku: None, required_policy: None }
 }
 
 ///|
@@ -1333,6 +1455,19 @@ fn verify_chain_with_options_internal(
       Some(o) => enforce_required_eku(inter, o)
       None => ()
     }
+    // Caller-required certificate policy nesting (mirrors EKU above): if the
+    // caller requires a policy, an intermediate that declares
+    // certificatePolicies must assert it (or anyPolicy), otherwise the issuing
+    // CA has explicitly narrowed the path away from the requested policy and
+    // is not entitled to delegate it to the leaf. An intermediate with no
+    // certificatePolicies extension stays unconstrained (see
+    // enforce_required_policy). Without this an intermediate that only lists a
+    // different policy, beneath a leaf that asserts the required one, would be
+    // accepted — a false positive.
+    match opts.required_policy {
+      Some(p) => enforce_required_policy(inter, p)
+      None => ()
+    }
     // Active nameConstraints from any ancestor must hold for THIS cert's
     // SAN as well — a CA cannot escape its parent's constraints just by
     // issuing further sub-CAs.
@@ -1391,6 +1526,11 @@ fn verify_chain_with_options_internal(
   // Caller-requested EKU on the leaf (if any).
   match opts.required_eku {
     Some(o) => enforce_required_eku(leaf, o)
+    None => ()
+  }
+  // Caller-required certificate policy on the leaf (if any).
+  match opts.required_policy {
+    Some(p) => enforce_required_policy(leaf, p)
     None => ()
   }
   if require_leaf_digital_signature && !leaf_allows_digital_signature(leaf) {
