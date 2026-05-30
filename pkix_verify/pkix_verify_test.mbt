@@ -2154,3 +2154,143 @@ test "pathLenConstraint=1 with one intermediate before leaf passes" {
     "250601000000Z",
   )
 }
+
+///|
+// extendedKeyUsage extension carrying a single arbitrary purpose OID.
+fn eku_ext_for(oid : @asn1.ObjectIdentifier) -> @pkix.Extension {
+  let value = @asn1.encode_der(
+    @asn1.Element::new(
+      @asn1.tag_sequence,
+      Sequence([@asn1.Element::new(@asn1.tag_oid, Oid(oid))]),
+    ),
+  )
+  {
+    oid: @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 37]),
+    critical: false,
+    value,
+  }
+}
+
+///|
+// EKU nesting: a sub-CA restricted to clientAuth must NOT be able to delegate
+// serverAuth to a leaf. anchor -> inter(EKU=clientAuth) -> leaf(EKU=serverAuth),
+// caller requires serverAuth. Before EKU nesting this was a false positive
+// (only the leaf's EKU was checked); it must now be rejected.
+test "ATTACK EKU nesting: clientAuth-only sub-CA cannot delegate serverAuth" {
+  let anchor_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee01"
+  let inter_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee02"
+  let leaf_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee03"
+  let client_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 2,
+  ])
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "EKU Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter clientAuth",
+    "EKU Anchor",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      eku_ext_for(client_auth),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf serverAuth",
+    "Inter clientAuth",
+    "250101000000Z",
+    "260101000000Z",
+    [eku_ext_for(server_auth)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(server_auth),
+  }
+  try
+    @pkix_verify.verify_chain_with_options(
+      leaf,
+      [inter],
+      anchor_pk,
+      "250601000000Z",
+      opts,
+    )
+  catch {
+    ExtendedKeyUsageMissing(oid) => @debug.assert_eq(oid, server_auth)
+    other => abort("EKU nesting not enforced: " + repr(other) + "")
+  } noraise {
+    _ =>
+      abort(
+        "EKU nesting bypass: clientAuth-only sub-CA delegated serverAuth to the leaf",
+      )
+  }
+}
+
+///|
+// Positive counterpart: a sub-CA that DOES permit serverAuth (and a leaf with
+// serverAuth) must still verify when serverAuth is required — guards the EKU
+// nesting check against over-rejecting legitimate chains.
+test "EKU nesting: sub-CA permits serverAuth, leaf serverAuth, required -> ok" {
+  let anchor_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee11"
+  let inter_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee12"
+  let leaf_seed = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee13"
+  let server_auth = @asn1.ObjectIdentifier::from_arcs([
+    1U, 3, 6, 1, 5, 5, 7, 3, 1,
+  ])
+  let (anchor, _) = build_self_signed_ed25519(
+    anchor_seed,
+    "EKU Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [basic_constraints_ca_ext(), key_usage_ext(true, true)],
+  )
+  let anchor_pk = @pkix_verify.extract_public_key(
+    anchor.tbs.subject_public_key_info,
+  )
+  let (inter, _) = build_ed25519_cert(
+    inter_seed,
+    "Inter serverAuth",
+    "EKU Anchor 2",
+    "250101000000Z",
+    "260101000000Z",
+    [
+      basic_constraints_ca_ext(),
+      key_usage_ext(true, true),
+      eku_ext_for(server_auth),
+    ],
+    anchor_seed,
+  )
+  let (leaf, _) = build_ed25519_cert(
+    leaf_seed,
+    "Leaf serverAuth",
+    "Inter serverAuth",
+    "250101000000Z",
+    "260101000000Z",
+    [eku_ext_for(server_auth)],
+    inter_seed,
+  )
+  let opts : @pkix_verify.VerifyChainOptions = {
+    required_eku: Some(server_auth),
+  }
+  @pkix_verify.verify_chain_with_options(
+    leaf,
+    [inter],
+    anchor_pk,
+    "250601000000Z",
+    opts,
+  )
+}

@@ -1322,6 +1322,17 @@ fn verify_chain_with_options_internal(
     if !issuer_allows_cert_sign(inter) {
       raise KeyUsageMissingCertSign
     }
+    // EKU nesting (matches Go crypto/x509 and browser behaviour): when the
+    // caller requires a purpose, a CA that itself carries an extendedKeyUsage
+    // extension must also permit that purpose (or anyExtendedKeyUsage),
+    // otherwise it is not entitled to delegate it to the leaf. A CA with no EKU
+    // extension stays unrestricted (RFC 5280 §4.2.1.12). Without this, a
+    // purpose-restricted sub-CA could issue a leaf trusted for a purpose the
+    // CA was never authorised for — a false positive.
+    match opts.required_eku {
+      Some(o) => enforce_required_eku(inter, o)
+      None => ()
+    }
     // Active nameConstraints from any ancestor must hold for THIS cert's
     // SAN as well — a CA cannot escape its parent's constraints just by
     // issuing further sub-CAs.
