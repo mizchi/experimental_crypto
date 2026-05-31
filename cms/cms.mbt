@@ -4,8 +4,9 @@
 //   - Detached CMS SignedData (eContent omitted; message provided by caller)
 //   - One signer per SignedData (the only case openssl/gpgsm produce in
 //     practice for `gpg --detach-sign` and `openssl cms -sign`)
-//   - SignedData version 1 with SignerInfo version 1; the SignerInfo.sid may
-//     be issuerAndSerialNumber or [0] subjectKeyIdentifier
+//   - SignerInfo.sid may be issuerAndSerialNumber (SignerInfo.version 1) or
+//     [0] subjectKeyIdentifier (SignerInfo.version 3); SignedData.version is
+//     accepted as 1 or 3 accordingly (RFC 5652 §5.1 / §5.3)
 //   - RSA-PKCS#1 v1.5 with SHA-256/384/512
 //   - ECDSA P-256/P-384 with SHA-256/384
 //   - signed_attrs MUST be present (modern signers always emit them) and
@@ -310,8 +311,13 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
   if sd_items.length() < 4 || sd_items.length() > 6 {
     raise Malformed("SignedData arity")
   }
+  // RFC 5652 §5.1: SignedData.version is 1 when every signerInfo is v1 (the
+  // issuerAndSerialNumber form) and there are no v2 attribute certs / OtherCert
+  // forms. It becomes 3 when any signerInfo is v3 (the subjectKeyIdentifier
+  // form). We accept both and rely on the per-SignerInfo version/sid coupling
+  // below to keep the structure self-consistent.
   let version = expect_integer_small(sd_items[0], "SignedData.version")
-  if version != 1 {
+  if version != 1 && version != 3 {
     raise Malformed("SignedData: unsupported version")
   }
   let digest_algs = parse_digest_algorithms(sd_items[1])
@@ -418,11 +424,18 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
   // 2: digestAlgorithm
   // 3 (optional): [0] IMPLICIT signedAttrs
   // -3 .. -1: signatureAlgorithm, signature, [optional [1] unsignedAttrs]
+  // RFC 5652 §5.3: SignerInfo.version is 1 for issuerAndSerialNumber and 3 for
+  // the subjectKeyIdentifier choice. Parse the sid first, then require the
+  // version to match the chosen CHOICE branch.
   let version = expect_integer_small(items[0], "SignerInfo.version")
-  if version != 1 {
-    raise Malformed("SignerInfo: unsupported version")
-  }
   let sid = parse_signer_identifier(items[1])
+  let expected_version = match sid {
+    IssuerAndSerial(_, _) => 1
+    SubjectKeyId(_) => 3
+  }
+  if version != expected_version {
+    raise Malformed("SignerInfo: version does not match SignerIdentifier")
+  }
   let (digest_alg, digest_params) = parse_algorithm_identifier(
     items[2],
     "SignerInfo.digestAlgorithm",

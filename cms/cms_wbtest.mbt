@@ -227,3 +227,83 @@ test "cms SKI: parse_signer_identifier decodes [0] subjectKeyIdentifier" {
     IssuerAndSerial(_, _) => abort("expected SubjectKeyId from a [0] sid")
   }
 }
+
+///|
+// Build a minimal but structurally valid SignerInfo Element with the given
+// version and sid, so the version/sid coupling can be exercised through the
+// full parse_signer_info path (not just parse_signer_identifier).
+fn signer_info_with(version : Int, sid : @asn1.Element) -> @asn1.Element raise {
+  let signed_attrs = @asn1.Element::new(
+    @asn1.Tag::context(0U, constructed=true),
+    Unknown(b""),
+  )
+  @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_integer, Integer(b_one(version.to_byte()))),
+      sid,
+      // digestAlgorithm: SEQUENCE { OID sha256 }
+      elem_from_der_wb(hex_wb("300b0609608648016503040201")),
+      signed_attrs,
+      // signatureAlgorithm: SEQUENCE { OID rsaEncryption, NULL }
+      elem_from_der_wb(hex_wb("300d06092a864886f70d0101010500")),
+      @asn1.Element::new(@asn1.tag_octet_string, OctetString(b"")),
+    ]),
+  )
+}
+
+///|
+fn b_one(byte : Byte) -> Bytes {
+  Bytes::makei(1, fn(_) { byte })
+}
+
+///|
+// A [0] IMPLICIT subjectKeyIdentifier sid element carrying a 4-byte
+// KeyIdentifier.
+fn ski_sid_elem() -> @asn1.Element {
+  @asn1.Element::new(@asn1.Tag::context(0U), Unknown(b"\x01\x02\x03\x04"))
+}
+
+///|
+// An issuerAndSerialNumber sid element (empty issuer Name, serial 0x01).
+fn ian_sid_elem() -> @asn1.Element {
+  @asn1.Element::new(
+    @asn1.tag_sequence,
+    Sequence([
+      @asn1.Element::new(@asn1.tag_sequence, Sequence([])),
+      @asn1.Element::new(@asn1.tag_integer, Integer(b"\x01")),
+    ]),
+  )
+}
+
+///|
+test "cms SKI: parse_signer_info accepts a v3 subjectKeyIdentifier SignerInfo" {
+  // RFC 5652 §5.3: a subjectKeyIdentifier sid requires SignerInfo.version 3.
+  let si = parse_signer_info(signer_info_with(3, ski_sid_elem()))
+  match si.sid {
+    SubjectKeyId(b) => assert_eq(b, b"\x01\x02\x03\x04")
+    IssuerAndSerial(_, _) => abort("expected SubjectKeyId from a v3 SKI sid")
+  }
+}
+
+///|
+test "ATTACK cms: SKI sid with SignerInfo version 1 is rejected" {
+  // subjectKeyIdentifier must be paired with version 3, not 1.
+  try parse_signer_info(signer_info_with(1, ski_sid_elem())) catch {
+    Malformed(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted SKI sid with SignerInfo version 1")
+  }
+}
+
+///|
+test "ATTACK cms: issuerAndSerial sid with SignerInfo version 3 is rejected" {
+  // issuerAndSerialNumber must be paired with version 1, not 3.
+  try parse_signer_info(signer_info_with(3, ian_sid_elem())) catch {
+    Malformed(_) => ()
+    _ => abort("unexpected error")
+  } noraise {
+    _ => abort("accepted issuerAndSerial sid with SignerInfo version 3")
+  }
+}
