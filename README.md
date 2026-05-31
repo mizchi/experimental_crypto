@@ -187,3 +187,32 @@ project should be considered:
 - An educational reference implementation
 - Experimental cryptography software
 - Not reviewed by third-party security experts
+
+### What review *has* happened
+
+This is internal review only — it does not substitute for a professional audit:
+
+- **Negative test corpus.** Each parser / verifier ships `ATTACK …` tests that
+  pin reject behaviour (signature forgery, DER parser confusion, JWT algorithm
+  confusion, CMS content-swap, padding edge cases). The X.509 path verifier is
+  swept against the [x509-limbo](https://github.com/C2SP/x509-limbo) corpus
+  (`scripts/gen_x509_limbo.py` in CI, `scripts/audit_x509_limbo.py` for the full
+  ~2200-case one-shot) and every accepted reject case is documented as
+  out-of-scope-by-design, with zero known false positives.
+- **Verification-bypass review.** RSA PKCS#1 v1.5 verify is encode-then-compare
+  (no DigestInfo parser to fool); ECDSA rejects `r,s ∉ [1,n-1]`; Ed25519 enforces
+  canonical `S`; JWT binds `alg` to the key type and has no `alg=none` path; the
+  PKIX chain validator is fail-closed (every failure `raise`s, the only success
+  is falling through the whole pipeline). AEAD tags are compared in constant time
+  and plaintext is withheld until the tag verifies.
+
+### Before you use any of this in a real system
+
+1. Read the source for the specific module and confirm it meets your threat
+   model — **side-channel / timing resistance is not certified** (see
+   [Known limitations](#known-limitations) and
+   [docs/CONSTANT_TIME.md](docs/CONSTANT_TIME.md)).
+2. Prefer a vetted library (`RustCrypto`, `dalek`, `BoringSSL`, …) wherever one
+   exists for your protocol.
+3. Commission an independent audit before depending on it for anything that
+   protects keys, identities, or user data.

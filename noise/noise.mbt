@@ -20,7 +20,17 @@ pub suberror NoiseError {
   // split() called before it finished.
   WrongState(String)
   Dh(String)
+  // The per-CipherState nonce reached 2^64-1, the reserved value (Noise §5.1).
+  // The party must terminate rather than reuse a nonce.
+  NonceExhausted
 } derive(Debug)
+
+///|
+// Noise §5.1: nonce 2^64-1 is reserved and must never be used to encrypt; a
+// party reaching it must terminate the session. In practice MoonBit's Bytes
+// size limit makes this unreachable, but the guard keeps the invariant explicit
+// (and fail-closed) rather than wrapping the nonce on overflow.
+const MAX_NONCE : UInt64 = 0xffff_ffff_ffff_ffffUL
 
 // ─── DH / hash / HKDF primitives (25519 + SHA256) ────────────────────────
 
@@ -129,6 +139,9 @@ pub fn CipherState::encrypt_with_ad(
   if !self.has_key() {
     return plaintext
   }
+  if self.nonce == MAX_NONCE {
+    raise NonceExhausted
+  }
   let ct = @aead.seal(
     @aead.Algorithm::ChaCha20Poly1305,
     self.key,
@@ -152,6 +165,9 @@ pub fn CipherState::decrypt_with_ad(
 ) -> Bytes raise NoiseError {
   if !self.has_key() {
     return ciphertext
+  }
+  if self.nonce == MAX_NONCE {
+    raise NonceExhausted
   }
   let pt = @aead.open(
     @aead.Algorithm::ChaCha20Poly1305,

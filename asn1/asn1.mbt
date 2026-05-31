@@ -321,6 +321,18 @@ pub suberror Asn1Error {
 } derive(Debug)
 
 ///|
+/// Decode a single DER element from `input`, rejecting trailing bytes.
+///
+/// Depth invariant: each call starts a fresh `Decoder` with `current_depth =
+/// 0`, so `MAX_DEPTH` bounds nesting only *within* one `decode_der` call. The
+/// decoder never recurses into non-universal tags — context-specific / EXPLICIT
+/// payloads are kept as `Unknown(raw)` and only re-decoded by callers at fixed,
+/// non-recursive structural positions (cert `[0]` version / `[3]` extensions,
+/// AlgorithmIdentifier params, PBKDF2 / scrypt param SEQUENCEs). Total reachable
+/// stack depth is therefore a small constant. This holds only while no caller
+/// recursively re-decodes an attacker-controlled `Unknown` / extension payload
+/// in a loop; such a caller would need its own depth budget, since the 32-frame
+/// cap does not carry across a `decode_der` re-entry.
 pub fn decode_der(input : Bytes) -> Element raise Asn1Error {
   let dec = Decoder::new(input)
   let elem = dec.read_element()
