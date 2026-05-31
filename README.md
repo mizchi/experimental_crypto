@@ -16,7 +16,7 @@
 Pure MoonBit building blocks for crypto, PKI, JOSE, and signing formats.
 Everything lives in a single MoonBit module, `mizchi/experimental_crypto`, with
 each library/protocol shipped as a sub-package you import by path (for example
-`mizchi/experimental_crypto/asn1`, aliased `@asn1`). It currently has 35
+`mizchi/experimental_crypto/asn1`, aliased `@asn1`). It currently has 40
 library/protocol sub-packages plus the `proofs` and `leakage_harness` sidecars.
 The implementations stay on top of `moonbitlang/core`, a small `moonbitlang/x`
 dependency for platform hooks, and the other sub-packages in this module.
@@ -25,24 +25,84 @@ The constant-time properties of the field arithmetic are not yet up to
 the bar of `dalek` or `RustCrypto`; the file headers call out exactly
 where the gaps are.
 
-## Module map
+## Packages and RFC coverage
 
-For API-level detail, see [docs/MODULES.md](docs/MODULES.md) and
+Every sub-package, the RFC / specification it implements, and a one-line role.
+Import each by path — e.g. `mizchi/experimental_crypto/asn1` (alias `@asn1`).
+For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-| Area | Modules | Notes |
+**Layer 1 — encoding & foundations**
+
+| Package | RFC / Spec | Role |
 |---|---|---|
-| Encoding and foundations | `asn1`, `cbor`, `crypto_bigint`, `getrandom` | Strict DER/CBOR codecs, fixed-limb unsigned integers, and platform CSPRNG bridge. |
-| Hashes, AEAD, and KDFs | `hash`, `aead`, `hkdf`, `pbkdf2`, `scrypt`, `argon2` | SHA-1/2, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, ChaCha20/XChaCha20-Poly1305, AES-GCM/CBC, and password KDFs. |
-| Key and certificate containers | `pem`, `pkcs8`, `pkix`, `pkix_verify`, `ocsp`, `crl`, `cms` | PEM, PKCS#8/PBES2, X.509 parsing, chain verification, revocation formats, and CMS SignedData. |
-| Signature and key-exchange primitives | `ed25519`, `x25519`, `p256`, `p384`, `p521`, `secp256k1`, `rsa` | Ed/X25519, NIST ECDSA, secp256k1, and RSA PKCS#1 v1.5/PSS. |
-| JOSE, COSE, SSH, PGP, and git formats | `jwt`, `jwe`, `jwk`, `cose`, `ssh`, `pgp`, `git_object` | Strict parsers/verifiers for compact JOSE, COSE_Sign1, SSHSIG-style signatures, OpenPGP detached signatures, and git signed-object bytes. |
-| Wallet, box, and OTP protocols | `bip39`, `bip32`, `hpke`, `naclbox`, `totp` | BIP mnemonic/HD wallet helpers, HPKE base mode, libsodium-style box, and HOTP/TOTP. |
-| File encryption | `age_format` | age v1 file decryption + deterministic encryption for X25519 recipients (X25519 + HKDF + ChaCha20-Poly1305 STREAM + Bech32); verified against the C2SP/CCTV age vectors. |
-| Passwordless auth | `webauthn` | WebAuthn / FIDO2 verification — assertion + attestation (packed/fido-u2f/none) with rpId/UP/UV policy enforcement, authenticatorData/COSE_Key parsing (EC2 P-256/384, Ed25519, RSA RS/PS256/384/512), clientDataJSON binding; composes cbor + p256/p384/ed25519/rsa + pkix_verify. Verified against Yubico fido2 vectors. |
-| Secure channel | `noise` | Noise Protocol Framework (25519 + ChaChaPoly + SHA256) handshake state machine — patterns NN/NK/XX/IK; verified against the flynn/noise vectors. Basis of WireGuard / Signal X3DH. |
-| Transport | `tls13` | TLS 1.3 (RFC 8446) client 1-RTT handshake building blocks — key schedule, record layer, handshake/message codecs, ClientHello builder, and server authentication (CertificateVerify + Finished) — wired by a one-shot client driver; verified end-to-end against RFC 8448 §3. Live ECDHE/record glue WIP. |
-| Sidecar tooling | `proofs`, `leakage_harness` | SMT proof leaves and native sparse-vs-dense leakage measurement harnesses. |
+| `asn1` | X.690 (DER) / X.680 | Strict canonical DER encoder + decoder (MAX_DEPTH=32). |
+| `cbor` | RFC 8949 | CBOR major types 0–7 + tags; consumed by COSE / WebAuthn. |
+| `crypto_bigint` | — (RustCrypto crypto-bigint shape) | Fixed-limb unsigned ints, modular arithmetic, Montgomery pow. |
+| `getrandom` | — (platform CSPRNG) | `crypto.getRandomValues` / `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom`. |
+
+**Layer 2 — primitives (hashes, AEAD, KDFs, container parsers)**
+
+| Package | RFC / Spec | Role |
+|---|---|---|
+| `hash` | FIPS 180-4, RFC 2104, ISO 10118-3, BLAKE2/3 | SHA-1/256/384/512, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, `ct_eq`. |
+| `aead` | RFC 8439, NIST SP 800-38D | ChaCha20- / XChaCha20-Poly1305, AES-128/256-GCM, AES-CBC. |
+| `pkix` | RFC 5280 | X.509 v3 parse + byte-stable DER round-trip. |
+| `pkcs8` | RFC 5208 / 5958, RFC 8018 | PrivateKeyInfo + EncryptedPrivateKeyInfo (PBES2). |
+| `pem` | RFC 7468 | PEM encode / decode with strict label + size caps. |
+| `hkdf` | RFC 5869 | HKDF-Extract + Expand on HMAC-SHA-256. |
+| `pbkdf2` | RFC 8018 | PBKDF2-HMAC-SHA-256. |
+| `scrypt` | RFC 7914 | scrypt + PHC string encode / verify. |
+| `argon2` | RFC 9106 | Argon2d / i / id + PHC string encode / verify. |
+
+**Layer 3 — signature & ECDH primitives**
+
+| Package | RFC / Spec | Role |
+|---|---|---|
+| `ed25519` | RFC 8032 | Ed25519 sign + verify (+ `verify_strict`). |
+| `x25519` | RFC 7748 | X25519 ECDH (10-limb Montgomery ladder). |
+| `p256` | FIPS 186-5, SEC 1 | ECDSA-SHA-256 sign (RFC 6979) + verify. |
+| `p384` | FIPS 186-5 | ECDSA-SHA-384 sign + verify. |
+| `p521` | FIPS 186-5 | ECDSA-SHA-512 (ES512) sign + verify. |
+| `secp256k1` | SEC 2 §2.4.1 | ECDSA + RFC 6979 + BIP-62 low-s (Bitcoin / Ethereum). |
+| `rsa` | RFC 8017 | RSA PKCS#1 v1.5 + RSA-PSS sign + verify. |
+
+**Layer 4 — composers & verifiers**
+
+| Package | RFC / Spec | Role |
+|---|---|---|
+| `pkix_verify` | RFC 5280 §6 | X.509 chain validation (Ed25519 / RSA / ECDSA-SHA-2). |
+| `naclbox` | libsodium `crypto_box` (XChaCha20) | Curve25519 + XChaCha20-Poly1305 box. |
+| `hpke` | RFC 9180 | Mode_Base DHKEM(X25519) / HKDF-SHA256 / ChaCha20Poly1305. |
+| `bip39` | BIP-39 | Mnemonic ↔ entropy + PBKDF2-HMAC-SHA-512 seed. |
+| `bip32` | BIP-32 | HD key derivation on secp256k1. |
+| `cose` | RFC 9052 | COSE_Sign1 verify + COSE_Key parser. |
+
+**Layer 5 — application formats & protocols**
+
+| Package | RFC / Spec | Role |
+|---|---|---|
+| `jwt` | RFC 7515 / 7519 / 7518 | JWS / JWT sign + verify (HS / RS / PS / ES / EdDSA). |
+| `jwe` | RFC 7516 / 7518 | JWE compact (dir / RSA-OAEP-256 / A256KW + A128/256GCM). |
+| `jwk` | RFC 7517 / 7518 / 7638 / 8037 | JWK parse / serialise / thumbprint. |
+| `totp` | RFC 4226 / 6238 | HOTP / TOTP + provisioning URI. |
+| `pgp` | RFC 9580 (+ RFC 4880) | OpenPGP v4 / v6 detached signature verify + sign. |
+| `ssh` | SSHSIG-style subset | SSHSIG armor sign + verify + OpenSSH user certs. |
+| `cms` | RFC 5652 | CMS SignedData detached verify. |
+| `git_object` | git object format | Commit / tag signature extraction. |
+| `ocsp` | RFC 6960 | OCSP response parse + verify. |
+| `crl` | RFC 5280 §5 | CRL parse + verify + `is_revoked`. |
+| `webauthn` | W3C WebAuthn L2 / FIDO CTAP2 | Assertion + attestation (packed / fido-u2f / none) verification. |
+| `age_format` | C2SP age v1 | age file decrypt + deterministic encrypt for X25519 recipients. |
+| `noise` | Noise Protocol Framework | NN / NK / XX / IK handshake state machine (25519 + ChaChaPoly + SHA256). |
+| `tls13` | RFC 8446 (vectors: RFC 8448) | TLS 1.3 client 1-RTT handshake building blocks (live glue WIP). |
+
+**Sidecars**
+
+| Package | RFC / Spec | Role |
+|---|---|---|
+| `proofs` | — | SMT proof leaves (`moon prove` + Why3 + Z3). |
+| `leakage_harness` | — | Native sparse-vs-dense leakage measurement. |
 
 `moon test` from the module root runs the full suite across every
 sub-package.
