@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${LEAKAGE_TIMING_TARGET:-native}"
-BIN="${LEAKAGE_TIMING_BIN:-$ROOT/_build/native/debug/build/mizchi/leakage_harness/leakage_harness.exe}"
+BIN="${LEAKAGE_TIMING_BIN:-$ROOT/_build/native/debug/build/leakage_harness/leakage_harness.exe}"
 SAMPLES="${LEAKAGE_TIMING_SAMPLES:-8}"
 INNER="${LEAKAGE_TIMING_INNER:-1}"
 TRIALS="${LEAKAGE_TIMING_TRIALS:-1}"

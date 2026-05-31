@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${LEAKAGE_DUDECT_TARGET:-wasm-gc}"
-BIN="${LEAKAGE_DUDECT_BIN:-$ROOT/_build/native/debug/build/mizchi/leakage_harness/leakage_harness.exe}"
+BIN="${LEAKAGE_DUDECT_BIN:-$ROOT/_build/native/debug/build/leakage_harness/leakage_harness.exe}"
 MEASUREMENTS="${LEAKAGE_DUDECT_MEASUREMENTS:-64}"
 ROUNDS="${LEAKAGE_DUDECT_ROUNDS:-1}"
 TRIALS="${LEAKAGE_DUDECT_TRIALS:-1}"

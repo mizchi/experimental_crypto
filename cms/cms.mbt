@@ -4,7 +4,9 @@
 //   - Detached CMS SignedData (eContent omitted; message provided by caller)
 //   - One signer per SignedData (the only case openssl/gpgsm produce in
 //     practice for `gpg --detach-sign` and `openssl cms -sign`)
-//   - SignedData version 1 with issuerAndSerialNumber SignerInfo version 1
+//   - SignerInfo.sid may be issuerAndSerialNumber (SignerInfo.version 1) or
+//     [0] subjectKeyIdentifier (SignerInfo.version 3); SignedData.version is
+//     accepted as 1 or 3 accordingly (RFC 5652 §5.1 / §5.3)
 //   - RSA-PKCS#1 v1.5 with SHA-256/384/512
 //   - ECDSA P-256/P-384 with SHA-256/384
 //   - signed_attrs MUST be present (modern signers always emit them) and
@@ -28,8 +30,6 @@ pub suberror CmsError {
   NoSignerCertificate
   // Signer cert (matching SignerInfo.sid) is not in the certificates SET.
   SignerCertificateNotFound
-  // [0] subjectKeyIdentifier sid form is not yet implemented.
-  UnsupportedSid(String)
   UnsupportedDigestAlgorithm(@asn1.ObjectIdentifier)
   UnsupportedSignatureAlgorithm(@asn1.ObjectIdentifier)
   MessageDigestMismatch
@@ -54,11 +54,10 @@ pub(all) struct CmsSignedData {
 
 ///|
 pub(all) struct SignerInfoFields {
-  // Signer identifier — only issuerAndSerialNumber is supported (the
-  // dominant choice for openssl/gpgsm-produced CMS). `[0] subjectKeyIdentifier`
-  // is recognised at parse time and rejected via UnsupportedSid below.
-  sid_issuer : Bytes // raw DER of the Name SEQUENCE
-  sid_serial : Bytes // raw INTEGER content
+  // Signer identifier (RFC 5652 §5.3): either issuerAndSerialNumber (the
+  // dominant choice for openssl/gpgsm-produced CMS) or the
+  // `[0] subjectKeyIdentifier` form.
+  sid : SignerId
   digest_alg : @asn1.ObjectIdentifier
   // Raw content bytes of the [0] IMPLICIT signed_attrs field (without
   // the [0] tag/length header). Needed to (a) extract the messageDigest
@@ -312,8 +311,13 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
   if sd_items.length() < 4 || sd_items.length() > 6 {
     raise Malformed("SignedData arity")
   }
+  // RFC 5652 §5.1: SignedData.version is 1 when every signerInfo is v1 (the
+  // issuerAndSerialNumber form) and there are no v2 attribute certs / OtherCert
+  // forms. It becomes 3 when any signerInfo is v3 (the subjectKeyIdentifier
+  // form). We accept both and rely on the per-SignerInfo version/sid coupling
+  // below to keep the structure self-consistent.
   let version = expect_integer_small(sd_items[0], "SignedData.version")
-  if version != 1 {
+  if version != 1 && version != 3 {
     raise Malformed("SignedData: unsupported version")
   }
   let digest_algs = parse_digest_algorithms(sd_items[1])
@@ -363,7 +367,7 @@ pub fn parse_signed_data(der : Bytes) -> CmsSignedData raise CmsError {
   let mut signer_idx = -1
   let mut signer_matches = 0
   for i = 0; i < certs.length(); i = i + 1 {
-    if cert_matches_sid(certs[i], signer.sid_issuer, signer.sid_serial) {
+    if cert_matches_sid(certs[i], signer.sid) {
       if signer_idx < 0 {
         signer_idx = i
       }
@@ -420,11 +424,18 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
   // 2: digestAlgorithm
   // 3 (optional): [0] IMPLICIT signedAttrs
   // -3 .. -1: signatureAlgorithm, signature, [optional [1] unsignedAttrs]
+  // RFC 5652 §5.3: SignerInfo.version is 1 for issuerAndSerialNumber and 3 for
+  // the subjectKeyIdentifier choice. Parse the sid first, then require the
+  // version to match the chosen CHOICE branch.
   let version = expect_integer_small(items[0], "SignerInfo.version")
-  if version != 1 {
-    raise Malformed("SignerInfo: unsupported version")
+  let sid = parse_signer_identifier(items[1])
+  let expected_version = match sid {
+    IssuerAndSerial(_, _) => 1
+    SubjectKeyId(_) => 3
   }
-  let (sid_issuer, sid_serial) = parse_signer_identifier(items[1])
+  if version != expected_version {
+    raise Malformed("SignerInfo: version does not match SignerIdentifier")
+  }
   let (digest_alg, digest_params) = parse_algorithm_identifier(
     items[2],
     "SignerInfo.digestAlgorithm",
@@ -468,14 +479,7 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
     None =>
       raise Malformed("signedAttrs required (detached CMS must hash content)")
   }
-  {
-    sid_issuer,
-    sid_serial,
-    digest_alg,
-    signed_attrs_content: attrs,
-    signature_alg,
-    signature,
-  }
+  { sid, digest_alg, signed_attrs_content: attrs, signature_alg, signature }
 }
 
 ///|
@@ -483,28 +487,61 @@ fn parse_signer_info(elem : @asn1.Element) -> SignerInfoFields raise CmsError {
 //   issuerAndSerialNumber IssuerAndSerialNumber,    -- SEQUENCE
 //   subjectKeyIdentifier [0] SubjectKeyIdentifier   -- OCTET STRING
 // }
-// IssuerAndSerialNumber ::= SEQUENCE {
-//   issuer Name,
-//   serialNumber CertificateSerialNumber          -- INTEGER
-// }
-// Compare a cert's issuer/serial to a parsed SignerIdentifier. Issuer
-// match is byte-exact on the DER-encoded Name; serial match strips any
-// leading 0x00 sign byte from both sides.
-fn cert_matches_sid(
-  cert : @pkix.Certificate,
-  sid_issuer : Bytes,
-  sid_serial : Bytes,
-) -> Bool {
-  let cert_issuer_der = @pkix.serialize_name(cert.tbs.issuer)
-  if cert_issuer_der != sid_issuer {
-    return false
+pub(all) enum SignerId {
+  // issuerAndSerialNumber: raw DER of the issuer Name SEQUENCE + raw INTEGER
+  // content of the serial number.
+  IssuerAndSerial(Bytes, Bytes)
+  // subjectKeyIdentifier [0]: the raw KeyIdentifier octets.
+  SubjectKeyId(Bytes)
+} derive(Debug)
+
+///|
+// id-ce-subjectKeyIdentifier (RFC 5280 §4.2.1.2): OID 2.5.29.14.
+fn subject_key_id_oid() -> @asn1.ObjectIdentifier {
+  @asn1.ObjectIdentifier::from_arcs([2U, 5, 29, 14])
+}
+
+///|
+// Extract a certificate's SubjectKeyIdentifier KeyIdentifier octets, or None
+// if the cert has no SKI extension or it is malformed. @pkix.Extension.value
+// is the DER of the extnValue OCTET STRING content, i.e. the DER of the inner
+// `SubjectKeyIdentifier ::= OCTET STRING`; unwrap that one OCTET STRING layer.
+fn cert_subject_key_id(cert : @pkix.Certificate) -> Bytes? {
+  for ext in cert.tbs.extensions {
+    if ext.oid == subject_key_id_oid() {
+      let inner = @asn1.decode_der(ext.value) catch { _ => return None }
+      return match inner.value {
+        OctetString(b) => Some(b)
+        _ => None
+      }
+    }
   }
-  // serialNumber INTEGER content. cert.tbs.serial_number is stored
-  // exactly as the DER content bytes; same for sid_serial. Strip a
-  // single leading 0x00 sign byte to normalise.
-  let a = strip_int_sign(cert.tbs.serial_number)
-  let b = strip_int_sign(sid_serial)
-  a == b
+  None
+}
+
+///|
+// Compare a cert to a parsed SignerIdentifier. For issuerAndSerialNumber the
+// issuer match is byte-exact on the DER-encoded Name and the serial match
+// strips any leading 0x00 sign byte from both sides. For subjectKeyIdentifier
+// the cert's SKI extension KeyIdentifier must equal the sid octets (a public
+// value, so a plain byte comparison is fine).
+fn cert_matches_sid(cert : @pkix.Certificate, sid : SignerId) -> Bool {
+  match sid {
+    IssuerAndSerial(sid_issuer, sid_serial) => {
+      let cert_issuer_der = @pkix.serialize_name(cert.tbs.issuer)
+      if cert_issuer_der != sid_issuer {
+        return false
+      }
+      let a = strip_int_sign(cert.tbs.serial_number)
+      let b = strip_int_sign(sid_serial)
+      a == b
+    }
+    SubjectKeyId(key_id) =>
+      match cert_subject_key_id(cert) {
+        Some(ski) => ski == key_id
+        None => false
+      }
+  }
 }
 
 ///|
@@ -517,11 +554,21 @@ fn strip_int_sign(b : Bytes) -> Bytes {
 }
 
 ///|
-fn parse_signer_identifier(
-  elem : @asn1.Element,
-) -> (Bytes, Bytes) raise CmsError {
+// IssuerAndSerialNumber ::= SEQUENCE {
+//   issuer Name,
+//   serialNumber CertificateSerialNumber          -- INTEGER
+// }
+fn parse_signer_identifier(elem : @asn1.Element) -> SignerId raise CmsError {
   if elem.tag.class_ == @asn1.TagClass::ContextSpecific && elem.tag.number == 0U {
-    raise UnsupportedSid("subjectKeyIdentifier")
+    // subjectKeyIdentifier [0] IMPLICIT OCTET STRING. The decoder surfaces a
+    // primitive context-specific element's content as Unknown(bytes).
+    let key_id = match elem.value {
+      Unknown(b) => b
+      OctetString(b) => b
+      _ =>
+        raise Malformed("SignerInfo.sid [0] subjectKeyIdentifier not primitive")
+    }
+    return SubjectKeyId(key_id)
   }
   let items = expect_sequence(elem, "SignerInfo.sid (issuerAndSerialNumber)")
   if items.length() != 2 {
@@ -534,7 +581,7 @@ fn parse_signer_identifier(
     Integer(b) => b
     _ => raise Malformed("IssuerAndSerialNumber.serialNumber not INTEGER")
   }
-  (issuer_der, serial)
+  IssuerAndSerial(issuer_der, serial)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────

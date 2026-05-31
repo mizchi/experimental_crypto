@@ -263,7 +263,8 @@ test "ATTACK cms: SignerInfo RSA signatureAlgorithm rejects non-NULL params" {
 
 ///|
 test "ATTACK cms: unsupported SignedData version is rejected" {
-  try @cms.parse_signed_data(cms_with_signed_data_version(b"\x03")) catch {
+  // Version 2 is never a valid SignedData version (RFC 5652 §5.1).
+  try @cms.parse_signed_data(cms_with_signed_data_version(b"\x02")) catch {
     Malformed(_) => ()
     other => abort("expected Malformed, got " + repr(other))
   } noraise {
