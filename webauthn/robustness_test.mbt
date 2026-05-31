@@ -9,7 +9,7 @@
 // the kty -> crv -> alg binding without a real point on the curve.
 fn cose_ec2(kty : UInt64, alg_nint : UInt64, crv : UInt64) -> Bytes {
   let z = Bytes::makei(32, fn(_i) { b'\x00' })
-  @cose_cbor.encode(
+  @cbor.encode(
     Map([
       (Uint(1UL), Uint(kty)),
       (Uint(3UL), Nint(alg_nint)),
@@ -99,7 +99,7 @@ test "parse_cose_key rejects an unknown EC2 curve" {
 ///|
 test "parse_cose_key rejects an OKP key on the wrong curve" {
   // kty=1 (OKP), crv=4 (X25519, not an Ed25519 signing key).
-  let cose = @cose_cbor.encode(
+  let cose = @cbor.encode(
     Map([
       (Uint(1UL), Uint(1UL)),
       (Uint(3UL), Nint(7UL)),
@@ -120,7 +120,7 @@ test "parse_cose_key rejects an RSA key with an unsupported alg" {
   // kty=3 (RSA) with alg=-100 (Nint 99) — a well-formed RSA key, but an alg
   // outside RS256/384/512, so it must fail closed. (RS256/384/512 are now
   // supported and covered by rsa_credential_test.mbt; PS256 deferral too.)
-  let cose = @cose_cbor.encode(
+  let cose = @cbor.encode(
     Map([
       (Uint(1UL), Uint(3UL)),
       (Uint(3UL), Nint(99UL)),
@@ -170,7 +170,7 @@ test "verify_attestation rejects `none` carrying an x5c chain" {
 test "verify_attestation rejects a missing attStmt" {
   let auth = wh(pk_authdata)
   // Build an attestationObject deliberately missing the attStmt key.
-  let obj = @cose_cbor.encode(
+  let obj = @cbor.encode(
     Map([(Text("fmt"), Text("none")), (Text("authData"), Bytes(auth))]),
   )
   try

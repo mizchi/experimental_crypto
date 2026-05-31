@@ -32,14 +32,14 @@ For API-level detail, see [docs/MODULES.md](docs/MODULES.md) and
 
 | Area | Modules | Notes |
 |---|---|---|
-| Encoding and foundations | `asn1`, `cose_cbor`, `crypto_bigint`, `getrandom` | Strict DER/CBOR codecs, fixed-limb unsigned integers, and platform CSPRNG bridge. |
+| Encoding and foundations | `asn1`, `cbor`, `crypto_bigint`, `getrandom` | Strict DER/CBOR codecs, fixed-limb unsigned integers, and platform CSPRNG bridge. |
 | Hashes, AEAD, and KDFs | `hash`, `aead`, `hkdf`, `pbkdf2`, `scrypt`, `argon2` | SHA-1/2, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, ChaCha20/XChaCha20-Poly1305, AES-GCM/CBC, and password KDFs. |
 | Key and certificate containers | `pem`, `pkcs8`, `pkix`, `pkix_verify`, `ocsp`, `crl`, `cms` | PEM, PKCS#8/PBES2, X.509 parsing, chain verification, revocation formats, and CMS SignedData. |
 | Signature and key-exchange primitives | `ed25519`, `x25519`, `p256`, `p384`, `p521`, `secp256k1`, `rsa` | Ed/X25519, NIST ECDSA, secp256k1, and RSA PKCS#1 v1.5/PSS. |
 | JOSE, COSE, SSH, PGP, and git formats | `jwt`, `jwe`, `jwk`, `cose`, `ssh`, `pgp`, `git_object` | Strict parsers/verifiers for compact JOSE, COSE_Sign1, SSHSIG-style signatures, OpenPGP detached signatures, and git signed-object bytes. |
 | Wallet, box, and OTP protocols | `bip39`, `bip32`, `hpke`, `naclbox`, `totp` | BIP mnemonic/HD wallet helpers, HPKE base mode, libsodium-style box, and HOTP/TOTP. |
 | File encryption | `age_format` | age v1 file decryption + deterministic encryption for X25519 recipients (X25519 + HKDF + ChaCha20-Poly1305 STREAM + Bech32); verified against the C2SP/CCTV age vectors. |
-| Passwordless auth | `webauthn` | WebAuthn / FIDO2 verification — assertion + attestation (packed/fido-u2f/none) with rpId/UP/UV policy enforcement, authenticatorData/COSE_Key parsing (EC2 P-256/384, Ed25519, RSA RS/PS256/384/512), clientDataJSON binding; composes cose_cbor + p256/p384/ed25519/rsa + pkix_verify. Verified against Yubico fido2 vectors. |
+| Passwordless auth | `webauthn` | WebAuthn / FIDO2 verification — assertion + attestation (packed/fido-u2f/none) with rpId/UP/UV policy enforcement, authenticatorData/COSE_Key parsing (EC2 P-256/384, Ed25519, RSA RS/PS256/384/512), clientDataJSON binding; composes cbor + p256/p384/ed25519/rsa + pkix_verify. Verified against Yubico fido2 vectors. |
 | Secure channel | `noise` | Noise Protocol Framework (25519 + ChaChaPoly + SHA256) handshake state machine — patterns NN/NK/XX/IK; verified against the flynn/noise vectors. Basis of WireGuard / Signal X3DH. |
 | Transport | `tls13` | TLS 1.3 (RFC 8446) client 1-RTT handshake building blocks — key schedule, record layer, handshake/message codecs, ClientHello builder, and server authentication (CertificateVerify + Finished) — wired by a one-shot client driver; verified end-to-end against RFC 8448 §3. Live ECDHE/record glue WIP. |
 | Sidecar tooling | `proofs`, `leakage_harness` | SMT proof leaves and native sparse-vs-dense leakage measurement harnesses. |

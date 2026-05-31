@@ -10,7 +10,7 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 | RSA-PSS (PS256/384/512) | `rsa` + `jwt` | d3f8d7b |
 | PBES2 encrypted PKCS#8 + AES-CBC | `pkcs8` + `aead` | d3f8d7b |
 | JWE (RFC 7516: dir / RSA-OAEP-256 / A256KW + A128/256GCM) | `jwe` | f66b7a1 |
-| CBOR (RFC 8949 minimum viable) | `cose_cbor` | f66b7a1 |
+| CBOR (RFC 8949 minimum viable) | `cbor` | f66b7a1 |
 | COSE_Sign1 verify + COSE_Key + WebAuthn attestation | `cose` | f66b7a1 |
 | BIP-39 (English wordlist + PBKDF2-HMAC-SHA512) | `bip39` | f66b7a1 |
 | BIP-32 HD wallets (CKDpriv + derive_path, hardened + non-hardened) | `bip32` | f66b7a1 |
@@ -27,7 +27,8 @@ Completed items moved out of `TODO.md` so the active backlog stays readable.
 | BLAKE2b in `@hash` (RFC 7693) | `hash` | ef4f3d0 |
 | BLAKE3 in `@hash` (test_vectors.json verified) | `hash` | ef4f3d0 |
 | HMAC-SHA-1 in `@hash` (unlocks HOTP) | `hash` | ef4f3d0 |
-| `mizchi/cbor` namespace renamed to `mizchi/cose_cbor` | `cose_cbor` | 0d535ae |
+| `mizchi/cbor` namespace renamed to `mizchi/cose_cbor` | `cbor` | 0d535ae |
+| `cose_cbor` renamed back to `cbor` (single-module consolidation removed the `mizchi/cbor` collision) | `cbor` | — |
 | Post-sweep hardening (JWK RSA validation, PKIX strictness, etc.) | various | 98efbd2 |
 
 ## Formal Methods And Tooling

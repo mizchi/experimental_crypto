@@ -23,15 +23,15 @@ invalid PrintableString / UTCTime / GeneralizedTime values, trailing bytes
 after the outer element, and OID base-128 / arc-overflow issues. The encoder
 sorts SET items into canonical order.
 
-### `mizchi/cose_cbor`
+### `mizchi/experimental_crypto/cbor`
 **RFC**: 8949 minimum-viable for COSE. **Tests**: 41.
 
 Provides a `CborValue` ADT (Uint/Nint/Bytes/Text/Array/Map/Tag/Bool/Null/
 Undefined) plus `encode`, `decode`, `decode_first`, `map_get_int`,
-`map_get_str`. Renamed from `mizchi/cbor` to avoid colliding with the
-upstream `mizchi/cbor` published on mooncakes (which is currently a
-narrower type-specific API without Array/Map/Tag). Long-term plan: PR
-the ADT helpers upstream and retire this module.
+`map_get_str`. Previously named `cose_cbor` to avoid colliding with the
+separate `mizchi/cbor` package; now that every building block lives under
+the single `mizchi/experimental_crypto` module the sub-package name no
+longer collides, so it is simply `cbor`.
 
 ### `mizchi/crypto_bigint`
 Fixed-limb unsigned integers, modular add/sub/mul/pow, odd-modulus

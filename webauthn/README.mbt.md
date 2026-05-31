@@ -3,7 +3,7 @@
 > **EXPERIMENTAL — not production-grade. Audit before use. No warranty.**
 
 Pure-MoonBit **verification** for WebAuthn (W3C Level 2) / FIDO2 — the
-verify-side composition of the workspace: CBOR (`cose_cbor`), the COSE_Key and
+verify-side composition of the workspace: CBOR (`cbor`), the COSE_Key and
 authenticatorData formats, the EC/EdDSA verifiers (`p256` / `p384` /
 `ed25519`), and `pkix` / `pkix_verify` for attestation certificates.
 

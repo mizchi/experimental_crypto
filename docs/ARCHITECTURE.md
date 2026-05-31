@@ -30,7 +30,7 @@ RFC-level concern. Modules depend only on `moonbitlang/core`, a small
                      └────┬────────────────┬──────────────┘
                           │                │
                      ┌────┴────────────────┴──────────────┐
-        Layer 1      │ asn1   cose_cbor   crypto_bigint   │ — encoding +
+        Layer 1      │ asn1   cbor   crypto_bigint        │ — encoding +
         encoding     │ getrandom                          │   foundations
                      └────────────────────────────────────┘
 
@@ -46,7 +46,7 @@ RFC-level concern. Modules depend only on `moonbitlang/core`, a small
 | Module | Spec | Role |
 |---|---|---|
 | `asn1` | X.690 (DER) / X.680 | Strict canonical DER encoder + decoder. MAX_DEPTH=32 on both ends. Rejects tag aliases, canonical INTEGER / BIT STRING / OID / SET / PrintableString / time violations. |
-| `cose_cbor` | RFC 8949 | CBOR major types 0..7 + tagged values. Floats always 8-byte. Used by COSE. Renamed from `cbor` to free the `mizchi/cbor` namespace for the upstream package. |
+| `cbor` | RFC 8949 | CBOR major types 0..7 + tagged values. Floats always 8-byte. Used by COSE. Previously named `cose_cbor`; renamed back to `cbor` once the sub-packages were consolidated under the single `mizchi/experimental_crypto` module (no more `mizchi/cbor` namespace collision). |
 | `crypto_bigint` | (Rust crypto-bigint shape) | Fixed-limb unsigned integers, modular add/sub/mul/pow, odd-modulus Montgomery pow, and fixed-iteration odd-modulus inverse. BigInt is kept only in tests as an oracle. Branchless/fixed-iteration discipline is intended but still needs external leakage measurement before production constant-time claims. See `CONSTANT_TIME.md`. |
 | `getrandom` | (target-specific) | CSPRNG bridge: `crypto.getRandomValues` on JS, `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom` on native. |
 

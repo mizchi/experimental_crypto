@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/webauthn"
 
 import {
-  "mizchi/experimental_crypto/cose_cbor",
+  "mizchi/experimental_crypto/cbor",
   "mizchi/experimental_crypto/ed25519",
   "mizchi/experimental_crypto/p256",
   "mizchi/experimental_crypto/p384",
@@ -29,7 +29,7 @@ pub fn verify_client_data(String, String, String, String) -> Unit raise WebAuthn
 
 // Errors
 pub suberror WebAuthnError {
-  Cbor(@cose_cbor.CborError)
+  Cbor(@cbor.CborError)
   ParseError(String)
   UnsupportedAlgorithm(Int)
   UnsupportedKeyType(String)

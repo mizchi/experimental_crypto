@@ -1,5 +1,5 @@
 // WebAuthn / FIDO2 verification (W3C WebAuthn Level 2, FIDO CTAP2). The
-// verify-side composition of the workspace: CBOR (cose_cbor), the COSE key /
+// verify-side composition of the workspace: CBOR (cbor), the COSE key /
 // authenticatorData formats, the EC/EdDSA/RSA verifiers, and pkix / pkix_verify
 // for attestation certificate chains.
 //
@@ -12,7 +12,7 @@
 
 ///|
 pub suberror WebAuthnError {
-  Cbor(@cose_cbor.CborError)
+  Cbor(@cbor.CborError)
   ParseError(String)
   UnsupportedAlgorithm(Int)
   UnsupportedKeyType(String)
@@ -65,21 +65,18 @@ fn slice(b : Bytes, start : Int, len : Int) -> Bytes {
 
 ///|
 fn map_int(
-  m : @cose_cbor.CborValue,
+  m : @cbor.CborValue,
   key : Int64,
   what : String,
-) -> @cose_cbor.CborValue raise WebAuthnError {
-  match @cose_cbor.map_get_int(m, key) {
+) -> @cbor.CborValue raise WebAuthnError {
+  match @cbor.map_get_int(m, key) {
     Some(v) => v
     None => raise ParseError("missing CBOR key " + what)
   }
 }
 
 ///|
-fn cbor_int(
-  v : @cose_cbor.CborValue,
-  what : String,
-) -> Int64 raise WebAuthnError {
+fn cbor_int(v : @cbor.CborValue, what : String) -> Int64 raise WebAuthnError {
   match v {
     Uint(n) => n.reinterpret_as_int64()
     Nint(n) => -1L - n.reinterpret_as_int64()
@@ -88,10 +85,7 @@ fn cbor_int(
 }
 
 ///|
-fn cbor_bytes(
-  v : @cose_cbor.CborValue,
-  what : String,
-) -> Bytes raise WebAuthnError {
+fn cbor_bytes(v : @cbor.CborValue, what : String) -> Bytes raise WebAuthnError {
   match v {
     Bytes(b) => b
     _ => raise ParseError("expected CBOR bytes for " + what)
@@ -119,7 +113,7 @@ pub(all) enum CredentialPublicKey {
 ///|
 /// Parse a COSE_Key (CBOR) into a verifiable credential public key.
 pub fn parse_cose_key(cose : Bytes) -> CredentialPublicKey raise WebAuthnError {
-  let m = @cose_cbor.decode(cose) catch { e => raise Cbor(e) }
+  let m = @cbor.decode(cose) catch { e => raise Cbor(e) }
   let kty = cbor_int(map_int(m, 1L, "kty"), "kty")
   let alg = cbor_int(map_int(m, 3L, "alg"), "alg")
   match kty {
@@ -312,7 +306,7 @@ pub fn parse_authenticator_data(
   // The COSE key is the first CBOR item; decode_first tells us its length so we
   // can isolate it (extensions, if any, follow).
   let rest = slice(b, key_start, b.length() - key_start)
-  let (_, consumed) = @cose_cbor.decode_first(rest) catch { e => raise Cbor(e) }
+  let (_, consumed) = @cbor.decode_first(rest) catch { e => raise Cbor(e) }
   let cose_key = slice(rest, 0, consumed)
   {
     rp_id_hash,
@@ -449,16 +443,16 @@ pub fn verify_attestation(
   rp_id_hash~ : Bytes,
   require_user_verification? : Bool = false,
 ) -> AttestationResult raise WebAuthnError {
-  let obj = @cose_cbor.decode(attestation_object) catch { e => raise Cbor(e) }
-  let fmt = match @cose_cbor.map_get_str(obj, "fmt") {
+  let obj = @cbor.decode(attestation_object) catch { e => raise Cbor(e) }
+  let fmt = match @cbor.map_get_str(obj, "fmt") {
     Some(Text(s)) => s
     _ => raise ParseError("attestationObject.fmt")
   }
-  let auth_data_bytes = match @cose_cbor.map_get_str(obj, "authData") {
+  let auth_data_bytes = match @cbor.map_get_str(obj, "authData") {
     Some(Bytes(b)) => b
     _ => raise ParseError("attestationObject.authData")
   }
-  let att_stmt = match @cose_cbor.map_get_str(obj, "attStmt") {
+  let att_stmt = match @cbor.map_get_str(obj, "attStmt") {
     Some(v) => v
     None => raise ParseError("attestationObject.attStmt")
   }
@@ -503,8 +497,8 @@ pub fn verify_attestation(
 }
 
 ///|
-fn x5c_of(att_stmt : @cose_cbor.CborValue) -> Array[Bytes] {
-  match @cose_cbor.map_get_str(att_stmt, "x5c") {
+fn x5c_of(att_stmt : @cbor.CborValue) -> Array[Bytes] {
+  match @cbor.map_get_str(att_stmt, "x5c") {
     Some(Array(certs)) => {
       let out : Array[Bytes] = []
       for c in certs {
@@ -523,12 +517,12 @@ fn x5c_of(att_stmt : @cose_cbor.CborValue) -> Array[Bytes] {
 // packed (WebAuthn §8.2): { alg, sig, [x5c] }. With x5c, the attestation cert
 // signs authData||clientDataHash; without, the credential key self-signs it.
 fn verify_packed(
-  att_stmt : @cose_cbor.CborValue,
+  att_stmt : @cbor.CborValue,
   signed : Bytes,
   cred_key : Bytes,
   _ad : AuthenticatorData,
 ) -> Unit raise WebAuthnError {
-  let sig = match @cose_cbor.map_get_str(att_stmt, "sig") {
+  let sig = match @cbor.map_get_str(att_stmt, "sig") {
     Some(Bytes(b)) => b
     _ => raise AttestationFailure("packed.sig")
   }
@@ -548,13 +542,13 @@ fn verify_packed(
 //   0x00 || rpIdHash || clientDataHash || credentialId || publicKeyU2F
 // where publicKeyU2F = 0x04 || x || y from the credential's COSE EC2 key.
 fn verify_fido_u2f(
-  att_stmt : @cose_cbor.CborValue,
+  att_stmt : @cbor.CborValue,
   ad : AuthenticatorData,
   cred_id : Bytes,
   cred_key : Bytes,
   client_data_hash : Bytes,
 ) -> Unit raise WebAuthnError {
-  let sig = match @cose_cbor.map_get_str(att_stmt, "sig") {
+  let sig = match @cbor.map_get_str(att_stmt, "sig") {
     Some(Bytes(b)) => b
     _ => raise AttestationFailure("u2f.sig")
   }
@@ -563,7 +557,7 @@ fn verify_fido_u2f(
     raise AttestationFailure("fido-u2f requires exactly one x5c cert")
   }
   // publicKeyU2F from the COSE EC2 (P-256) credential key.
-  let m = @cose_cbor.decode(cred_key) catch { e => raise Cbor(e) }
+  let m = @cbor.decode(cred_key) catch { e => raise Cbor(e) }
   let x = cbor_bytes(map_int(m, -2L, "x"), "x")
   let y = cbor_bytes(map_int(m, -3L, "y"), "y")
   if x.length() != 32 || y.length() != 32 {

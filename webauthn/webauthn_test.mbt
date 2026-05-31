@@ -24,9 +24,9 @@ fn wh(s : String) -> Bytes {
 fn att_obj(
   fmt : String,
   auth_data : Bytes,
-  att_stmt : Array[(@cose_cbor.CborValue, @cose_cbor.CborValue)],
+  att_stmt : Array[(@cbor.CborValue, @cbor.CborValue)],
 ) -> Bytes {
-  @cose_cbor.encode(
+  @cbor.encode(
     Map([
       (Text("fmt"), Text(fmt)),
       (Text("authData"), Bytes(auth_data)),
@@ -207,7 +207,7 @@ test "assertion: policy + signature (ES256), with negative cases" {
   let pubu = sk.public_key().to_uncompressed()
   let x = Bytes::makei(32, fn(i) { pubu[1 + i] })
   let y = Bytes::makei(32, fn(i) { pubu[33 + i] })
-  let cose = @cose_cbor.encode(
+  let cose = @cbor.encode(
     Map([
       (Uint(1UL), Uint(2UL)),
       (Uint(3UL), Nint(6UL)),

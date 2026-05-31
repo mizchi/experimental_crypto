@@ -8,7 +8,7 @@
 // COSE alg, expressed as the CBOR negative-int payload v (alg = -(v + 1)):
 // RS256 -> 256, RS384 -> 257, RS512 -> 258, PS256 -> 36.
 fn rsa_cose(alg_nint : UInt64) -> Bytes {
-  @cose_cbor.encode(
+  @cbor.encode(
     Map([
       (Uint(1UL), Uint(3UL)), // kty = 3 (RSA)
       (Uint(3UL), Nint(alg_nint)), // alg

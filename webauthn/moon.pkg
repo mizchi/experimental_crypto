@@ -1,5 +1,5 @@
 import {
-  "mizchi/experimental_crypto/cose_cbor",
+  "mizchi/experimental_crypto/cbor",
   "mizchi/experimental_crypto/p256",
   "mizchi/experimental_crypto/p384",
   "mizchi/experimental_crypto/ed25519",
