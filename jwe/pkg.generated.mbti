@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/jwe"
+package "mizchi/experimental_crypto/jwe"
 
 import {
-  "mizchi/aead",
-  "mizchi/rsa",
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/rsa",
   "moonbitlang/core/debug",
 }
 

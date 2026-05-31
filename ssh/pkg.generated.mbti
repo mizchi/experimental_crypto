@@ -1,11 +1,11 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/ssh"
+package "mizchi/experimental_crypto/ssh"
 
 import {
-  "mizchi/ed25519",
-  "mizchi/p256",
-  "mizchi/p384",
-  "mizchi/rsa",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
+  "mizchi/experimental_crypto/rsa",
   "moonbitlang/core/debug",
 }
 

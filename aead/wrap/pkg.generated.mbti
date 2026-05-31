@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/aead/wrap"
+package "mizchi/experimental_crypto/aead/wrap"
 
 // Values
 pub fn aes_key_word_count(Int) -> Int

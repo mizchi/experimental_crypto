@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/argon2/wrap"
+package "mizchi/experimental_crypto/argon2/wrap"
 
 // Values
 pub fn argon2_segment_length(Int, Int) -> Int

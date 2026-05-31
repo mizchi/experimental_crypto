@@ -1,13 +1,13 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/pkcs8"
+package "mizchi/experimental_crypto/pkcs8"
 
 import {
-  "mizchi/aead",
-  "mizchi/asn1",
-  "mizchi/pbkdf2",
-  "mizchi/pem",
-  "mizchi/pkix",
-  "mizchi/scrypt",
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/asn1",
+  "mizchi/experimental_crypto/pbkdf2",
+  "mizchi/experimental_crypto/pem",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/scrypt",
   "moonbitlang/core/debug",
 }
 

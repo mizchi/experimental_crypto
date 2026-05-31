@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/bip32/wrap"
+package "mizchi/experimental_crypto/bip32/wrap"
 
 // Values
 pub let bip32_hardened_msb : Int

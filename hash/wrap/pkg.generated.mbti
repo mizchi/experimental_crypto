@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/hash/wrap"
+package "mizchi/experimental_crypto/hash/wrap"
 
 // Values
 pub fn sha256_pad_len(Int) -> Int

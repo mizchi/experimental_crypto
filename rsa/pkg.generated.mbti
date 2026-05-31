@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/rsa"
+package "mizchi/experimental_crypto/rsa"
 
 import {
-  "mizchi/asn1",
+  "mizchi/experimental_crypto/asn1",
   "moonbitlang/core/bigint",
   "moonbitlang/core/debug",
 }
@@ -44,6 +44,7 @@ pub(all) struct RsaPublicKey {
   e : @bigint.BigInt
   n_bytes_len : Int
 }
+pub fn RsaPublicKey::from_components(Bytes, Bytes) -> Self raise RsaError
 pub fn RsaPublicKey::from_pkcs1_der(Bytes) -> Self raise RsaError
 pub fn RsaPublicKey::from_spki_der(Bytes) -> Self raise RsaError
 pub fn RsaPublicKey::verify(Self, Bytes, Bytes, HashAlg) -> Bool raise RsaError

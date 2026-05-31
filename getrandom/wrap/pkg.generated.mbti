@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/getrandom/wrap"
+package "mizchi/experimental_crypto/getrandom/wrap"
 
 // Values
 pub fn getrandom_chunk_len(Int, Int) -> Int

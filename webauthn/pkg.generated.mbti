@@ -1,0 +1,92 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/webauthn"
+
+import {
+  "mizchi/experimental_crypto/cose_cbor",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pkix_verify",
+  "mizchi/experimental_crypto/rsa",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn client_data_hash(Bytes) -> Bytes
+
+pub fn parse_authenticator_data(Bytes) -> AuthenticatorData raise WebAuthnError
+
+pub fn parse_cose_key(Bytes) -> CredentialPublicKey raise WebAuthnError
+
+pub fn rp_id_hash(String) -> Bytes
+
+pub fn verify_assertion(Bytes, Bytes, Bytes, Bytes, rp_id_hash~ : Bytes, require_user_verification? : Bool) -> Unit raise WebAuthnError
+
+pub fn verify_attestation(Bytes, Bytes, rp_id_hash~ : Bytes, require_user_verification? : Bool) -> AttestationResult raise WebAuthnError
+
+pub fn verify_client_data(String, String, String, String) -> Unit raise WebAuthnError
+
+// Errors
+pub suberror WebAuthnError {
+  Cbor(@cose_cbor.CborError)
+  ParseError(String)
+  UnsupportedAlgorithm(Int)
+  UnsupportedKeyType(String)
+  Pkix(@pkix.PkixError)
+  PkixVerify(@pkix_verify.PkixVerifyError)
+  SignatureInvalid
+  AttestationFailure(String)
+  ClientDataInvalid(String)
+  RpIdMismatch
+  UserNotPresent
+  UserNotVerified
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct AttestationResult {
+  fmt : String
+  attestation_type : AttestationType
+  credential_id : Bytes
+  credential_public_key : Bytes
+  sign_count : UInt
+  aaguid : Bytes
+  trust_path : Array[Bytes]
+}
+
+pub(all) enum AttestationType {
+  NoAttestation
+  SelfAttestation
+  CertificateAttestation
+} derive(Eq, @debug.Debug)
+
+pub(all) struct AuthenticatorData {
+  rp_id_hash : Bytes
+  flags : Int
+  sign_count : UInt
+  aaguid : Bytes?
+  credential_id : Bytes?
+  credential_public_key : Bytes?
+  raw : Bytes
+}
+pub fn AuthenticatorData::attested_credential_data_present(Self) -> Bool
+pub fn AuthenticatorData::user_present(Self) -> Bool
+pub fn AuthenticatorData::user_verified(Self) -> Bool
+
+pub(all) enum CredentialPublicKey {
+  Es256(@p256.PublicKey)
+  Es384(@p384.PublicKey)
+  EdDSA(@ed25519.PublicKey)
+  Rs256(@rsa.RsaPublicKey)
+  Rs384(@rsa.RsaPublicKey)
+  Rs512(@rsa.RsaPublicKey)
+  Ps256(@rsa.RsaPublicKey)
+  Ps384(@rsa.RsaPublicKey)
+  Ps512(@rsa.RsaPublicKey)
+}
+pub fn CredentialPublicKey::verify(Self, Bytes, Bytes) -> Bool
+
+// Type aliases
+
+// Traits
+

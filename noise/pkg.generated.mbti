@@ -1,0 +1,59 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/noise"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub suberror NoiseError {
+  DecryptFailed
+  Truncated
+  MissingKey(String)
+  WrongState(String)
+  Dh(String)
+  NonceExhausted
+} derive(@debug.Debug)
+
+// Types and methods
+pub struct CipherState {
+  mut key : Bytes
+  mut nonce : UInt64
+}
+pub fn CipherState::decrypt_with_ad(Self, Bytes, Bytes) -> Bytes raise NoiseError
+pub fn CipherState::encrypt_with_ad(Self, Bytes, Bytes) -> Bytes raise NoiseError
+
+pub struct HandshakeState {
+  ss : SymmetricState
+  initiator : Bool
+  messages : Array[Array[Token]]
+  mut msg_index : Int
+  s : Bytes?
+  e : Bytes?
+  mut rs : Bytes?
+  mut re : Bytes?
+}
+pub fn HandshakeState::handshake_hash(Self) -> Bytes
+pub fn HandshakeState::is_finished(Self) -> Bool
+pub fn HandshakeState::new(Pattern, Bool, Bytes, s? : Bytes?, e? : Bytes?, rs? : Bytes?) -> Self raise NoiseError
+pub fn HandshakeState::read_message(Self, Bytes) -> Bytes raise NoiseError
+pub fn HandshakeState::split(Self) -> (CipherState, CipherState) raise NoiseError
+pub fn HandshakeState::write_message(Self, Bytes) -> Bytes raise NoiseError
+
+pub(all) enum Pattern {
+  NN
+  NK
+  XX
+  IK
+} derive(Eq, @debug.Debug)
+
+type SymmetricState
+
+type Token derive(Eq)
+
+// Type aliases
+
+// Traits
+

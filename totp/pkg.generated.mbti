@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/totp"
+package "mizchi/experimental_crypto/totp"
 
 // Values
 pub fn hotp(Bytes, UInt64, digits? : Int, hash? : TotpHash) -> String

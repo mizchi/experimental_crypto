@@ -1,0 +1,240 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/tls13"
+
+import {
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pkix_verify",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn build_client_hello(Bytes, Bytes, Array[CipherSuite], Array[NamedGroup], Array[KeyShareOffer], Array[SignatureScheme], server_name? : String?) -> Bytes raise MessageError
+
+pub fn build_finished(CipherSuite, Bytes, Bytes) -> Bytes
+
+pub fn certificate_verify_content(String, Bytes) -> Bytes
+
+pub let client_certificate_verify_context : String
+
+pub fn client_handshake_1rtt(CipherSuite, Bytes, Bytes, Bytes, Bytes) -> ClientHandshakeResult raise ClientError
+
+pub fn client_handshake_1rtt_verified(CipherSuite, Bytes, Bytes, Bytes, Bytes, @pkix.Certificate, String, String) -> ClientHandshakeResult raise ClientError
+
+pub fn finished_mac(CipherSuite, Bytes, Bytes) -> Bytes
+
+pub fn handshake_message(HandshakeType, Bytes) -> Bytes
+
+pub fn hostname_matches_san(String, String) -> Bool
+
+pub fn open_record(CipherSuite, Bytes, Bytes, UInt64, Bytes) -> (ContentType, Bytes) raise RecordError
+
+pub fn parse_certificate(Bytes) -> Array[Bytes] raise MessageError
+
+pub fn parse_certificate_verify(Bytes) -> CertificateVerify raise MessageError
+
+pub fn parse_client_hello(Bytes) -> ClientHello raise MessageError
+
+pub fn parse_handshake(Bytes, offset? : Int) -> (HandshakeType, Bytes, Int) raise HandshakeError
+
+pub fn parse_handshake_flight(Bytes) -> Array[(HandshakeType, Bytes)] raise HandshakeError
+
+pub fn parse_server_hello(Bytes) -> ServerHello raise MessageError
+
+pub fn record_nonce(Bytes, UInt64) -> Bytes
+
+pub fn seal_record(CipherSuite, Bytes, Bytes, UInt64, ContentType, Bytes, padding? : Int) -> Bytes raise RecordError
+
+pub let server_certificate_verify_context : String
+
+pub fn verify_finished(CipherSuite, Bytes, Bytes, Bytes) -> Bool raise HandshakeError
+
+pub fn verify_server_certificate_verify(Bytes, CertificateVerify, Bytes) -> Bool raise AuthError
+
+// Errors
+pub suberror AuthError {
+  Pkix(@pkix.PkixError)
+  PkixVerify(@pkix_verify.PkixVerifyError)
+  DisallowedScheme(SignatureScheme)
+  KeyMismatch(SignatureScheme)
+  UnsupportedScheme(SignatureScheme)
+} derive(@debug.Debug)
+
+pub suberror ClientError {
+  Handshake(HandshakeError)
+  Message(MessageError)
+  Auth(AuthError)
+  UnexpectedFlight(String)
+  NotServerHello
+  HelloRetryRequestUnsupported
+  NotTls13(Int?)
+  DowngradeDetected
+  CipherSuiteMismatch(Int)
+  MissingKeyShare
+  WeakSharedSecret
+  CertificateVerifyFailed
+  ServerFinishedFailed
+  CertParse(@pkix.PkixError)
+  ChainUntrusted(@pkix_verify.PkixVerifyError)
+  HostnameMismatch(String)
+} derive(@debug.Debug)
+
+pub suberror HandshakeError {
+  Truncated
+  UnknownType(Int)
+  NotFinished
+} derive(@debug.Debug)
+
+pub suberror MessageError {
+  Truncated(String)
+  LengthMismatch(String)
+  Malformed(String)
+} derive(@debug.Debug)
+
+pub suberror RecordError {
+  ShortRecord
+  UnexpectedOuterType(Int)
+  MissingContentType
+  BadContentType(Int)
+  Aead(@aead.AeadError)
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct CertificateVerify {
+  scheme : SignatureScheme
+  signature : Bytes
+}
+
+pub(all) enum CipherSuite {
+  Aes128GcmSha256
+  Aes256GcmSha384
+  ChaCha20Poly1305Sha256
+} derive(Eq, @debug.Debug)
+pub fn CipherSuite::aead(Self) -> @aead.Algorithm
+pub fn CipherSuite::from_u16(Int) -> Self?
+pub fn CipherSuite::hash(Self) -> Hash
+pub fn CipherSuite::key_len(Self) -> Int
+pub fn CipherSuite::to_u16(Self) -> Int
+
+pub(all) struct ClientHandshakeResult {
+  keys : HandshakeKeys
+  server_certificates : Array[Bytes]
+  client_finished : Bytes
+}
+
+pub(all) struct ClientHello {
+  legacy_version : Int
+  random : Bytes
+  legacy_session_id : Bytes
+  cipher_suites : Array[Int]
+  supported_versions : Array[Int]
+  key_shares : Array[KeyShareOffer]
+}
+
+pub(all) enum ContentType {
+  ChangeCipherSpec
+  Alert
+  Handshake
+  ApplicationData
+} derive(Eq, @debug.Debug)
+pub fn ContentType::to_byte(Self) -> Byte
+
+pub(all) struct HandshakeKeys {
+  suite : CipherSuite
+  client_handshake_traffic_secret : Bytes
+  server_handshake_traffic_secret : Bytes
+  client_handshake_key : Bytes
+  client_handshake_iv : Bytes
+  server_handshake_key : Bytes
+  server_handshake_iv : Bytes
+  client_application_traffic_secret : Bytes
+  server_application_traffic_secret : Bytes
+  client_application_key : Bytes
+  client_application_iv : Bytes
+  server_application_key : Bytes
+  server_application_iv : Bytes
+}
+
+pub(all) enum HandshakeType {
+  ClientHello
+  ServerHello
+  NewSessionTicket
+  EndOfEarlyData
+  EncryptedExtensions
+  Certificate
+  CertificateRequest
+  CertificateVerify
+  Finished
+  KeyUpdate
+  MessageHash
+} derive(Eq, @debug.Debug)
+pub fn HandshakeType::to_int(Self) -> Int
+
+pub(all) enum Hash {
+  Sha256
+  Sha384
+} derive(Eq, @debug.Debug)
+pub fn Hash::client_application_traffic_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::client_handshake_traffic_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::derive_secret(Self, Bytes, String, Bytes) -> Bytes
+pub fn Hash::early_secret(Self, Bytes) -> Bytes
+pub fn Hash::exporter_master_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::finished_key(Self, Bytes) -> Bytes
+pub fn Hash::handshake_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::hash_len(Self) -> Int
+pub fn Hash::hkdf_expand(Self, Bytes, Bytes, Int) -> Bytes
+pub fn Hash::hkdf_expand_label(Self, Bytes, String, Bytes, Int) -> Bytes
+pub fn Hash::hkdf_extract(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::master_secret(Self, Bytes) -> Bytes
+pub fn Hash::resumption_master_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::server_application_traffic_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::server_handshake_traffic_secret(Self, Bytes, Bytes) -> Bytes
+pub fn Hash::transcript_hash(Self, Bytes) -> Bytes
+pub fn Hash::write_iv(Self, Bytes) -> Bytes
+pub fn Hash::write_key(Self, Bytes, Int) -> Bytes
+
+pub(all) struct KeyShareOffer {
+  group : NamedGroup
+  key_exchange : Bytes
+}
+
+pub(all) enum NamedGroup {
+  Secp256r1
+  Secp384r1
+  Secp521r1
+  X25519
+  X448
+  Unknown(Int)
+} derive(Eq, @debug.Debug)
+pub fn NamedGroup::to_u16(Self) -> Int
+
+pub(all) struct ServerHello {
+  legacy_version : Int
+  random : Bytes
+  is_hello_retry_request : Bool
+  cipher_suite : Int
+  selected_version : Int?
+  key_share_group : NamedGroup?
+  key_share : Bytes?
+}
+
+pub(all) enum SignatureScheme {
+  RsaPkcs1Sha256
+  RsaPkcs1Sha384
+  RsaPkcs1Sha512
+  EcdsaSecp256r1Sha256
+  EcdsaSecp384r1Sha384
+  EcdsaSecp521r1Sha512
+  RsaPssRsaeSha256
+  RsaPssRsaeSha384
+  RsaPssRsaeSha512
+  Ed25519
+  Ed448
+  Unknown(Int)
+} derive(Eq, @debug.Debug)
+pub fn SignatureScheme::to_u16(Self) -> Int
+
+// Type aliases
+
+// Traits
+

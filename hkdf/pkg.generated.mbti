@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/hkdf"
+package "mizchi/experimental_crypto/hkdf"
 
 import {
   "moonbitlang/core/debug",
@@ -8,7 +8,7 @@ import {
 // Values
 pub fn expand(HashAlg, Bytes, Bytes, Int) -> Bytes raise HkdfError
 
-pub fn extract(HashAlg, Bytes, Bytes) -> Bytes raise HkdfError
+pub fn extract(HashAlg, Bytes, Bytes) -> Bytes
 
 pub fn hkdf(HashAlg, Bytes, Bytes, Bytes, Int) -> Bytes raise HkdfError
 
@@ -18,7 +18,6 @@ pub fn output_size(HashAlg) -> Int
 pub suberror HkdfError {
   OutputTooLong
   InvalidLength
-  UnsupportedHash(HashAlg)
 } derive(@debug.Debug)
 
 // Types and methods

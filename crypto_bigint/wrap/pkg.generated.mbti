@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/crypto_bigint/wrap"
+package "mizchi/experimental_crypto/crypto_bigint/wrap"
 
 // Values
 pub fn limb_capacity_bytes(Int) -> Int

@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/p256"
+package "mizchi/experimental_crypto/p256"
 
 import {
-  "mizchi/asn1",
+  "mizchi/experimental_crypto/asn1",
   "moonbitlang/core/bigint",
   "moonbitlang/core/debug",
 }

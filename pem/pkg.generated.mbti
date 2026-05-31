@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/pem"
+package "mizchi/experimental_crypto/pem"
 
 import {
   "moonbitlang/core/debug",

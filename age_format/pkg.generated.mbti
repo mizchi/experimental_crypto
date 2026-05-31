@@ -1,0 +1,40 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/age_format"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn bech32_decode(String) -> (String, Bytes) raise Bech32Error
+
+pub fn decrypt(Array[X25519Identity], Bytes) -> Bytes raise AgeError
+
+pub fn encrypt_x25519(Bytes, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AgeError
+
+// Errors
+pub suberror AgeError {
+  HeaderFailure(String)
+  NoMatch
+  HmacFailure
+  PayloadFailure(String)
+  KeyError(String)
+} derive(@debug.Debug)
+
+pub suberror Bech32Error {
+  Bech32Format(String)
+  Bech32Checksum
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) struct X25519Identity {
+  scalar : Bytes
+}
+pub fn X25519Identity::from_bech32(String) -> Self raise AgeError
+pub fn X25519Identity::from_bytes(Bytes) -> Self raise AgeError
+pub fn X25519Identity::public_key_bytes(Self) -> Bytes raise AgeError
+
+// Type aliases
+
+// Traits
+

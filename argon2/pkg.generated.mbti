@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/argon2"
+package "mizchi/experimental_crypto/argon2"
 
 import {
   "moonbitlang/core/debug",

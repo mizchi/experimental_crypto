@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/leakage_harness"
+package "mizchi/experimental_crypto/leakage_harness"
 
 // Values
 

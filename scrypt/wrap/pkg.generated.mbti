@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/scrypt/wrap"
+package "mizchi/experimental_crypto/scrypt/wrap"
 
 // Values
 pub fn scrypt_pbkdf_blocks(Int, Int) -> Int
