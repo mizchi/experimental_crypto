@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/jwt/wrap"
+package "mizchi/experimental_crypto/jwt/wrap"
 
 // Values
 pub fn base64url_unpadded_len(Int) -> Int

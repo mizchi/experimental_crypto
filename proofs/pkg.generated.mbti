@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/proofs"
+package "mizchi/experimental_crypto/proofs"
 
 // Values
 pub fn abs(Int) -> Int

@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/bip32"
+package "mizchi/experimental_crypto/bip32"
 
 import {
-  "mizchi/secp256k1",
+  "mizchi/experimental_crypto/secp256k1",
   "moonbitlang/core/debug",
 }
 

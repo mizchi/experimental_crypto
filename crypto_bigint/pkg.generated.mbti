@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/crypto_bigint"
+package "mizchi/experimental_crypto/crypto_bigint"
 
 import {
   "moonbitlang/core/debug",

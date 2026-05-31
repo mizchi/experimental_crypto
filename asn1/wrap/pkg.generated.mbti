@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/asn1/wrap"
+package "mizchi/experimental_crypto/asn1/wrap"
 
 // Values
 pub fn der_length_payload_bytes_after_indicator(Int) -> Int

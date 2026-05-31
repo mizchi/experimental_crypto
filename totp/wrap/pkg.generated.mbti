@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/totp/wrap"
+package "mizchi/experimental_crypto/totp/wrap"
 
 // Values
 pub fn totp_digit_modulus(Int) -> Int

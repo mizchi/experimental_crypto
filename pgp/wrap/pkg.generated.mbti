@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/pgp/wrap"
+package "mizchi/experimental_crypto/pgp/wrap"
 
 // Values
 pub fn pgp_packet_length_octets(Int) -> Int

@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/hpke"
+package "mizchi/experimental_crypto/hpke"
 
 import {
   "moonbitlang/core/debug",

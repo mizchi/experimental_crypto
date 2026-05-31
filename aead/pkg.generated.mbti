@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/aead"
+package "mizchi/experimental_crypto/aead"
 
 import {
   "moonbitlang/core/debug",

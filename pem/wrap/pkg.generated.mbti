@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/pem/wrap"
+package "mizchi/experimental_crypto/pem/wrap"
 
 // Values
 pub fn pem_next_chunk_len(Int, Int) -> Int

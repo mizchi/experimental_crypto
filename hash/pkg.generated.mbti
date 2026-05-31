@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/hash"
+package "mizchi/experimental_crypto/hash"
 
 import {
   "moonbitlang/core/debug",

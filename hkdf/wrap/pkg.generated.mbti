@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/hkdf/wrap"
+package "mizchi/experimental_crypto/hkdf/wrap"
 
 // Values
 pub fn hkdf_block_count(Int, Int) -> Int

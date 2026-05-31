@@ -1,15 +1,15 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/jwt"
+package "mizchi/experimental_crypto/jwt"
 
 import {
-  "mizchi/ed25519",
-  "mizchi/jwe",
-  "mizchi/jwk",
-  "mizchi/p256",
-  "mizchi/p384",
-  "mizchi/p521",
-  "mizchi/rsa",
-  "mizchi/secp256k1",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/jwe",
+  "mizchi/experimental_crypto/jwk",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
+  "mizchi/experimental_crypto/p521",
+  "mizchi/experimental_crypto/rsa",
+  "mizchi/experimental_crypto/secp256k1",
   "moonbitlang/core/debug",
 }
 

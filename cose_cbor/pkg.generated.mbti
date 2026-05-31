@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/cose_cbor"
+package "mizchi/experimental_crypto/cose_cbor"
 
 import {
   "moonbitlang/core/debug",
