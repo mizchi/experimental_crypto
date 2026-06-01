@@ -46,7 +46,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | Package | RFC / Spec | Role |
 |---|---|---|
 | `hash` | FIPS 180-4, RFC 2104, ISO 10118-3, BLAKE2/3 | SHA-1/256/384/512, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, `ct_eq`. |
-| `aead` | RFC 8439, NIST SP 800-38D | ChaCha20- / XChaCha20-Poly1305, AES-128/256-GCM, AES-CBC. |
+| `aead` | RFC 8439, NIST SP 800-38D / 38A | ChaCha20- / XChaCha20-Poly1305, AES-128/256-GCM, AES-CBC, AES-CTR. |
 | `pkix` | RFC 5280 | X.509 v3 parse + byte-stable DER round-trip. |
 | `pkcs8` | RFC 5208 / 5958, RFC 8018 | PrivateKeyInfo + EncryptedPrivateKeyInfo (PBES2). |
 | `pem` | RFC 7468 | PEM encode / decode with strict label + size caps. |
