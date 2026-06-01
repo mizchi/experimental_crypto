@@ -80,6 +80,60 @@ pub fn x25519_shared(priv32 : Bytes, peer_pub : Bytes) -> Bytes {
 }
 
 ///|
+/// P-256 ECDHE public key (65-byte uncompressed SEC1 point) from a 32-byte
+/// scalar, for a TLS 1.3 secp256r1 key share.
+pub fn p256_public(priv32 : Bytes) -> Bytes {
+  let sk = @p256.PrivateKey::from_bytes(priv32) catch {
+    e => abort("p256_public: " + @debug.to_string(e))
+  }
+  sk.public_key().to_uncompressed()
+}
+
+///|
+/// P-256 ECDHE shared secret: the 32-byte X coordinate of priv·peer
+/// (RFC 8446 §7.4.2 — the TLS 1.3 (EC)DHE secret for secp256r1).
+pub fn p256_shared(priv32 : Bytes, peer_pub : Bytes) -> Bytes {
+  let sk = @p256.PrivateKey::from_bytes(priv32) catch {
+    e => abort("p256_shared(sk): " + @debug.to_string(e))
+  }
+  let pk = @p256.PublicKey::from_uncompressed(peer_pub) catch {
+    e => abort("p256_shared(pk): " + @debug.to_string(e))
+  }
+  sk.ecdh(pk)
+}
+
+///|
+/// P-384 ECDHE public key (97-byte uncompressed point) from a 48-byte scalar.
+pub fn p384_public(priv48 : Bytes) -> Bytes {
+  let sk = @p384.PrivateKey::from_bytes(priv48) catch {
+    e => abort("p384_public: " + @debug.to_string(e))
+  }
+  sk.public_key().to_uncompressed()
+}
+
+///|
+/// P-384 ECDHE shared secret: the 48-byte X coordinate of priv·peer.
+pub fn p384_shared(priv48 : Bytes, peer_pub : Bytes) -> Bytes {
+  let sk = @p384.PrivateKey::from_bytes(priv48) catch {
+    e => abort("p384_shared(sk): " + @debug.to_string(e))
+  }
+  let pk = @p384.PublicKey::from_uncompressed(peer_pub) catch {
+    e => abort("p384_shared(pk): " + @debug.to_string(e))
+  }
+  sk.ecdh(pk)
+}
+
+///|
+fn group_of(group_u16 : Int) -> @tls13.NamedGroup {
+  match group_u16 {
+    0x0017 => @tls13.NamedGroup::Secp256r1
+    0x0018 => @tls13.NamedGroup::Secp384r1
+    0x001d => @tls13.NamedGroup::X25519
+    _ => abort("unsupported key-share group " + group_u16.to_string())
+  }
+}
+
+///|
 /// Build a ClientHello handshake message (with its 4-byte header) offering a
 /// single cipher suite, X25519 key share, and a small signature-scheme set.
 pub fn client_hello(
@@ -89,17 +143,32 @@ pub fn client_hello(
   x25519_pub : Bytes,
   server_name : String,
 ) -> Bytes {
+  client_hello_group(
+    0x001d, suite_u16, random32, session_id, x25519_pub, server_name,
+  )
+}
+
+///|
+/// Like `client_hello`, but offers the key share for an arbitrary `group_u16`
+/// (0x0017 secp256r1 / 0x0018 secp384r1 / 0x001d x25519). `key_exchange` is the
+/// group's wire public key (X25519: 32 bytes; NIST: uncompressed point).
+pub fn client_hello_group(
+  group_u16 : Int,
+  suite_u16 : Int,
+  random32 : Bytes,
+  session_id : Bytes,
+  key_exchange : Bytes,
+  server_name : String,
+) -> Bytes {
   let suite = suite_of(suite_u16)
-  let offer : @tls13.KeyShareOffer = {
-    group: @tls13.NamedGroup::X25519,
-    key_exchange: x25519_pub,
-  }
+  let group = group_of(group_u16)
+  let offer : @tls13.KeyShareOffer = { group, key_exchange }
   let sni : String? = if server_name == "" { None } else { Some(server_name) }
   @tls13.build_client_hello(
     random32,
     session_id,
     [suite],
-    [@tls13.NamedGroup::X25519],
+    [group],
     [offer],
     [
       @tls13.SignatureScheme::EcdsaSecp256r1Sha256,
@@ -109,7 +178,7 @@ pub fn client_hello(
     ],
     server_name=sni,
   ) catch {
-    e => abort("client_hello: " + @debug.to_string(e))
+    e => abort("client_hello_group: " + @debug.to_string(e))
   }
 }
 

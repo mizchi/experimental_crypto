@@ -4,9 +4,19 @@ package "mizchi/experimental_crypto/tests/tls13_interop"
 // Values
 pub fn client_hello(Int, Bytes, Bytes, Bytes, String) -> Bytes
 
+pub fn client_hello_group(Int, Int, Bytes, Bytes, Bytes, String) -> Bytes
+
 pub fn key_len(Int) -> Int
 
 pub fn open_record(Int, Bytes, Bytes, Int, Bytes) -> Bytes
+
+pub fn p256_public(Bytes) -> Bytes
+
+pub fn p256_shared(Bytes, Bytes) -> Bytes
+
+pub fn p384_public(Bytes) -> Bytes
+
+pub fn p384_shared(Bytes, Bytes) -> Bytes
 
 pub fn run_handshake(Int, Bytes, Bytes, Bytes, Bytes) -> Bytes
 
