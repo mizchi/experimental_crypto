@@ -203,6 +203,9 @@ jobs:
             bash tests/pkix_interop/run.sh
             bash tests/ssh_interop/run.sh
             bash tests/pgp_interop/run.sh
+            bash tests/jwe_interop/run.sh
+            bash tests/cms_interop/run.sh
+            bash tests/pkcs8_interop/run.sh
           '
 
   leakage-smoke:

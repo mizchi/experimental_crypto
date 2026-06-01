@@ -1,0 +1,7 @@
+import {
+  "mizchi/experimental_crypto/cms",
+}
+
+options(
+  link: { "js": { "exports": [ "cms_verify" ], "format": "esm" } },
+)
