@@ -1,0 +1,7 @@
+import {
+  "mizchi/experimental_crypto/pgp",
+}
+
+options(
+  link: { "js": { "exports": [ "pgp_verify" ], "format": "esm" } },
+)

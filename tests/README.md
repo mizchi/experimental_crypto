@@ -15,5 +15,6 @@ suite stays green on minimal images, and is wired into `.github/workflows/ci.yml
 | `verify_shim/` | reverse: Node signs JWTs (EdDSA/ES256/RS256/PS256/HS256) + seals AEAD; **MoonBit verifies / decrypts** and rejects tampered artifacts | `node` | `crypto-interop` |
 | `pkix_interop/` | openssl mints a root→intermediate→leaf X.509 chain; **MoonBit `pkix_verify` validates** it (+ expired / missing-intermediate / wrong-name / untrusted-anchor negatives) | `openssl`, `node` | `crypto-interop` |
 | `ssh_interop/` | `ssh-keygen -Y sign` (Ed25519/ECDSA/RSA) produces SSHSIG; **MoonBit `ssh` verifies** via allowed_signers (+ tampered / wrong-principal / wrong-namespace negatives) | `ssh-keygen`, `node` | `crypto-interop` |
+| `pgp_interop/` | reverse of `pgp/gpg_interop.sh`: `gpg` signs (Ed25519/RSA/ECDSA-P256/P384); **MoonBit `pgp` verifies** (+ tampered negatives) | `gpg`, `node` | `crypto-interop` |
 
 See each subdirectory's `README.md` for details.
