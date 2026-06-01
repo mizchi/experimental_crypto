@@ -7,11 +7,49 @@ import {
 }
 
 // Values
+pub fn build_client_hello(Bytes, Array[CipherSuite], Array[Int], String) -> Bytes raise MessageError
+
+pub fn build_client_key_exchange(Bytes) -> Bytes
+
+pub let group_secp256r1 : Int
+
+pub let group_secp384r1 : Int
+
+pub let group_x25519 : Int
+
+pub fn handshake_message(HandshakeType, Bytes) -> Bytes
+
 pub fn open_gcm_record(GcmKeys, UInt64, Bytes) -> (ContentType, Bytes) raise RecordError
+
+pub fn parse_certificate(Bytes) -> Array[Bytes] raise MessageError
+
+pub fn parse_handshake(Bytes) -> (HandshakeType, Bytes) raise MessageError
+
+pub fn parse_server_hello(Bytes) -> ServerHello raise MessageError
+
+pub fn parse_server_hello_done(Bytes) -> Unit raise MessageError
+
+pub fn parse_server_key_exchange(Bytes) -> ServerKeyExchange raise MessageError
 
 pub fn seal_gcm_record(GcmKeys, UInt64, ContentType, Bytes) -> Bytes raise RecordError
 
+pub let sig_ecdsa_secp256r1_sha256 : Int
+
+pub let sig_ecdsa_secp384r1_sha384 : Int
+
+pub let sig_ed25519 : Int
+
+pub let sig_rsa_pkcs1_sha256 : Int
+
+pub let sig_rsa_pkcs1_sha384 : Int
+
 // Errors
+pub suberror MessageError {
+  Truncated(String)
+  UnknownHandshakeType(Int)
+  Malformed(String)
+} derive(@debug.Debug)
+
 pub suberror RecordError {
   ShortRecord
   UnexpectedContentType(Int)
@@ -22,6 +60,17 @@ pub suberror RecordError {
 } derive(@debug.Debug)
 
 // Types and methods
+pub(all) enum CipherSuite {
+  EcdheEcdsaAes128GcmSha256
+  EcdheRsaAes128GcmSha256
+  EcdheEcdsaAes256GcmSha384
+  EcdheRsaAes256GcmSha384
+} derive(Eq, @debug.Debug)
+pub fn CipherSuite::aead(Self) -> @aead.Algorithm
+pub fn CipherSuite::from_u16(Int) -> Self?
+pub fn CipherSuite::prf_hash(Self) -> PrfHash
+pub fn CipherSuite::to_u16(Self) -> Int
+
 pub(all) enum ContentType {
   ChangeCipherSpec
   Alert
@@ -38,6 +87,21 @@ pub struct GcmKeys {
 }
 pub fn GcmKeys::new(@aead.Algorithm, Bytes, Bytes) -> Self raise RecordError
 
+pub(all) enum HandshakeType {
+  ClientHello
+  ServerHello
+  NewSessionTicket
+  Certificate
+  ServerKeyExchange
+  CertificateRequest
+  ServerHelloDone
+  CertificateVerify
+  ClientKeyExchange
+  Finished
+} derive(Eq, @debug.Debug)
+pub fn HandshakeType::from_int(Int) -> Self?
+pub fn HandshakeType::to_int(Self) -> Int
+
 pub(all) enum PrfHash {
   Sha256
   Sha384
@@ -50,6 +114,27 @@ pub fn PrfHash::master_secret(Self, Bytes, Bytes, Bytes) -> Bytes
 pub fn PrfHash::p_hash(Self, Bytes, Bytes, Int) -> Bytes
 pub fn PrfHash::prf(Self, Bytes, String, Bytes, Int) -> Bytes
 pub fn PrfHash::transcript_hash(Self, Bytes) -> Bytes
+
+pub struct ServerHello {
+  server_random : Bytes
+  session_id : Bytes
+  cipher_suite : CipherSuite
+}
+pub fn ServerHello::cipher_suite(Self) -> CipherSuite
+pub fn ServerHello::random(Self) -> Bytes
+
+pub struct ServerKeyExchange {
+  named_group : Int
+  public_key : Bytes
+  sig_scheme : Int
+  signature : Bytes
+  params_raw : Bytes
+}
+pub fn ServerKeyExchange::named_group(Self) -> Int
+pub fn ServerKeyExchange::public_key(Self) -> Bytes
+pub fn ServerKeyExchange::sig_scheme(Self) -> Int
+pub fn ServerKeyExchange::signature(Self) -> Bytes
+pub fn ServerKeyExchange::signed_material(Self, Bytes, Bytes) -> Bytes
 
 // Type aliases
 
