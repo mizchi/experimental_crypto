@@ -61,8 +61,8 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 |---|---|---|
 | `ed25519` | RFC 8032 | Ed25519 sign + verify (+ `verify_strict`). |
 | `x25519` | RFC 7748 | X25519 ECDH (10-limb Montgomery ladder). |
-| `p256` | FIPS 186-5, SEC 1 | ECDSA-SHA-256 sign (RFC 6979) + verify. |
-| `p384` | FIPS 186-5 | ECDSA-SHA-384 sign + verify. |
+| `p256` | FIPS 186-5, SEC 1, RFC 5903 | ECDSA-SHA-256 sign (RFC 6979) + verify, ECDH. |
+| `p384` | FIPS 186-5, RFC 5903 | ECDSA-SHA-384 sign + verify, ECDH. |
 | `p521` | FIPS 186-5 | ECDSA-SHA-512 (ES512) sign + verify. |
 | `secp256k1` | SEC 2 §2.4.1 | ECDSA + RFC 6979 + BIP-62 low-s (Bitcoin / Ethereum). |
 | `rsa` | RFC 8017 | RSA PKCS#1 v1.5 + RSA-PSS sign + verify. |

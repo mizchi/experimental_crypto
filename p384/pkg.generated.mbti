@@ -28,6 +28,7 @@ type Point
 pub struct PrivateKey {
   d : @bigint.BigInt
 }
+pub fn PrivateKey::ecdh(Self, PublicKey) -> Bytes
 pub fn PrivateKey::from_bytes(Bytes) -> Self raise P384Error
 pub fn PrivateKey::from_pkcs8_der(Bytes) -> Self raise P384Error
 pub fn PrivateKey::from_pkcs8_pem(String) -> Self raise P384Error
