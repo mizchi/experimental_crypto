@@ -199,6 +199,7 @@ jobs:
             bash scripts/ci_retry.sh moon update >/dev/null
             bash tests/jose_interop/run.sh
             bash tests/aead_interop/run.sh
+            bash tests/verify_shim/run.sh
           '
 
   leakage-smoke:

@@ -12,5 +12,6 @@ suite stays green on minimal images, and is wired into `.github/workflows/ci.yml
 | `tls13_interop/` | drives the MoonBit TLS 1.3 **client** (compiled to JS) through a live 1-RTT handshake + HTTP, with certificate-chain validation | `openssl s_server`, `node` | `tls13-interop` |
 | `jose_interop/` | MoonBit signs JWTs (EdDSA / ES256 / HS256); Node's built-in crypto verifies the JWS | `node` | `crypto-interop` |
 | `aead_interop/` | MoonBit seals (ChaCha20-Poly1305 / AES-128-GCM / AES-256-GCM); Node opens + authenticates | `node` | `crypto-interop` |
+| `verify_shim/` | reverse: Node signs JWTs (EdDSA/ES256/RS256/PS256/HS256) + seals AEAD; **MoonBit verifies / decrypts** and rejects tampered artifacts | `node` | `crypto-interop` |
 
 See each subdirectory's `README.md` for details.

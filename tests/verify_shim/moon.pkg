@@ -1,0 +1,9 @@
+import {
+  "mizchi/experimental_crypto/jwt",
+  "mizchi/experimental_crypto/jwk",
+  "mizchi/experimental_crypto/aead",
+}
+
+options(
+  link: { "js": { "exports": [ "jwt_verify", "aead_open" ], "format": "esm" } },
+)
