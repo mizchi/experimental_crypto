@@ -1,0 +1,19 @@
+import {
+  "mizchi/experimental_crypto/jwe",
+  "mizchi/experimental_crypto/rsa",
+  "moonbitlang/core/debug",
+}
+
+options(
+  link: {
+    "js": {
+      "exports": [
+        "jwe_encrypt_dir",
+        "jwe_decrypt_dir",
+        "jwe_encrypt_rsa",
+        "jwe_decrypt_rsa",
+      ],
+      "format": "esm",
+    },
+  },
+)

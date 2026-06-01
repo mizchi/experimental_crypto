@@ -16,5 +16,8 @@ suite stays green on minimal images, and is wired into `.github/workflows/ci.yml
 | `pkix_interop/` | openssl mints a root→intermediate→leaf X.509 chain; **MoonBit `pkix_verify` validates** it (+ expired / missing-intermediate / wrong-name / untrusted-anchor negatives) | `openssl`, `node` | `crypto-interop` |
 | `ssh_interop/` | `ssh-keygen -Y sign` (Ed25519/ECDSA/RSA) produces SSHSIG; **MoonBit `ssh` verifies** via allowed_signers (+ tampered / wrong-principal / wrong-namespace negatives) | `ssh-keygen`, `node` | `crypto-interop` |
 | `pgp_interop/` | reverse of `pgp/gpg_interop.sh`: `gpg` signs (Ed25519/RSA/ECDSA-P256/P384); **MoonBit `pgp` verifies** (+ tampered negatives) | `gpg`, `node` | `crypto-interop` |
+| `jwe_interop/` | JWE (`dir`, `RSA-OAEP-256` + AES-GCM) **both directions**: MoonBit `jwe` encrypt↔decrypt vs Node crypto (+ tamper) | `node` | `crypto-interop` |
+| `cms_interop/` | `openssl cms -sign` detached SignedData (ECDSA/RSA); **MoonBit `cms` verifies** (+ tampered) | `openssl`, `node` | `crypto-interop` |
+| `pkcs8_interop/` | `openssl genpkey` PKCS#8 (RSA/EC-P256/P384/Ed25519); **MoonBit loads + signs**, Node verifies the JWS (+ tamper) | `openssl`, `node` | `crypto-interop` |
 
 See each subdirectory's `README.md` for details.

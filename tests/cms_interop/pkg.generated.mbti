@@ -1,0 +1,14 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/tests/cms_interop"
+
+// Values
+pub fn cms_verify(String, String) -> Int
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+
