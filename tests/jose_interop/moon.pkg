@@ -1,0 +1,10 @@
+import {
+  "mizchi/experimental_crypto/jwt",
+  "mizchi/experimental_crypto/jwk",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/p256",
+}
+
+options(
+  is_main: true,
+)

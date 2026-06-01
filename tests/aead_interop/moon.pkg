@@ -1,0 +1,7 @@
+import {
+  "mizchi/experimental_crypto/aead",
+}
+
+options(
+  is_main: true,
+)
