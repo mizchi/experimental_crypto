@@ -201,6 +201,7 @@ jobs:
             bash tests/aead_interop/run.sh
             bash tests/verify_shim/run.sh
             bash tests/pkix_interop/run.sh
+            bash tests/ssh_interop/run.sh
           '
 
   leakage-smoke:

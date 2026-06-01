@@ -14,5 +14,6 @@ suite stays green on minimal images, and is wired into `.github/workflows/ci.yml
 | `aead_interop/` | MoonBit seals (ChaCha20-Poly1305 / AES-128-GCM / AES-256-GCM); Node opens + authenticates | `node` | `crypto-interop` |
 | `verify_shim/` | reverse: Node signs JWTs (EdDSA/ES256/RS256/PS256/HS256) + seals AEAD; **MoonBit verifies / decrypts** and rejects tampered artifacts | `node` | `crypto-interop` |
 | `pkix_interop/` | openssl mints a root→intermediate→leaf X.509 chain; **MoonBit `pkix_verify` validates** it (+ expired / missing-intermediate / wrong-name / untrusted-anchor negatives) | `openssl`, `node` | `crypto-interop` |
+| `ssh_interop/` | `ssh-keygen -Y sign` (Ed25519/ECDSA/RSA) produces SSHSIG; **MoonBit `ssh` verifies** via allowed_signers (+ tampered / wrong-principal / wrong-namespace negatives) | `ssh-keygen`, `node` | `crypto-interop` |
 
 See each subdirectory's `README.md` for details.

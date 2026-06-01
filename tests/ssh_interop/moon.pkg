@@ -1,0 +1,7 @@
+import {
+  "mizchi/experimental_crypto/ssh",
+}
+
+options(
+  link: { "js": { "exports": [ "ssh_verify" ], "format": "esm" } },
+)
