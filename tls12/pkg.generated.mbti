@@ -3,6 +3,8 @@ package "mizchi/experimental_crypto/tls12"
 
 import {
   "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pkix_verify",
   "moonbitlang/core/debug",
 }
 
@@ -10,6 +12,12 @@ import {
 pub fn build_client_hello(Bytes, Array[CipherSuite], Array[Int], String) -> Bytes raise MessageError
 
 pub fn build_client_key_exchange(Bytes) -> Bytes
+
+pub fn derive_session_keys(CipherSuite, Bytes, Bytes, Bytes) -> SessionKeys raise RecordError
+
+pub fn ecdhe_client_public(Int, Bytes) -> Bytes raise KeyExchangeError
+
+pub fn ecdhe_pre_master_secret(Int, Bytes, Bytes) -> Bytes raise KeyExchangeError
 
 pub let group_secp256r1 : Int
 
@@ -43,7 +51,18 @@ pub let sig_rsa_pkcs1_sha256 : Int
 
 pub let sig_rsa_pkcs1_sha384 : Int
 
+pub fn verify_server_key_exchange(Bytes, ServerKeyExchange, Bytes, Bytes) -> Bool raise KeyExchangeError
+
 // Errors
+pub suberror KeyExchangeError {
+  Pkix(@pkix.PkixError)
+  PkixVerify(@pkix_verify.PkixVerifyError)
+  UnsupportedSigScheme(Int)
+  UnsupportedGroup(Int)
+  KeyTypeMismatch(Int)
+  CurveError(String)
+} derive(@debug.Debug)
+
 pub suberror MessageError {
   Truncated(String)
   UnknownHandshakeType(Int)
@@ -85,6 +104,8 @@ pub struct GcmKeys {
   key : Bytes
   fixed_iv : Bytes
 }
+pub fn GcmKeys::iv_bytes(Self) -> Bytes
+pub fn GcmKeys::key_bytes(Self) -> Bytes
 pub fn GcmKeys::new(@aead.Algorithm, Bytes, Bytes) -> Self raise RecordError
 
 pub(all) enum HandshakeType {
@@ -135,6 +156,15 @@ pub fn ServerKeyExchange::public_key(Self) -> Bytes
 pub fn ServerKeyExchange::sig_scheme(Self) -> Int
 pub fn ServerKeyExchange::signature(Self) -> Bytes
 pub fn ServerKeyExchange::signed_material(Self, Bytes, Bytes) -> Bytes
+
+pub struct SessionKeys {
+  master_secret : Bytes
+  client : GcmKeys
+  server : GcmKeys
+}
+pub fn SessionKeys::client_keys(Self) -> GcmKeys
+pub fn SessionKeys::master_secret(Self) -> Bytes
+pub fn SessionKeys::server_keys(Self) -> GcmKeys
 
 // Type aliases
 

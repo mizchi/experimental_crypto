@@ -79,6 +79,18 @@ pub fn GcmKeys::new(
 }
 
 ///|
+/// The AEAD encryption key.
+pub fn GcmKeys::key_bytes(self : GcmKeys) -> Bytes {
+  self.key
+}
+
+///|
+/// The 4-byte fixed IV (salt) prefixed to every record nonce.
+pub fn GcmKeys::iv_bytes(self : GcmKeys) -> Bytes {
+  self.fixed_iv
+}
+
+///|
 fn seq_bytes(seq : UInt64) -> Bytes {
   Bytes::makei(8, fn(i) { ((seq >> ((7 - i) * 8)) & 0xffUL).to_int().to_byte() })
 }
