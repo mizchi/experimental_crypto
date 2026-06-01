@@ -1,0 +1,40 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/tests/tls12_interop"
+
+// Values
+pub fn client_hello(Bytes) -> Bytes
+
+pub fn client_key_exchange(Bytes) -> Bytes
+
+pub fn ecdhe_pms(Int, Bytes, Bytes) -> Bytes
+
+pub fn ecdhe_public(Int, Bytes) -> Bytes
+
+pub fn finished_verify_data(Int, Bytes, Int, Bytes) -> Bytes
+
+pub fn handshake_wrap(Int, Bytes) -> Bytes
+
+pub fn key_block(Int, Bytes, Bytes, Bytes) -> Bytes
+
+pub fn master_secret(Int, Bytes, Bytes, Bytes) -> Bytes
+
+pub fn open_record(Int, Bytes, Bytes, Int, Bytes) -> Bytes
+
+pub fn parse_certificate_leaf(Bytes) -> Bytes
+
+pub fn parse_server_hello(Bytes) -> Bytes
+
+pub fn parse_ske(Bytes) -> Bytes
+
+pub fn seal_record(Int, Bytes, Bytes, Int, Int, Bytes) -> Bytes
+
+pub fn verify_ske(Bytes, Bytes, Bytes, Bytes) -> Int
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

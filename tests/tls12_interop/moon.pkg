@@ -1,0 +1,27 @@
+import {
+  "mizchi/experimental_crypto/tls12",
+}
+
+options(
+  link: {
+    "js": {
+      "exports": [
+        "client_hello",
+        "parse_server_hello",
+        "parse_certificate_leaf",
+        "parse_ske",
+        "verify_ske",
+        "ecdhe_public",
+        "ecdhe_pms",
+        "client_key_exchange",
+        "master_secret",
+        "key_block",
+        "finished_verify_data",
+        "seal_record",
+        "open_record",
+        "handshake_wrap",
+      ],
+      "format": "esm",
+    },
+  },
+)
