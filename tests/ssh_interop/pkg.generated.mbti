@@ -1,0 +1,14 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/tests/ssh_interop"
+
+// Values
+pub fn ssh_verify(String, String, String, String, String) -> Int
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+
