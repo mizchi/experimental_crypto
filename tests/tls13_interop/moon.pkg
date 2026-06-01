@@ -1,6 +1,8 @@
 import {
   "mizchi/experimental_crypto/tls13",
   "mizchi/experimental_crypto/x25519",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
   "mizchi/experimental_crypto/pkix",
   "moonbitlang/core/debug",
 }
@@ -11,7 +13,12 @@ options(
       "exports": [
         "x25519_public",
         "x25519_shared",
+        "p256_public",
+        "p256_shared",
+        "p384_public",
+        "p384_shared",
         "client_hello",
+        "client_hello_group",
         "server_key_share",
         "server_hs_keyiv",
         "key_len",

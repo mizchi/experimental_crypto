@@ -11,7 +11,7 @@ This harness supplies that socket from Node.js and calls the MoonBit code
 | step | who |
 |---|---|
 | TCP socket, TLS record framing, HTTP | `client.mjs` (Node) |
-| X25519 keygen / ECDH, ClientHello, key schedule, AEAD record seal/open, **CertificateVerify + Finished** | MoonBit `tls13` / `x25519` via `interop.mbt` |
+| ECDHE keygen / shared secret (**X25519 / P-256 / P-384**), ClientHello, key schedule, AEAD record seal/open, **CertificateVerify + Finished** | MoonBit `tls13` / `x25519` / `p256` / `p384` via `interop.mbt` |
 
 `interop.mbt` is a thin flat-typed (`Bytes`↔`Uint8Array`) shim exported to JS
 via `moon.pkg.json` `link.js.exports`.
@@ -36,11 +36,13 @@ identity against the SNI hostname.
 bash tests/tls13_interop/run.sh
 ```
 
-Generates a test CA + leaf chain, spins up `openssl s_server` (TLS 1.3,
-X25519), and runs the handshake for all three supported cipher suites
-(AES-128-GCM, AES-256-GCM/SHA-384, ChaCha20-Poly1305), **validating the chain
-to the test CA** (`TLS_ANCHOR`). SKIPs cleanly if `openssl` / `node` / `moon`
-are missing. This is what CI runs (no outbound network).
+Generates a test CA + leaf chain, spins up `openssl s_server` (TLS 1.3), and
+runs the handshake for all three supported cipher suites (AES-128-GCM,
+AES-256-GCM/SHA-384, ChaCha20-Poly1305) over X25519, plus two extra cases that
+exercise the **secp256r1 / secp384r1** key-share groups (driving the NIST-curve
+ECDH end to end), **validating the chain to the test CA** (`TLS_ANCHOR`). SKIPs
+cleanly if `openssl` / `node` / `moon` are missing. This is what CI runs (no
+outbound network).
 
 Optional real public-server smoke (needs outbound network); validates the
 chain to the system CA bundle if one is found:

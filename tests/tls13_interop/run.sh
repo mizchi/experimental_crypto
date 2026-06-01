@@ -53,10 +53,12 @@ openssl x509 -req -in "$work/leaf.csr" \
 # 2. Compile the MoonBit interop shim (+ tls13/x25519 deps) to JS.
 (cd "$repo_root" && moon build --target js >/dev/null 2>&1)
 
-# Run one handshake against a fresh s_server keyed to a single cipher suite.
-# Args: <openssl-suite-name> <client-suite-u16>
+# Run one handshake against a fresh s_server keyed to a single cipher suite
+# and key-share group.
+# Args: <openssl-suite-name> <client-suite-u16> [openssl-group] [client-group]
 run_suite() {
   local osuite="$1" usuite="$2"
+  local ogroup="${3:-X25519}" ugroup="${4:-x25519}"
 
   local port=0
   for _ in $(seq 1 20); do
@@ -70,7 +72,7 @@ run_suite() {
 
   openssl s_server -tls1_3 \
     -ciphersuites "$osuite" \
-    -groups X25519 \
+    -groups "$ogroup" \
     -cert "$work/cert.pem" -key "$work/key.pem" \
     -accept "127.0.0.1:$port" -www -quiet \
     >"$work/server.log" 2>&1 &
@@ -83,8 +85,8 @@ run_suite() {
   done
   [ "$ready" -eq 1 ] || { echo "FAIL: s_server did not come up" >&2; cat "$work/server.log" >&2; exit 1; }
 
-  echo "── suite $osuite ($usuite) ─────────────────────────────"
-  node "$repo_root/tests/tls13_interop/client.mjs" 127.0.0.1 "$port" localhost "$usuite"
+  echo "── suite $osuite ($usuite) group $ogroup ───────────────"
+  node "$repo_root/tests/tls13_interop/client.mjs" 127.0.0.1 "$port" localhost "$usuite" "$ugroup"
 
   kill "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
@@ -98,6 +100,10 @@ export TLS_ANCHOR="$work/ca.pem"
 run_suite TLS_AES_128_GCM_SHA256       4865
 run_suite TLS_AES_256_GCM_SHA384       4866
 run_suite TLS_CHACHA20_POLY1305_SHA256 4867
+# Key-share group coverage: the secp256r1 / secp384r1 ECDHE shares exercise the
+# NIST-curve ECDH (mizchi/p256, mizchi/p384) end-to-end in TLS 1.3.
+run_suite TLS_AES_128_GCM_SHA256       4865 P-256     p256
+run_suite TLS_AES_256_GCM_SHA384       4866 secp384r1 p384
 unset TLS_ANCHOR
 
 # 6. Optional: smoke-test real public servers (needs outbound network). Off by

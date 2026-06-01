@@ -30,6 +30,18 @@ const sni = process.argv[4] ?? "localhost";
 // Cipher suite (TLS u16): 0x1301 AES-128-GCM, 0x1302 AES-256-GCM (SHA-384),
 // 0x1303 ChaCha20-Poly1305. Defaults to AES-128-GCM.
 const SUITE = Number(process.argv[5] ?? 0x1301);
+// Key-share group: "x25519" (default), "p256", or "p384".
+const GROUP = (process.argv[6] ?? "x25519").toLowerCase();
+const GROUP_U16 = GROUP === "p256" ? 0x0017 : GROUP === "p384" ? 0x0018 : 0x001d;
+const EPH_LEN = GROUP === "p384" ? 48 : 32;
+const ecdhePublic = (p) =>
+  GROUP === "p256" ? mb.p256_public(p)
+  : GROUP === "p384" ? mb.p384_public(p)
+  : mb.x25519_public(p);
+const ecdheShared = (p, peer) =>
+  GROUP === "p256" ? mb.p256_shared(p, peer)
+  : GROUP === "p384" ? mb.p384_shared(p, peer)
+  : mb.x25519_shared(p, peer);
 
 const hex = (u8) => Buffer.from(u8).toString("hex");
 
@@ -168,14 +180,17 @@ function findAnchor(bundlePath, issuerDN) {
 }
 
 async function main() {
-  // 1. X25519 ephemeral keypair (private from Node CSPRNG, public via MoonBit).
-  const priv = crypto.randomBytes(32);
-  const pub = mb.x25519_public(priv);
+  // 1. Ephemeral ECDHE keypair (private from Node CSPRNG, public via MoonBit).
+  //    Group is X25519 / secp256r1 / secp384r1 depending on GROUP.
+  const priv = crypto.randomBytes(EPH_LEN);
+  const pub = ecdhePublic(priv);
   const chRandom = crypto.randomBytes(32);
   const sessionId = crypto.randomBytes(32);
 
   // 2. ClientHello (built by MoonBit), framed and sent as a plaintext record.
-  const ch = Buffer.from(mb.client_hello(SUITE, chRandom, sessionId, pub, sni));
+  const ch = Buffer.from(
+    mb.client_hello_group(GROUP_U16, SUITE, chRandom, sessionId, pub, sni),
+  );
 
   const sock = net.connect(port, host);
   sock.on("error", (e) => fail("socket: " + e.message));
@@ -199,7 +214,7 @@ async function main() {
 
   // 4. Derive the ECDHE shared secret and the server handshake key/iv.
   const serverPub = mb.server_key_share(sh);
-  const shared = mb.x25519_shared(priv, serverPub);
+  const shared = ecdheShared(priv, serverPub);
   const keyiv = Buffer.from(mb.server_hs_keyiv(SUITE, ch, sh, shared));
   const klen = mb.key_len(SUITE);
   const sHsKey = keyiv.subarray(0, klen);
