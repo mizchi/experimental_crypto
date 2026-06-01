@@ -158,6 +158,18 @@ jobs:
             bash tests/tls13_interop/run.sh
           '
 
+      # Drives the MoonBit TLS 1.2 crypto (compiled to JS) through a full ECDHE
+      # 1-RTT handshake against openssl s_server -tls1_2 for a matrix of cipher
+      # suites / groups / cert key types, then HTTP GETs the page. No outbound
+      # network.
+      - name: MoonBit tls12 client interops with openssl s_server
+        run: |
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            bash scripts/ci_retry.sh moon update >/dev/null
+            bash tests/tls12_interop/run.sh
+          '
+
   crypto-interop:
     name: JOSE + AEAD interop with Node crypto (ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest
