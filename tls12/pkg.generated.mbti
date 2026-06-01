@@ -1,0 +1,57 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/tls12"
+
+import {
+  "mizchi/experimental_crypto/aead",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn open_gcm_record(GcmKeys, UInt64, Bytes) -> (ContentType, Bytes) raise RecordError
+
+pub fn seal_gcm_record(GcmKeys, UInt64, ContentType, Bytes) -> Bytes raise RecordError
+
+// Errors
+pub suberror RecordError {
+  ShortRecord
+  UnexpectedContentType(Int)
+  VersionMismatch(Int)
+  LengthMismatch
+  BadNonceCipher
+  Aead(@aead.AeadError)
+} derive(@debug.Debug)
+
+// Types and methods
+pub(all) enum ContentType {
+  ChangeCipherSpec
+  Alert
+  Handshake
+  ApplicationData
+} derive(Eq, @debug.Debug)
+pub fn ContentType::from_int(Int) -> Self?
+pub fn ContentType::to_int(Self) -> Int
+
+pub struct GcmKeys {
+  alg : @aead.Algorithm
+  key : Bytes
+  fixed_iv : Bytes
+}
+pub fn GcmKeys::new(@aead.Algorithm, Bytes, Bytes) -> Self raise RecordError
+
+pub(all) enum PrfHash {
+  Sha256
+  Sha384
+}
+pub fn PrfHash::extended_master_secret(Self, Bytes, Bytes) -> Bytes
+pub fn PrfHash::finished_verify_data(Self, Bytes, String, Bytes) -> Bytes
+pub fn PrfHash::hash_len(Self) -> Int
+pub fn PrfHash::key_block(Self, Bytes, Bytes, Bytes, Int) -> Bytes
+pub fn PrfHash::master_secret(Self, Bytes, Bytes, Bytes) -> Bytes
+pub fn PrfHash::p_hash(Self, Bytes, Bytes, Int) -> Bytes
+pub fn PrfHash::prf(Self, Bytes, String, Bytes, Int) -> Bytes
+pub fn PrfHash::transcript_hash(Self, Bytes) -> Bytes
+
+// Type aliases
+
+// Traits
+
