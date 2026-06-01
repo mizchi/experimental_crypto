@@ -459,9 +459,19 @@ fn certificate_principal_allows(
   cert : SshCertificate,
   principal : String,
 ) -> Bool {
+  // A certificate verified through the cert-authority path is always checked
+  // against a concrete `principal`. OpenSSH's `sshkey_cert_check_authority`
+  // (driven by `ssh-keygen -Y verify -I <principal>` / sshsig.c) requires the
+  // name to appear in the certificate's principal list, and rejects a
+  // certificate whose list is empty ("Certificate lacks principal list" /
+  // "name is not a listed principal"). An empty list must NOT be treated as a
+  // wildcard here: doing so would let a CA-issued certificate that carries no
+  // principal binding authenticate as any identity. Fail closed to match
+  // OpenSSH and avoid that confused-deputy weakness.
   if cert.valid_principals.length() == 0 {
-    return true
+    return false
   }
+  // Exact (non-glob) match, mirroring OpenSSH's `strcmp` over cert principals.
   for p in cert.valid_principals {
     if p == principal {
       return true
