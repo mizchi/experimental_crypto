@@ -1,0 +1,27 @@
+import {
+  "mizchi/experimental_crypto/tls13",
+  "mizchi/experimental_crypto/x25519",
+  "mizchi/experimental_crypto/pkix",
+  "moonbitlang/core/debug",
+}
+
+options(
+  link: {
+    "js": {
+      "exports": [
+        "x25519_public",
+        "x25519_shared",
+        "client_hello",
+        "server_key_share",
+        "server_hs_keyiv",
+        "key_len",
+        "open_record",
+        "seal_record",
+        "run_handshake",
+        "run_handshake_verified",
+        "server_chain",
+      ],
+      "format": "esm",
+    },
+  },
+)

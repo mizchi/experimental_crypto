@@ -77,6 +77,11 @@
           pkgs.gnupg
           pkgs.sequoia-sq
 
+          # Live TLS 1.3 interop harness (interop/tls_client): a Node.js host
+          # drives the MoonBit client (compiled to JS) against `openssl s_server`.
+          pkgs.nodejs
+          pkgs.openssl
+
           # Why3 1.7.2 (the only version `moon prove` accepts) + Alt-Ergo
           # 2.5.4 (which Why3 1.7.2 recognizes natively). Both from
           # nixos-24.05.
