@@ -28,6 +28,12 @@ pub suberror RsaError {
   ModulusTooSmall
   // Underlying ASN.1 decoder rejected the bytes (truncated, bad tag, …).
   Asn1(@asn1.Asn1Error)
+  // RSA-OAEP: message too long for the modulus / hash, or a malformed
+  // encrypt-side input (e.g. wrong seed length) (RFC 8017 §7.1.1).
+  OaepEncodingError(String)
+  // RSA-OAEP decryption failed. Collapses every decryption-failure mode
+  // into one error so it is not a padding / Manger oracle (RFC 8017 §7.1.2).
+  OaepDecryptionError
 } derive(Debug)
 
 ///|

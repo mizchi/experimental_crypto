@@ -1,0 +1,28 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/aeskw"
+
+import {
+  "mizchi/experimental_crypto/aead",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn unwrap(Bytes, Bytes) -> Bytes raise AesKwError
+
+pub fn wrap(Bytes, Bytes) -> Bytes raise AesKwError
+
+// Errors
+pub suberror AesKwError {
+  InvalidKekSize(Int)
+  InvalidKeySize(Int)
+  InvalidWrappedSize(Int)
+  IntegrityCheckFailed
+  Aead(@aead.AeadError)
+} derive(@debug.Debug)
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

@@ -635,66 +635,17 @@ fn mgf1_sha256(mgf_seed : Bytes, mask_len : Int) -> Bytes {
 //   Output: A || R[1] || ... || R[n]   (8 + 8n bytes total)
 
 ///|
-let aes_kw_default_iv : Bytes = b"\xA6\xA6\xA6\xA6\xA6\xA6\xA6\xA6"
-
-///|
 fn aes_key_wrap(kek : Bytes, key : Bytes) -> Bytes raise JweError {
+  // A256KW pins the KEK at 32 bytes; the RFC 3394 algorithm itself lives in
+  // `mizchi/experimental_crypto/aeskw`.
   if kek.length() != 32 {
     raise InvalidKeySize(
       "A256KW KEK must be 32 bytes, got " + kek.length().to_string(),
     )
   }
-  if key.length() % 8 != 0 || key.length() < 16 {
-    raise InvalidKeySize(
-      "A256KW input key must be a multiple of 8 bytes (>= 16), got " +
-      key.length().to_string(),
-    )
+  @aeskw.wrap(kek, key) catch {
+    e => raise InvalidKeySize("A256KW wrap: " + @debug.to_string(e))
   }
-  let n = key.length() / 8
-  // A is 8 bytes; we hold it as a FixedArray for in-place XOR work.
-  let a = FixedArray::make(8, b'\x00')
-  for i in 0..<8 {
-    a[i] = aes_kw_default_iv[i]
-  }
-  // R is n blocks of 8 bytes.
-  let r = FixedArray::make(n * 8, b'\x00')
-  for i in 0..<(n * 8) {
-    r[i] = key[i]
-  }
-  let block_in = FixedArray::make(16, b'\x00')
-  for j in 0..<6 {
-    for i in 0..<n {
-      // block_in = A || R[i]
-      for kk in 0..<8 {
-        block_in[kk] = a[kk]
-        block_in[8 + kk] = r[i * 8 + kk]
-      }
-      let block_bytes = Bytes::makei(16, fn(idx) { block_in[idx] })
-      let b = @aead.aes_block_encrypt(kek, block_bytes) catch {
-        e => raise Aead(e)
-      }
-      // A = MSB64(B) XOR t,  R[i] = LSB64(B)
-      let t = n * j + i + 1
-      // t as a 64-bit big-endian value; XOR into A's bottom bytes
-      for kk in 0..<8 {
-        a[kk] = b[kk]
-      }
-      // XOR t into a (big-endian, t is at most ~24 bits for n=4, j=5).
-      // Compute t as four bytes:
-      let t0 = (t >> 24) & 0xFF
-      let t1 = (t >> 16) & 0xFF
-      let t2 = (t >> 8) & 0xFF
-      let t3 = t & 0xFF
-      a[4] = (a[4].to_int() ^ t0).to_byte()
-      a[5] = (a[5].to_int() ^ t1).to_byte()
-      a[6] = (a[6].to_int() ^ t2).to_byte()
-      a[7] = (a[7].to_int() ^ t3).to_byte()
-      for kk in 0..<8 {
-        r[i * 8 + kk] = b[8 + kk]
-      }
-    }
-  }
-  Bytes::makei(8 + n * 8, fn(idx) { if idx < 8 { a[idx] } else { r[idx - 8] } })
 }
 
 ///|
@@ -704,64 +655,12 @@ fn aes_key_unwrap(kek : Bytes, wrapped : Bytes) -> Bytes raise JweError {
       "A256KW KEK must be 32 bytes, got " + kek.length().to_string(),
     )
   }
-  if wrapped.length() < 24 || wrapped.length() % 8 != 0 {
-    raise InvalidKeySize(
-      "A256KW wrapped key must be a multiple of 8 (>= 24), got " +
-      wrapped.length().to_string(),
-    )
+  // Map the integrity-check failure to JWE's AuthenticationFailed; size errors
+  // surface as InvalidKeySize.
+  @aeskw.unwrap(kek, wrapped) catch {
+    @aeskw.IntegrityCheckFailed => raise AuthenticationFailed
+    e => raise InvalidKeySize("A256KW unwrap: " + @debug.to_string(e))
   }
-  let n = wrapped.length() / 8 - 1
-  let a = FixedArray::make(8, b'\x00')
-  for i in 0..<8 {
-    a[i] = wrapped[i]
-  }
-  let r = FixedArray::make(n * 8, b'\x00')
-  for i in 0..<(n * 8) {
-    r[i] = wrapped[8 + i]
-  }
-  let block_in = FixedArray::make(16, b'\x00')
-  // Reverse order: j from 5 down to 0, i from n down to 1.
-  let mut j = 5
-  while j >= 0 {
-    let mut i = n
-    while i >= 1 {
-      let t = n * j + i
-      // (A ^ t) || R[i]  → AES-decrypt → MSB64=A', LSB64=R[i]'
-      for kk in 0..<8 {
-        block_in[kk] = a[kk]
-      }
-      let t0 = (t >> 24) & 0xFF
-      let t1 = (t >> 16) & 0xFF
-      let t2 = (t >> 8) & 0xFF
-      let t3 = t & 0xFF
-      block_in[4] = (block_in[4].to_int() ^ t0).to_byte()
-      block_in[5] = (block_in[5].to_int() ^ t1).to_byte()
-      block_in[6] = (block_in[6].to_int() ^ t2).to_byte()
-      block_in[7] = (block_in[7].to_int() ^ t3).to_byte()
-      for kk in 0..<8 {
-        block_in[8 + kk] = r[(i - 1) * 8 + kk]
-      }
-      let block_bytes = Bytes::makei(16, fn(idx) { block_in[idx] })
-      let b = @aead.aes_block_decrypt(kek, block_bytes) catch {
-        e => raise Aead(e)
-      }
-      for kk in 0..<8 {
-        a[kk] = b[kk]
-        r[(i - 1) * 8 + kk] = b[8 + kk]
-      }
-      i = i - 1
-    }
-    j = j - 1
-  }
-  // Verify integrity check vector A == 0xA6...A6.
-  let mut bad = 0
-  for kk in 0..<8 {
-    bad = bad | (a[kk].to_int() ^ aes_kw_default_iv[kk].to_int())
-  }
-  if bad != 0 {
-    raise AuthenticationFailed
-  }
-  Bytes::makei(n * 8, fn(idx) { r[idx] })
 }
 
 // ─── Compact-serialization encrypt / decrypt ──────────────────────────────
