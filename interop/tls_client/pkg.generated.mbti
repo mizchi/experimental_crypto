@@ -10,7 +10,11 @@ pub fn open_record(Int, Bytes, Bytes, Int, Bytes) -> Bytes
 
 pub fn run_handshake(Int, Bytes, Bytes, Bytes, Bytes) -> Bytes
 
+pub fn run_handshake_verified(Int, Bytes, Bytes, Bytes, Bytes, Bytes, String, String) -> Bytes
+
 pub fn seal_record(Int, Bytes, Bytes, Int, Int, Bytes) -> Bytes
+
+pub fn server_chain(Bytes) -> Bytes
 
 pub fn server_hs_keyiv(Int, Bytes, Bytes, Bytes) -> Bytes
 

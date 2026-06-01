@@ -13,6 +13,7 @@
 
 import net from "node:net";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -123,6 +124,49 @@ function fail(msg) {
   process.exit(1);
 }
 
+// Current UTC as ASN.1 GeneralizedTime "YYYYMMDDHHMMSSZ" for chain validity.
+function genTime(d = new Date()) {
+  const p = (n, l = 2) => String(n).padStart(l, "0");
+  return (
+    p(d.getUTCFullYear(), 4) +
+    p(d.getUTCMonth() + 1) +
+    p(d.getUTCDate()) +
+    p(d.getUTCHours()) +
+    p(d.getUTCMinutes()) +
+    p(d.getUTCSeconds()) +
+    "Z"
+  );
+}
+
+function pemBlocks(text) {
+  return (
+    text.match(
+      /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g,
+    ) ?? []
+  );
+}
+
+function pemToDer(pem) {
+  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  return new Uint8Array(Buffer.from(b64, "base64"));
+}
+
+// Find, in a system CA bundle, the anchor whose subject DN matches the issuer
+// DN of the topmost certificate the server sent.
+function findAnchor(bundlePath, issuerDN) {
+  const text = fs.readFileSync(bundlePath, "utf8");
+  for (const pem of pemBlocks(text)) {
+    let x;
+    try {
+      x = new crypto.X509Certificate(pem);
+    } catch {
+      continue;
+    }
+    if (x.subject === issuerDN) return new Uint8Array(x.raw);
+  }
+  return null;
+}
+
 async function main() {
   // 1. X25519 ephemeral keypair (private from Node CSPRNG, public via MoonBit).
   const priv = crypto.randomBytes(32);
@@ -186,14 +230,37 @@ async function main() {
   const serverFlight = Buffer.concat(flightMsgs);
 
   // 6. Verify the handshake (CertificateVerify + server Finished) and derive
-  //    the client Finished + traffic keys.
+  //    the client Finished + traffic keys. Trust mode:
+  //    - TLS_ANCHOR=<pem>      : validate the chain to that single CA cert.
+  //    - TLS_CA_BUNDLE=<pem>   : pick the anchor from a system bundle.
+  //    - (neither)             : leaf-key + transcript proof only (no chain).
   let packed;
   try {
-    packed = Buffer.from(
-      mb.run_handshake(SUITE, ch, sh, shared, serverFlight),
-    );
+    if (process.env.TLS_ANCHOR) {
+      const anchorDer = pemToDer(fs.readFileSync(process.env.TLS_ANCHOR, "utf8"));
+      packed = Buffer.from(
+        mb.run_handshake_verified(
+          SUITE, ch, sh, shared, serverFlight, anchorDer, genTime(), sni,
+        ),
+      );
+      console.log("handshake OK; chain verified to anchor " + process.env.TLS_ANCHOR);
+    } else if (process.env.TLS_CA_BUNDLE) {
+      const chain = unpack(Buffer.from(mb.server_chain(serverFlight)));
+      const topmost = new crypto.X509Certificate(Buffer.from(chain[chain.length - 1]));
+      const anchorDer = findAnchor(process.env.TLS_CA_BUNDLE, topmost.issuer);
+      if (!anchorDer) fail("no trust anchor in bundle for issuer: " + topmost.issuer);
+      packed = Buffer.from(
+        mb.run_handshake_verified(
+          SUITE, ch, sh, shared, serverFlight, anchorDer, genTime(), sni,
+        ),
+      );
+      console.log("handshake OK; chain verified to system-bundle anchor");
+    } else {
+      packed = Buffer.from(mb.run_handshake(SUITE, ch, sh, shared, serverFlight));
+      console.log("handshake OK; server Finished + CertificateVerify verified (leaf-key, no chain)");
+    }
   } catch (e) {
-    fail("run_handshake threw (auth failure?): " + e);
+    fail("handshake/verification threw: " + e);
   }
   const [
     clientFinished,
@@ -204,7 +271,6 @@ async function main() {
     sApKey,
     sApIv,
   ] = unpack(packed);
-  console.log("handshake OK; server Finished + CertificateVerify verified");
 
   // 7. Send CCS (middlebox compat) + the client Finished (handshake epoch, seq 0).
   sock.write(record(0x14, Buffer.from([0x01]), 0x0303));

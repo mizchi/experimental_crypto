@@ -220,6 +220,11 @@ pub fn run_handshake(
   ) catch {
     e => abort("run_handshake: " + @debug.to_string(e))
   }
+  pack_keys(res)
+}
+
+///|
+fn pack_keys(res : @tls13.ClientHandshakeResult) -> Bytes {
   let k = res.keys
   pack([
     res.client_finished,
@@ -230,4 +235,52 @@ pub fn run_handshake(
     k.server_application_key,
     k.server_application_iv,
   ])
+}
+
+///|
+/// Like `run_handshake`, but additionally validates the server's certificate
+/// chain to `anchor_der` (a single trust-anchor CA certificate, DER) at time
+/// `now` (GeneralizedTime "YYYYMMDDHHMMSSZ") and checks `hostname` against the
+/// leaf's dNSName SANs. Aborts (→ JS throw) if the chain or identity fails.
+pub fn run_handshake_verified(
+  suite_u16 : Int,
+  client_hello : Bytes,
+  server_hello : Bytes,
+  shared : Bytes,
+  server_flight : Bytes,
+  anchor_der : Bytes,
+  now : String,
+  hostname : String,
+) -> Bytes {
+  let suite = suite_of(suite_u16)
+  let anchor = @pkix.parse_certificate(anchor_der) catch {
+    e => abort("run_handshake_verified(anchor): " + @debug.to_string(e))
+  }
+  let res = @tls13.client_handshake_1rtt_verified(
+    suite, client_hello, server_hello, shared, server_flight, anchor, now, hostname,
+  ) catch {
+    e => abort("run_handshake_verified: " + @debug.to_string(e))
+  }
+  pack_keys(res)
+}
+
+///|
+/// Parse the server's Certificate message out of the decrypted handshake
+/// `server_flight` and return the chain (leaf first) as a packed blob of DER
+/// certificates. Lets the host pick the matching trust anchor from a system CA
+/// bundle before calling `run_handshake_verified`.
+pub fn server_chain(server_flight : Bytes) -> Bytes {
+  let msgs = @tls13.parse_handshake_flight(server_flight) catch {
+    e => abort("server_chain(flight): " + @debug.to_string(e))
+  }
+  for m in msgs {
+    let (t, body) = m
+    if t == @tls13.HandshakeType::Certificate {
+      let chain = @tls13.parse_certificate(body) catch {
+        e => abort("server_chain(cert): " + @debug.to_string(e))
+      }
+      return pack(chain)
+    }
+  }
+  abort("server_chain: no Certificate message in flight")
 }

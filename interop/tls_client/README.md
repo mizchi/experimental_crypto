@@ -18,10 +18,17 @@ via `moon.pkg.json` `link.js.exports`.
 
 ## Trust model
 
-This is the **leaf-key + transcript** proof (`client_handshake_1rtt`): it
-verifies the server holds the leaf certificate's private key and agrees on the
-handshake transcript. It does **not** validate the certificate chain to a
-trust anchor — that is `pkix_verify`'s job and a separate milestone.
+Three modes, selected by the host:
+
+| env | mode | function |
+|---|---|---|
+| (none) | leaf key + transcript only (no chain) | `client_handshake_1rtt` |
+| `TLS_ANCHOR=<pem>` | validate the chain to that single CA cert | `client_handshake_1rtt_verified` |
+| `TLS_CA_BUNDLE=<pem>` | pick the anchor from a system CA bundle | `client_handshake_1rtt_verified` |
+
+In the verified modes MoonBit's `pkix_verify` checks the leaf→anchor
+signatures, validity, basicConstraints/keyUsage, and the RFC 6125 dNSName SAN
+identity against the SNI hostname.
 
 ## Run
 
@@ -29,12 +36,14 @@ trust anchor — that is `pkix_verify`'s job and a separate milestone.
 bash interop/tls_client/run.sh
 ```
 
-Spins up `openssl s_server` (TLS 1.3, X25519, self-signed P-256 leaf) and runs
-the handshake for all three supported cipher suites
-(AES-128-GCM, AES-256-GCM/SHA-384, ChaCha20-Poly1305). SKIPs cleanly if
-`openssl` / `node` / `moon` are missing.
+Generates a test CA + leaf chain, spins up `openssl s_server` (TLS 1.3,
+X25519), and runs the handshake for all three supported cipher suites
+(AES-128-GCM, AES-256-GCM/SHA-384, ChaCha20-Poly1305), **validating the chain
+to the test CA** (`TLS_ANCHOR`). SKIPs cleanly if `openssl` / `node` / `moon`
+are missing. This is what CI runs (no outbound network).
 
-Optional real public-server smoke (needs outbound network):
+Optional real public-server smoke (needs outbound network); validates the
+chain to the system CA bundle if one is found:
 
 ```sh
 TLS_INTEROP_REMOTE=1 bash interop/tls_client/run.sh

@@ -1,6 +1,7 @@
 import {
   "mizchi/experimental_crypto/tls13",
   "mizchi/experimental_crypto/x25519",
+  "mizchi/experimental_crypto/pkix",
   "moonbitlang/core/debug",
 }
 
@@ -17,6 +18,8 @@ options(
         "open_record",
         "seal_record",
         "run_handshake",
+        "run_handshake_verified",
+        "server_chain",
       ],
       "format": "esm",
     },

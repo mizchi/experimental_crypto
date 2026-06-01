@@ -115,6 +115,49 @@ jobs:
             bash pgp/sq_v6_interop.sh
           '
 
+  tls13-interop:
+    name: tls13 live client interop (openssl s_server, ubuntu-latest, nix devShell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          determinate: false
+          extra-conf: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Cache /nix/store
+        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: "disabled"
+          use-gha-cache: "enabled"
+
+      - name: Prepare Moon registry cache
+        run: mkdir -p ~/.moon/registry
+
+      - name: Cache Moon registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.moon/registry
+          key: moon-registry-${{ runner.os }}-${{ hashFiles('flake.lock', 'moon.work', '**/moon.mod', '**/moon.pkg') }}
+          restore-keys: |
+            moon-registry-${{ runner.os }}-
+
+      # Local-only: drives the MoonBit TLS 1.3 client (compiled to JS) through a
+      # full 1-RTT handshake against openssl s_server for all three cipher
+      # suites, validating the chain to a local test CA. No outbound network.
+      - name: MoonBit tls13 client interops with openssl s_server
+        run: |
+          nix develop --impure --command bash -c '
+            unset MOON_HOME
+            bash scripts/ci_retry.sh moon update >/dev/null
+            bash interop/tls_client/run.sh
+          '
+
   leakage-smoke:
     name: leakage harness smoke (native, ubuntu-latest, nix devShell)
     runs-on: ubuntu-latest
