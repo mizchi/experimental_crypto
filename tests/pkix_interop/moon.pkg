@@ -1,0 +1,8 @@
+import {
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pkix_verify",
+}
+
+options(
+  link: { "js": { "exports": [ "verify_chain" ], "format": "esm" } },
+)
