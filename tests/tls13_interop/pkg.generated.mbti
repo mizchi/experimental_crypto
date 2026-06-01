@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/experimental_crypto/interop/tls_client"
+package "mizchi/experimental_crypto/tests/tls13_interop"
 
 // Values
 pub fn client_hello(Int, Bytes, Bytes, Bytes, String) -> Bytes

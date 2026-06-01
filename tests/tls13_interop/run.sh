@@ -84,7 +84,7 @@ run_suite() {
   [ "$ready" -eq 1 ] || { echo "FAIL: s_server did not come up" >&2; cat "$work/server.log" >&2; exit 1; }
 
   echo "── suite $osuite ($usuite) ─────────────────────────────"
-  node "$repo_root/interop/tls_client/client.mjs" 127.0.0.1 "$port" localhost "$usuite"
+  node "$repo_root/tests/tls13_interop/client.mjs" 127.0.0.1 "$port" localhost "$usuite"
 
   kill "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
@@ -111,7 +111,7 @@ if [ "${TLS_INTEROP_REMOTE:-0}" = "1" ]; then
   for spec in "cloudflare.com 4865" "www.google.com 4867" "rsa4096.badssl.com 4866"; do
     set -- $spec
     echo "── remote $1 (suite $2)${TLS_CA_BUNDLE:+ [chain to $TLS_CA_BUNDLE]} ──"
-    node "$repo_root/interop/tls_client/client.mjs" "$1" 443 "$1" "$2"
+    node "$repo_root/tests/tls13_interop/client.mjs" "$1" 443 "$1" "$2"
   done
 fi
 

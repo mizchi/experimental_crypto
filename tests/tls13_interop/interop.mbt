@@ -2,7 +2,7 @@
 //
 // Exposes a flat (Bytes / Int / String) API over the `tls13` client building
 // blocks so a Node.js host can drive a real 1-RTT handshake over a TCP socket
-// (see `interop/tls_client/client.mjs`). `Bytes` maps to `Uint8Array` at the
+// (see `tests/tls13_interop/client.mjs`). `Bytes` maps to `Uint8Array` at the
 // JS boundary; structs / tuples are NOT crossed — every value returned to JS
 // is a flat `Bytes` (length-prefixed where several fields are bundled).
 //

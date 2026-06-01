@@ -33,7 +33,7 @@ identity against the SNI hostname.
 ## Run
 
 ```sh
-bash interop/tls_client/run.sh
+bash tests/tls13_interop/run.sh
 ```
 
 Generates a test CA + leaf chain, spins up `openssl s_server` (TLS 1.3,
@@ -46,14 +46,14 @@ Optional real public-server smoke (needs outbound network); validates the
 chain to the system CA bundle if one is found:
 
 ```sh
-TLS_INTEROP_REMOTE=1 bash interop/tls_client/run.sh
+TLS_INTEROP_REMOTE=1 bash tests/tls13_interop/run.sh
 ```
 
 ## Manual
 
 ```sh
 moon build --target js
-node interop/tls_client/client.mjs <host> <port> [sni] [suite_u16]
-# e.g. node interop/tls_client/client.mjs cloudflare.com 443 cloudflare.com 4865
+node tests/tls13_interop/client.mjs <host> <port> [sni] [suite_u16]
+# e.g. node tests/tls13_interop/client.mjs cloudflare.com 443 cloudflare.com 4865
 ```
 `suite_u16`: `4865` AES-128-GCM, `4866` AES-256-GCM, `4867` ChaCha20-Poly1305.

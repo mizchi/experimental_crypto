@@ -20,7 +20,7 @@ import path from "node:path";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mod = path.resolve(
   __dirname,
-  "../../_build/js/debug/build/interop/tls_client/tls_client.js",
+  "../../_build/js/debug/build/tests/tls13_interop/tls13_interop.js",
 );
 const mb = await import(mod);
 

@@ -155,7 +155,7 @@ jobs:
           nix develop --impure --command bash -c '
             unset MOON_HOME
             bash scripts/ci_retry.sh moon update >/dev/null
-            bash interop/tls_client/run.sh
+            bash tests/tls13_interop/run.sh
           '
 
   leakage-smoke:
