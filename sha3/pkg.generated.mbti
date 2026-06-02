@@ -1,0 +1,20 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/sha3"
+
+// Values
+pub fn sha3_256(Bytes) -> Bytes
+
+pub fn sha3_512(Bytes) -> Bytes
+
+pub fn shake128(Bytes, Int) -> Bytes
+
+pub fn shake256(Bytes, Int) -> Bytes
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+
