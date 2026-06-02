@@ -1,0 +1,24 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/webpush"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn decrypt(Bytes, Bytes, Bytes, Bytes) -> Bytes raise WebPushError
+
+// Errors
+pub suberror WebPushError {
+  Truncated(String)
+  BadServerKey
+  DecryptFailed
+  Malformed(String)
+} derive(@debug.Debug)
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+
