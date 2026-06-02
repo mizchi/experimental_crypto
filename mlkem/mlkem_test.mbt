@@ -94,3 +94,77 @@ test "ML-KEM-768 Decaps round trip + implicit reject" {
     content="true",
   )
 }
+
+// ── Input-validation hardening (FIPS 203 §7.1/§7.2/§7.3) ──────────────────────
+// These all used to abort with "array element access out of bounds"; a
+// malformed key / ciphertext from the wire must now be a clean rejection.
+
+///|
+test "ATTACK ML-KEM encaps rejects a truncated ek (no OOB panic)" {
+  let short_ek = Bytes::makei(100, fn(_i) { b'\x00' })
+  let m = Bytes::makei(32, fn(_i) { b'\x00' })
+  try @mlkem.encaps(short_ek, m) |> ignore catch {
+    @mlkem.InvalidEncapsKey(100) => ()
+    _ => abort("expected InvalidEncapsKey(100)")
+  } noraise {
+    _ => abort("expected encaps to raise on a truncated ek")
+  }
+}
+
+///|
+test "ATTACK ML-KEM encaps rejects a non-canonical ek (modulus check)" {
+  // A correctly-sized ek whose every byte is 0xff: the first 12-bit coefficient
+  // decodes to 0xfff = 4095 >= q, so the FIPS 203 §7.2 modulus check must fire.
+  let ek = Bytes::makei(@mlkem.ek_size, fn(_i) { b'\xff' })
+  let m = Bytes::makei(32, fn(_i) { b'\x00' })
+  try @mlkem.encaps(ek, m) |> ignore catch {
+    @mlkem.NonCanonicalEncapsKey => ()
+    _ => abort("expected NonCanonicalEncapsKey")
+  } noraise {
+    _ => abort("expected encaps to raise on a non-canonical ek")
+  }
+}
+
+///|
+test "ATTACK ML-KEM encaps rejects a non-32-byte message seed" {
+  let ek = khex(kat_pk)
+  let m = Bytes::makei(31, fn(_i) { b'\x00' })
+  inspect(
+    (try? @mlkem.encaps(ek, m)) is Err(@mlkem.InvalidSeed(31)),
+    content="true",
+  )
+}
+
+///|
+test "ATTACK ML-KEM decaps rejects a truncated ciphertext (no OOB panic)" {
+  let (_ek, dk) = @mlkem.keygen(khex(kat_d), khex(kat_z))
+  let short_ct = Bytes::makei(50, fn(_i) { b'\x00' })
+  try @mlkem.decaps(dk, short_ct) |> ignore catch {
+    @mlkem.InvalidCiphertext(50) => ()
+    _ => abort("expected InvalidCiphertext(50)")
+  } noraise {
+    _ => abort("expected decaps to raise on a truncated ciphertext")
+  }
+}
+
+///|
+test "ATTACK ML-KEM decaps rejects a truncated dk (no OOB panic)" {
+  let short_dk = Bytes::makei(200, fn(_i) { b'\x00' })
+  let ct = khex(kat_ct)
+  try @mlkem.decaps(short_dk, ct) |> ignore catch {
+    @mlkem.InvalidDecapsKey(200) => ()
+    _ => abort("expected InvalidDecapsKey(200)")
+  } noraise {
+    _ => abort("expected decaps to raise on a truncated dk")
+  }
+}
+
+///|
+test "ATTACK ML-KEM keygen rejects non-32-byte seeds" {
+  let d = Bytes::makei(16, fn(_i) { b'\x00' })
+  let z = Bytes::makei(32, fn(_i) { b'\x00' })
+  inspect(
+    (try? @mlkem.keygen(d, z)) is Err(@mlkem.InvalidSeed(16)),
+    content="true",
+  )
+}

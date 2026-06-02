@@ -52,6 +52,36 @@ let gammas : Array[Int] = [
 ]
 
 ///|
+/// Input-validation failures (FIPS 203 §7.2 / §7.3). The parameter functions
+/// `keygen` / `encaps` / `decaps` raise these instead of indexing past the end
+/// of a too-short buffer (which would abort the process): a malformed key or
+/// ciphertext from the wire must be a clean rejection, not a crash.
+pub suberror MlkemError {
+  /// A seed (`d` or `z` for keygen, `m` for encaps) was not 32 bytes.
+  InvalidSeed(Int)
+  /// The encapsulation key was not `ek_size` bytes.
+  InvalidEncapsKey(Int)
+  /// The encapsulation key failed the FIPS 203 §7.2 modulus check: some 12-bit
+  /// coefficient was >= q, i.e. it is not a canonical `ByteEncode_12` output.
+  NonCanonicalEncapsKey
+  /// The decapsulation key was not `dk_size` bytes.
+  InvalidDecapsKey(Int)
+  /// The ciphertext was not `ct_size` bytes.
+  InvalidCiphertext(Int)
+} derive(Debug)
+
+///|
+// Whether b equals the `b.length()`-byte slice of `a` starting at `a_off`.
+fn bytes_eq_slice(a : Bytes, a_off : Int, b : Bytes) -> Bool {
+  for i in 0..<b.length() {
+    if a[a_off + i] != b[i] {
+      return false
+    }
+  }
+  true
+}
+
+///|
 fn mq(x : Int) -> Int {
   let r = x % q
   if r < 0 {
@@ -433,8 +463,15 @@ pub let ss_size : Int = 32
 
 ///|
 /// ML-KEM.KeyGen_internal(d, z): deterministic key generation from 32-byte `d`
-/// and `z`. Returns `(ek, dk)` (encapsulation / decapsulation keys).
-pub fn keygen(d : Bytes, z : Bytes) -> (Bytes, Bytes) {
+/// and `z`. Returns `(ek, dk)` (encapsulation / decapsulation keys). Raises
+/// `InvalidSeed` if either seed is not 32 bytes (FIPS 203 §7.1).
+pub fn keygen(d : Bytes, z : Bytes) -> (Bytes, Bytes) raise MlkemError {
+  if d.length() != 32 {
+    raise InvalidSeed(d.length())
+  }
+  if z.length() != 32 {
+    raise InvalidSeed(z.length())
+  }
   let (ek, dk_pke) = kpke_keygen(d)
   let dk = cat([dk_pke, ek, @sha3.sha3_256(ek), z])
   (ek, dk)
@@ -443,7 +480,26 @@ pub fn keygen(d : Bytes, z : Bytes) -> (Bytes, Bytes) {
 ///|
 /// ML-KEM.Encaps_internal(ek, m): deterministic encapsulation with 32-byte
 /// message `m`. Returns `(shared_secret(32), ciphertext(1088))`.
-pub fn encaps(ek : Bytes, m : Bytes) -> (Bytes, Bytes) {
+///
+/// Performs the FIPS 203 §7.2 input checks: `ek` must be `ek_size` bytes and
+/// must pass the modulus check (a canonical `ByteEncode_12`). `m` must be 32
+/// bytes. A malformed `ek` is rejected rather than producing an out-of-bounds
+/// access.
+pub fn encaps(ek : Bytes, m : Bytes) -> (Bytes, Bytes) raise MlkemError {
+  if ek.length() != ek_size {
+    raise InvalidEncapsKey(ek.length())
+  }
+  if m.length() != 32 {
+    raise InvalidSeed(m.length())
+  }
+  // FIPS 203 §7.2 modulus check: each of the k packed polynomials must
+  // re-encode to itself, i.e. every 12-bit coefficient is already < q.
+  for i in 0..<kk {
+    let dec = byte_decode(ek, 384 * i, 12)
+    if !bytes_eq_slice(ek, 384 * i, byte_encode(dec, 12)) {
+      raise NonCanonicalEncapsKey
+    }
+  }
   let (k, r) = g(cat([m, @sha3.sha3_256(ek)]))
   let c = kpke_encrypt(ek, m, r)
   (k, c)
@@ -463,9 +519,21 @@ fn ct_eq(a : Bytes, b : Bytes) -> Bool {
 
 ///|
 /// ML-KEM.Decaps_internal(dk, c): decapsulate, with implicit rejection
-/// (returns a pseudo-random shared secret on an invalid ciphertext rather than
-/// failing). Returns the 32-byte shared secret.
-pub fn decaps(dk : Bytes, c : Bytes) -> Bytes {
+/// (returns a pseudo-random shared secret on an invalid-but-well-formed
+/// ciphertext rather than failing). Returns the 32-byte shared secret.
+///
+/// Performs the FIPS 203 §7.3 length checks first: `dk` must be `dk_size`
+/// bytes and `c` must be `ct_size` bytes. A truncated `c` or `dk` is rejected
+/// rather than producing an out-of-bounds access. (Note: implicit rejection
+/// only covers ciphertexts of the correct *length* that fail re-encryption;
+/// a wrong-length ciphertext is a malformed input and raises.)
+pub fn decaps(dk : Bytes, c : Bytes) -> Bytes raise MlkemError {
+  if dk.length() != dk_size {
+    raise InvalidDecapsKey(dk.length())
+  }
+  if c.length() != ct_size {
+    raise InvalidCiphertext(c.length())
+  }
   let dk_pke = Bytes::makei(384 * kk, fn(i) { dk[i] })
   let ek_pke = Bytes::makei(384 * kk + 32, fn(i) { dk[384 * kk + i] })
   let h = Bytes::makei(32, fn(i) { dk[768 * kk + 32 + i] })
