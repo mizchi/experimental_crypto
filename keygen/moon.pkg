@@ -4,6 +4,7 @@ import {
   "mizchi/experimental_crypto/p384",
   "mizchi/experimental_crypto/ed25519",
   "mizchi/experimental_crypto/x25519",
+  "mizchi/experimental_crypto/rsa",
 }
 
 options(
