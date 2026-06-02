@@ -3,6 +3,7 @@ package "mizchi/experimental_crypto/tls12"
 
 import {
   "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/ocsp",
   "mizchi/experimental_crypto/pkix",
   "mizchi/experimental_crypto/pkix_verify",
   "moonbitlang/core/debug",
@@ -51,6 +52,8 @@ pub let sig_rsa_pkcs1_sha256 : Int
 
 pub let sig_rsa_pkcs1_sha384 : Int
 
+pub fn verify_server_auth(Array[Bytes], @pkix.Certificate, String, String, ServerKeyExchange, Bytes, Bytes, stapled_ocsp? : Bytes?, revocation? : RevocationPolicy) -> Unit raise ServerAuthError
+
 pub fn verify_server_key_exchange(Bytes, ServerKeyExchange, Bytes, Bytes) -> Bool raise KeyExchangeError
 
 // Errors
@@ -76,6 +79,18 @@ pub suberror RecordError {
   LengthMismatch
   BadNonceCipher
   Aead(@aead.AeadError)
+} derive(@debug.Debug)
+
+pub suberror ServerAuthError {
+  ChainUntrusted(@pkix_verify.PkixVerifyError)
+  CertParse(@pkix.PkixError)
+  EmptyChain
+  HostnameMismatch(String)
+  BadServerKeyExchange
+  CertificateRevoked
+  RevocationUnknown
+  Ocsp(@ocsp.OcspError)
+  KeyExchange(KeyExchangeError)
 } derive(@debug.Debug)
 
 // Types and methods
@@ -135,6 +150,11 @@ pub fn PrfHash::master_secret(Self, Bytes, Bytes, Bytes) -> Bytes
 pub fn PrfHash::p_hash(Self, Bytes, Bytes, Int) -> Bytes
 pub fn PrfHash::prf(Self, Bytes, String, Bytes, Int) -> Bytes
 pub fn PrfHash::transcript_hash(Self, Bytes) -> Bytes
+
+pub(all) enum RevocationPolicy {
+  SoftFail
+  HardFail
+} derive(Eq, @debug.Debug)
 
 pub struct ServerHello {
   server_random : Bytes
