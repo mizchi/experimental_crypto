@@ -100,6 +100,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | `noise` | Noise Protocol Framework | NN / NK / XX / IK handshake state machine (25519 + ChaChaPoly + SHA256). |
 | `tls13` | RFC 8446 (vectors: RFC 8448) | TLS 1.3 client 1-RTT handshake building blocks (live glue WIP). |
 | `tls12` | RFC 5246/5288/7627/8422, RFC 6066/6960 | TLS 1.2 PRF + key schedule + AES-GCM records + ECDHE handshake + verified server auth (chain + hostname + SKE + OCSP stapling). |
+| `quic` | RFC 9001 | QUIC v1 Initial key derivation + AES-128-GCM packet protection + AES header-protection mask (vectors: RFC 9001 App. A). |
 
 **Sidecars**
 
