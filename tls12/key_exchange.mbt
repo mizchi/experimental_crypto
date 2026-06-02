@@ -11,8 +11,9 @@
 //   2. check the leaf's dNSName SANs against the expected hostname.
 // Using `verify_server_key_exchange` alone is equivalent to accepting any
 // self-signed certificate — an active attacker who presents their own cert and
-// signs the SKE with the matching key will pass. (Issue #22 tracks wiring the
-// chain/OCSP checks into a single verified TLS 1.2 entry point.)
+// signs the SKE with the matching key will pass. Prefer `verify_server_auth`
+// (server_auth.mbt), which composes chain verification + hostname + the SKE
+// signature + OCSP revocation into one MITM-resistant check.
 
 ///|
 pub suberror KeyExchangeError {
