@@ -65,7 +65,9 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | Package | RFC / Spec | Role |
 |---|---|---|
 | `ed25519` | RFC 8032 | Ed25519 sign + verify (+ `verify_strict`). |
+| `ed448` | RFC 8032 | Ed448 signature verify (edwards448, SHAKE256, projective). |
 | `x25519` | RFC 7748 | X25519 ECDH (10-limb Montgomery ladder). |
+| `x448` | RFC 7748 | X448 ECDH (Curve448 Montgomery ladder, @bigint field). |
 | `p256` | FIPS 186-5, SEC 1, RFC 5903 | ECDSA-SHA-256 sign (RFC 6979) + verify, ECDH. |
 | `p384` | FIPS 186-5, RFC 5903 | ECDSA-SHA-384 sign + verify, ECDH. |
 | `p521` | FIPS 186-5 | ECDSA-SHA-512 (ES512) sign + verify. |

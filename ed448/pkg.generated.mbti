@@ -1,0 +1,14 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/ed448"
+
+// Values
+pub fn verify(Bytes, Bytes, Bytes, context? : Bytes) -> Bool
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+
