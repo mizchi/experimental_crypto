@@ -133,9 +133,22 @@ getrandom (target 別 backend、aes/ed25519/x25519 の rng source)
 
 ## 既知の TODO (頭出しだけ)
 
-- `crypto_bigint` を本物の limb 演算に置き換える (今は @bigint ラッパ)
-- `ed25519` を 10-limb field arithmetic に移植 (今は @bigint Edwards 曲線、x25519 と
-  同じ手順で大幅に速くなるはず)
+- ~~`crypto_bigint` を本物の limb 演算に置き換える (今は @bigint ラッパ)~~ → 済。
+  実態は既に `FixedArray[UInt64]` limb の固定幅 Uint (`crypto_bigint.mbt`、branchless
+  な `limbs_is_zero_bit` 等 + Montgomery pow / 奇数 modulus inv)。CONSTANT_TIME.md で
+  add/sub/mul/pow が measured constant-time candidate。
+- ~~`ed25519` を 10-limb field arithmetic に移植 (今は @bigint Edwards 曲線)~~ → 済。
+  `ed25519.mbt` は 10-limb radix-2^25.5 の `Fe` (fe_mul/fe_cmov/fe_carry_full…、
+  EdPoint + point_compress/decompress) で sign/verify を実装。@bigint は verify 側の
+  スカラーパースのみ (sign 側は `crypto_bigint.Uint` 固定幅、`ed25519-sign` は
+  leakage harness の measured constant-time candidate)。
+- ~~`x448` / `ed448` を @bigint から limb field へ~~ → 済。16-limb radix-2^28 の
+  Goldilocks field (`field448.mbt`)。x448 ECDH ~11.5ms→~2.8ms (branch-free)、
+  ed448 verify ~55ms→~8.1ms (limb + Shamir 同時2スカラー)。
+- `ed448` の `[S]B` を固定基底 comb 化すれば verify がさらに ~1.5–2×。公開演算なので
+  優先度は低め。
+- `x448` を leakage harness に登録 (ソースは branch-free 済み、callgrind/dudect 閾値の
+  較正に nix+valgrind devShell が要る)。
 - ~~`aead/XChaCha20Poly1305` (HChaCha20 sub-key 派生)~~ → 済。`hchacha20`
   (chacha20.mbt) + `xchacha20_poly1305_seal/open` 実装済みで、draft-irtf-cfrg-
   xchacha §A.1 (HChaCha20 KAT) / §A.3 (AEAD) と fuzz round-trip でテスト済み。
