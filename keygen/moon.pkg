@@ -1,0 +1,11 @@
+import {
+  "mizchi/experimental_crypto/getrandom",
+  "mizchi/experimental_crypto/p256",
+  "mizchi/experimental_crypto/p384",
+  "mizchi/experimental_crypto/ed25519",
+  "mizchi/experimental_crypto/x25519",
+}
+
+options(
+  supported_targets: "+native+js",
+)
