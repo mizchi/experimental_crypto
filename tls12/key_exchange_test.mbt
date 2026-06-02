@@ -43,6 +43,33 @@ test "TLS 1.2 ServerKeyExchange verify fails on a tampered client_random" {
   inspect(ok, content="false")
 }
 
+// An independent self-signed P-256 leaf for "localhost" minted by `openssl`
+// (a stand-in for an active MITM's own certificate).
+
+///|
+let attacker_leaf : String = "3082017c30820123a00302010202146307ae7f7e59d21a4d27eb55d988d7ec42148c33300a06082a8648ce3d04030230143112301006035504030c096c6f63616c686f7374301e170d3236303630323034333030355a170d3236303630343034333030355a30143112301006035504030c096c6f63616c686f73743059301306072a8648ce3d020106082a8648ce3d03010703420004e974135f7339958beb552d1bc9d64a865567e6a0e278355995ebda40fac5494d39020aa0a365cf4f5ccd7daf68167be985380b34635b4711a80b65842845f627a3533051301d0603551d0e04160414015dbf04e6cbe68bf6b4180cdc188f9a5d02387b301f0603551d23041830168014015dbf04e6cbe68bf6b4180cdc188f9a5d02387b300f0603551d130101ff040530030101ff300a06082a8648ce3d04030203470030440220259012e041fe1a4c4766cb50357d6cc430214577f33a120b0126bc135588ab9c0220671d1e5f94137a38b292a028a230f922bde3a4f131d60f4eae4902e3a38b2b4b"
+
+///|
+// Signature binding is sound: the captured SKE was signed by the real leaf's
+// key, so it does NOT verify against an unrelated (attacker) certificate.
+//
+// SECURITY NOTE: this only proves the *signature* binds to the presented leaf
+// key. `verify_server_key_exchange` does NOT establish that the leaf is
+// trusted — an attacker presenting their OWN cert and signing the SKE with the
+// matching key WOULD pass. Callers MUST additionally chain-verify the leaf to a
+// trust anchor (mizchi/pkix_verify) and check the hostname. See the docstring.
+test "TLS 1.2 SKE does not verify against an unrelated attacker certificate" {
+  let (_ty, body) = @tls12.parse_handshake(hx(ske_msg))
+  let ske = @tls12.parse_server_key_exchange(body)
+  let ok = @tls12.verify_server_key_exchange(
+    hx(attacker_leaf),
+    ske,
+    hx(kx_client_random),
+    hx(kx_server_random),
+  )
+  inspect(ok, content="false")
+}
+
 ///|
 test "TLS 1.2 ECDHE X25519 agreement matches the x25519 module directly" {
   // Two parties: client ephemeral + server ephemeral, both fixed scalars.

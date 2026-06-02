@@ -1,6 +1,18 @@
 // TLS 1.2 ECDHE key exchange + ServerKeyExchange signature verification, and
 // the derivation of the session's record keys. This wires the curve / RSA /
 // EdDSA primitives into the PRF key schedule (RFC 5246 §7.4.3, §8.1; RFC 4492).
+//
+// ⚠️ SERVER AUTHENTICATION IS THE CALLER'S RESPONSIBILITY. This module
+// authenticates the ServerKeyExchange *to the leaf certificate's key*, but it
+// does NOT establish that the leaf is trusted. A complete, MITM-resistant
+// handshake MUST also, before deriving/using the session keys:
+//   1. chain-verify the server's Certificate message to a trust anchor and
+//      check validity dates + serverAuth EKU (mizchi/pkix_verify), and
+//   2. check the leaf's dNSName SANs against the expected hostname.
+// Using `verify_server_key_exchange` alone is equivalent to accepting any
+// self-signed certificate — an active attacker who presents their own cert and
+// signs the SKE with the matching key will pass. (Issue #22 tracks wiring the
+// chain/OCSP checks into a single verified TLS 1.2 entry point.)
 
 ///|
 pub suberror KeyExchangeError {
@@ -23,6 +35,11 @@ pub suberror KeyExchangeError {
 /// type and the signature verifies. Primitive-level failures collapse to
 /// `false`; an unsupported scheme / key mismatch raises so the caller can
 /// distinguish "forged" from "can't evaluate".
+///
+/// ⚠️ This proves the SKE was signed by whoever holds `leaf_cert_der`'s key —
+/// NOT that the leaf is trusted. You MUST separately chain-verify the leaf to a
+/// trust anchor and check the hostname (see the module header), or an active
+/// MITM with their own certificate passes.
 pub fn verify_server_key_exchange(
   leaf_cert_der : Bytes,
   ske : ServerKeyExchange,

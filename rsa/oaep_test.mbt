@@ -135,6 +135,45 @@ test "RSA-OAEP encrypt -> decrypt round trip (SHA-256)" {
 }
 
 ///|
+// Parameter-confusion attacks: a ciphertext is bound to its (hash, label).
+// Decrypting under a different hash or label must fail, not silently return
+// garbage or a partial plaintext.
+test "RSA-OAEP rejects hash mismatch (encrypt SHA-256, decrypt SHA-1)" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs8_pem(oaep_sk_pem)
+  let pk = sk.public_key()
+  let seed = Bytes::makei(32, fn(i) { (i + 3).to_byte() })
+  let ct = pk.encrypt_oaep(b"param confusion", seed, hash=@rsa.OaepHash::Sha256)
+  let mut rejected = false
+  let _ = sk.decrypt_oaep(ct, hash=@rsa.OaepHash::Sha1) catch {
+    _ => {
+      rejected = true
+      b""
+    }
+  }
+  inspect(rejected, content="true")
+}
+
+///|
+test "RSA-OAEP rejects label mismatch" {
+  let sk = @rsa.RsaPrivateKey::from_pkcs8_pem(oaep_sk_pem)
+  let pk = sk.public_key()
+  let seed = Bytes::makei(32, fn(i) { (i + 9).to_byte() })
+  let ct = pk.encrypt_oaep(b"labeled", seed, label=oaep_hex("aabb"))
+  // Right key + right hash, wrong label.
+  let mut rejected = false
+  let _ = sk.decrypt_oaep(ct, label=oaep_hex("aabbcc")) catch {
+    _ => {
+      rejected = true
+      b""
+    }
+  }
+  inspect(rejected, content="true")
+  // Sanity: the matching label still decrypts.
+  let ok = sk.decrypt_oaep(ct, label=oaep_hex("aabb"))
+  inspect(ok.length(), content="7")
+}
+
+///|
 test "RSA-OAEP decrypt rejects a tampered ciphertext" {
   let sk = @rsa.RsaPrivateKey::from_pkcs8_pem(oaep_sk_pem)
   let pk = sk.public_key()
