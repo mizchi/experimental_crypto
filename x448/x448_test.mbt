@@ -69,3 +69,36 @@ test "X448 rejects bad input lengths" {
   )
   inspect((try? @x448.x448(xh(a_sk), xh("00112233"))) is Err(_), content="true")
 }
+
+// RFC 7748 §5.2 iterated test. Starting from k = u = encodeUCoordinate(5), set
+// k, u = X448(k, u), k each round. This exercises a very wide range of field
+// values, so it is the canonical stress test for the limb reduction / carry.
+
+///|
+fn x448_iterate(rounds : Int) -> String {
+  let base = @x448.base_point()
+  let mut k = base
+  let mut u = base
+  for _i in 0..<rounds {
+    let r = @x448.x448(k, u) catch { _ => abort("unreachable") }
+    u = k
+    k = r
+  }
+  xhex(k)
+}
+
+///|
+test "X448 RFC 7748 iterated vector (1 iteration)" {
+  inspect(
+    x448_iterate(1),
+    content="3f482c8a9f19b01e6c46ee9711d9dc14fd4bf67af30765c2ae2b846a4d23a8cd0db897086239492caf350b51f833868b9bc2b3bca9cf4113",
+  )
+}
+
+///|
+test "X448 RFC 7748 iterated vector (1000 iterations)" {
+  inspect(
+    x448_iterate(1000),
+    content="aa3b4749d55b9daf1e5b00288826c467274ce3ebbdd5c17b975e09d4af6c67cf10d087202db88286e2b79fceea3ec353ef54faa26e219f38",
+  )
+}
