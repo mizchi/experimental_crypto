@@ -152,6 +152,13 @@ pub fn packet_nonce(
 ///|
 /// AEAD-protect a packet payload (AES-128-GCM). `header` is the packet header
 /// used as additional data; `packet_number` selects the nonce.
+///
+/// ⚠️ The caller MUST use each `packet_number` at most once per `keys`
+/// (per packet-number space). The nonce is `iv XOR packet_number`, so reusing a
+/// packet number under the same key is a catastrophic AES-GCM nonce reuse
+/// (it leaks the GHASH key and enables forgery). QUIC packet numbers are
+/// monotonically increasing and never repeat within a space, which satisfies
+/// this — but this function does not and cannot enforce it.
 pub fn seal_payload(
   keys : PacketKeys,
   packet_number : UInt64,
