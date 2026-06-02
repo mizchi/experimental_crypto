@@ -95,6 +95,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | `cms` | RFC 5652 | CMS SignedData detached verify. |
 | `git_object` | git object format | Commit / tag signature extraction. |
 | `ocsp` | RFC 6960 | OCSP response parse + verify. |
+| `ct` | RFC 6962 | Certificate Transparency SCT list parse + signature verify (x509 / precert entry). |
 | `crl` | RFC 5280 §5 | CRL parse + verify + `is_revoked`. |
 | `webauthn` | W3C WebAuthn L2 / FIDO CTAP2 | Assertion + attestation (packed / fido-u2f / none) verification. |
 | `age_format` | C2SP age v1 | age file decrypt + deterministic encrypt for X25519 recipients. |
