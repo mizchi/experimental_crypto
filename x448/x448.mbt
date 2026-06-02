@@ -1,9 +1,14 @@
 // X448 ECDH (RFC 7748) — the Montgomery-ladder Diffie–Hellman on Curve448.
 //
 // Field arithmetic is the 16-limb radix-2^28 Goldilocks field in field448.mbt
-// (no @bigint), so this is far faster than a generic big-integer ladder. It is
-// a clear, not fully constant-time implementation: the field cswap is
-// branch-free on the limbs, but inversion uses a plain square-and-multiply.
+// (no @bigint), so this is far faster than a generic big-integer ladder.
+//
+// The ladder has no secret-dependent branches: it always runs 448 steps, the
+// conditional swap is mask-based (fe_cswap), fe_mul/fe_sqr/fe_add/fe_sub/fe_carry
+// are straight-line, the final reduction in fe_to_bytes is branch-free, and the
+// inversion is a fixed square-and-multiply over the public constant exponent
+// p-2. This is the same fixed-iteration / branch-free discipline as x25519 — a
+// best effort, not a formal constant-time proof (see docs/CONSTANT_TIME.md).
 
 ///|
 let a24 : UInt64 = 39081

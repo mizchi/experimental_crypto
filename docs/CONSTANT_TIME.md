@@ -27,6 +27,7 @@ This workspace uses four different levels of side-channel language:
 | P-521 / ES512 signing evidence | P-521 sign-side base-point multiplication and final nonce inverse are fixed-limb / fixed-iteration and registered as `p521-sign` / `p521-nonce-inv`. | Not yet part of archived measured constant-time candidate claims. |
 | Ed25519 | 10-limb Edwards field arithmetic with fixed-limb sign-side scalar reduction / mul-add. Public verify scalar parsing remains public `@bigint`. | Measured constant-time candidate for the `ed25519-sign` sparse/dense seed workload. |
 | X25519 | 10-limb Montgomery ladder with conditional swaps. | Measured constant-time candidate for the sparse/dense scalar ECDH workload. |
+| X448 | 16-limb radix-2^28 Goldilocks Montgomery ladder: mask-based `fe_cswap`, straight-line `fe_mul`/`fe_sqr` (no `if limb != 0` skip), branch-free final reduction, fixed-exponent inversion (448 fixed steps). | Source-level branch-free / fixed-iteration intended; not yet wired into the leakage harness, so no archived measured evidence. |
 | AES-GCM | AES uses table-based S-boxes. | Not constant-time on shared-cache targets. |
 | ChaCha20-Poly1305 | Limb arithmetic, no AES tables. | Backend-level multiply timing and generated code are not audited. |
 

@@ -7,9 +7,11 @@
 // i.e. a high limb at position k folds onto positions k-16 (the "+1") and k-8
 // (the "+2^224"), both on exact limb boundaries.
 //
-// This is the field shared by x448 (Montgomery ladder) and, in future, ed448.
-// It is clear (not constant-time) field math; the ladder's cswap is the only
-// part written to avoid scalar-dependent branches on the limbs themselves.
+// This field backs the x448 Montgomery ladder (ed448 keeps its own copy). It is
+// written branch-free for the secret-scalar path: every operation here is
+// straight-line over the limbs (no value-dependent skips), the final reduction
+// in fe_to_bytes is mask-selected, and the only "conditional" — fe_cswap — is
+// mask-based. See the constant-time note in x448.mbt.
 
 ///|
 type Fe = FixedArray[UInt64]
@@ -115,15 +117,16 @@ fn fe_sub(a : Fe, b : Fe) -> Fe {
 
 ///|
 // Multiply with Goldilocks reduction. Inputs are assumed < 2^29 (the case after
-// fe_add/fe_sub/fe_carry), so each column sum stays well within UInt64.
+// fe_add/fe_sub/fe_carry), so each column sum stays well within UInt64. The
+// inner loop runs unconditionally (no `if a[i] != 0` skip) so the control flow
+// does not depend on the secret limb values — see the constant-time note on the
+// ladder.
 fn fe_mul(a : Fe, b : Fe) -> Fe {
   let t = FixedArray::make(31, 0UL)
   for i in 0..<16 {
     let ai = a[i]
-    if ai != 0UL {
-      for j in 0..<16 {
-        t[i + j] = t[i + j] + ai * b[j]
-      }
+    for j in 0..<16 {
+      t[i + j] = t[i + j] + ai * b[j]
     }
   }
   // Stage A: fold columns 16..30 onto k-16 (×1) and k-8 (×2^224).
@@ -230,21 +233,21 @@ fn fe_cswap(a : Fe, b : Fe, swap : Int) -> Unit {
 fn fe_to_bytes(a : Fe) -> FixedArray[Byte] {
   let h = fe_copy(a)
   fe_carry(h) // limbs < 2^28, value < 2^448
-  // Conditionally subtract p once (value < 2^448 < 2p).
+  // Conditionally subtract p once (value < 2^448 < 2p), branch-free: compute
+  // h - p with a biased borrow, then mask-select between (h-p) and h.
   let t = FixedArray::make(16, 0UL)
   let mut borrow = 0UL
   for i in 0..<16 {
-    let sub = p_limb[i] + borrow
-    if h[i] >= sub {
-      t[i] = h[i] - sub
-      borrow = 0UL
-    } else {
-      t[i] = h[i] + (1UL << 28) - sub
-      borrow = 1UL
-    }
+    // h[i] - p_limb[i] - borrow, biased by 2^28 to stay non-negative in UInt64.
+    let d = h[i] + (1UL << 28) - p_limb[i] - borrow
+    t[i] = d & mask28
+    borrow = 1UL - (d >> 28)
   }
-  // borrow == 0 means h >= p, so the subtracted value t is the canonical one.
-  let c = if borrow == 0UL { t } else { h }
+  // borrow == 0 -> h >= p, select t (= h - p); borrow == 1 -> h < p, select h.
+  let mask_t = 0UL - (1UL - borrow)
+  let c = FixedArray::makei(16, fn(i) {
+    (mask_t & t[i]) | (mask_t.lnot() & h[i])
+  })
   let out = FixedArray::make(56, b'\x00')
   let mut acc = 0UL
   let mut accbits = 0
