@@ -99,7 +99,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | `age_format` | C2SP age v1 | age file decrypt + deterministic encrypt for X25519 recipients. |
 | `noise` | Noise Protocol Framework | NN / NK / XX / IK handshake state machine (25519 + ChaChaPoly + SHA256). |
 | `tls13` | RFC 8446 (vectors: RFC 8448) | TLS 1.3 client 1-RTT handshake building blocks (live glue WIP). |
-| `tls12` | RFC 5246, RFC 5288, RFC 7627, RFC 8422 | TLS 1.2 PRF (SHA-256/384) + key schedule + AES-GCM record layer + ECDHE handshake messages (WIP). |
+| `tls12` | RFC 5246/5288/7627/8422, RFC 6066/6960 | TLS 1.2 PRF + key schedule + AES-GCM records + ECDHE handshake + verified server auth (chain + hostname + SKE + OCSP stapling). |
 
 **Sidecars**
 
