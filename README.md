@@ -75,6 +75,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | `pkix_verify` | RFC 5280 §6 | X.509 chain validation (Ed25519 / RSA / ECDSA-SHA-2). |
 | `naclbox` | libsodium `crypto_box` (XChaCha20) | Curve25519 + XChaCha20-Poly1305 box. |
 | `hpke` | RFC 9180 | Mode_Base DHKEM(X25519) / HKDF-SHA256 / ChaCha20Poly1305. |
+| `webpush` | RFC 8291 / 8188 | Web Push `aes128gcm` message decrypt (P-256 ECDH + HKDF). |
 | `bip39` | BIP-39 | Mnemonic ↔ entropy + PBKDF2-HMAC-SHA-512 seed. |
 | `bip32` | BIP-32 | HD key derivation on secp256k1. |
 | `cose` | RFC 9052 | COSE_Sign1 verify + COSE_Key parser. |
