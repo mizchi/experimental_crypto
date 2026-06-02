@@ -105,3 +105,20 @@ test "AES-KW rejects a bad KEK size" {
   }
   inspect(rejected, content="true")
 }
+
+///|
+// Unwrapping under the wrong KEK must fail the integrity check, never return
+// the (garbage) "key". Cross-key acceptance would be catastrophic.
+test "AES-KW unwrap under the wrong KEK is rejected" {
+  let kek = kw_hex("000102030405060708090a0b0c0d0e0f")
+  let wrong = kw_hex("0f0e0d0c0b0a09080706050403020100")
+  let w = @aeskw.wrap(kek, kw_hex("00112233445566778899aabbccddeeff"))
+  let mut rejected = false
+  let _ = @aeskw.unwrap(wrong, w) catch {
+    _ => {
+      rejected = true
+      b""
+    }
+  }
+  inspect(rejected, content="true")
+}
