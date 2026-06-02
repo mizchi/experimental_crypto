@@ -1,1 +1,5 @@
 // no external imports; pure UInt64 Keccak.
+
+import {
+  "moonbitlang/core/bench",
+} for "test"

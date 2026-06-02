@@ -17,6 +17,7 @@
 pub suberror HybridError {
   BadShareLength(Int)
   Curve(String)
+  Pq(@mlkem.MlkemError)
 } derive(Debug)
 
 ///|
@@ -54,7 +55,7 @@ pub fn client_offer(
   z : Bytes,
   x25519_sk : Bytes,
 ) -> (Bytes, Bytes) raise HybridError {
-  let (ek, dk) = @mlkem.keygen(d, z)
+  let (ek, dk) = @mlkem.keygen(d, z) catch { e => raise Pq(e) }
   let xpub = (@x25519.PrivateKey::from_bytes(x25519_sk) catch {
       _ => raise Curve("invalid X25519 key material")
     })
@@ -78,7 +79,7 @@ pub fn server_respond(
   }
   let ek = slice(client_share, 0, @mlkem.ek_size)
   let xpub_client = slice(client_share, @mlkem.ek_size, 32)
-  let (ss_mlkem, ct) = @mlkem.encaps(ek, m)
+  let (ss_mlkem, ct) = @mlkem.encaps(ek, m) catch { e => raise Pq(e) }
   let sk = @x25519.PrivateKey::from_bytes(x25519_sk) catch {
     _ => raise Curve("invalid X25519 key material")
   }
@@ -105,7 +106,7 @@ pub fn client_finish(
   }
   let ct = slice(server_share, 0, @mlkem.ct_size)
   let xpub_server = slice(server_share, @mlkem.ct_size, 32)
-  let ss_mlkem = @mlkem.decaps(mlkem_dk, ct)
+  let ss_mlkem = @mlkem.decaps(mlkem_dk, ct) catch { e => raise Pq(e) }
   let sk = @x25519.PrivateKey::from_bytes(x25519_sk) catch {
     _ => raise Curve("invalid X25519 key material")
   }

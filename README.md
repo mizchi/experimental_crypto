@@ -189,6 +189,14 @@ mizchi/<module>`:
 | `aead` ChaCha20-Poly1305 seal 1 KiB | ~5.3 us | |
 | `aead` AES-128-GCM seal 1 KiB | ~9.2 us | portable 4-bit Shoup GHASH; no hardware CLMUL |
 | `x25519` ECDH | ~85 us | 10-limb Montgomery ladder |
+| `sha3` SHA3-256 1 KiB | ~58 us | Keccak-f[1600], pure UInt64 |
+| `sha3` SHA3-512 1 KiB | ~107 us | rate 72, so more permutation calls |
+| `quic` `initial_keys` | ~34 us | RFC 9001 Initial secret HKDF chain |
+| `quic` `seal_payload` 1200 B | ~36 us | AES-128-GCM, near-MTU packet |
+| `mlkem` keygen / encaps / decaps | ~0.93 / 1.0 / 1.1 ms | ML-KEM-768; decaps re-encrypts (implicit reject) |
+| `pqhybrid` server_respond / client_finish | ~1.7 / 1.4 ms | X25519MLKEM768 (ML-KEM dominates) |
+| `x448` ECDH | ~11.5 ms | @bigint Montgomery ladder (cf. 10-limb x25519 ~85 us) |
+| `ed448` verify | ~55 ms | @bigint double scalar mult, no precompute |
 | `p256` sign | ~2.0 ms | fixed-iteration sign-side scalar path |
 | `p384` sign | ~5.2 ms | fixed-iteration sign-side scalar path |
 | `secp256k1` sign | ~2.0 ms | fixed-iteration sign-side scalar path |

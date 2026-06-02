@@ -2,6 +2,7 @@
 package "mizchi/experimental_crypto/pqhybrid"
 
 import {
+  "mizchi/experimental_crypto/mlkem",
   "moonbitlang/core/debug",
 }
 
@@ -22,6 +23,7 @@ pub let shared_secret_len : Int
 pub suberror HybridError {
   BadShareLength(Int)
   Curve(String)
+  Pq(@mlkem.MlkemError)
 } derive(@debug.Debug)
 
 // Types and methods
