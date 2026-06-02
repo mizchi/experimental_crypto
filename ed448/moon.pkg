@@ -1,3 +1,7 @@
 import {
   "mizchi/experimental_crypto/sha3",
 }
+
+import {
+  "moonbitlang/core/bench",
+} for "test"

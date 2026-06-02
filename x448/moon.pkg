@@ -1,1 +1,5 @@
 // X448 uses prelude BigInt only.
+
+import {
+  "moonbitlang/core/bench",
+} for "test"
