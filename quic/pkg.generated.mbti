@@ -1,0 +1,43 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/quic"
+
+import {
+  "mizchi/experimental_crypto/aead",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn expand_label(Bytes, String, Int) -> Bytes
+
+pub fn header_protection_mask(Bytes, Bytes) -> Bytes raise QuicError
+
+pub fn initial_keys(Bytes) -> (PacketKeys, PacketKeys)
+
+pub fn open_payload(PacketKeys, UInt64, Bytes, Bytes) -> Bytes raise QuicError
+
+pub fn packet_nonce(Bytes, UInt64) -> Bytes raise QuicError
+
+pub fn seal_payload(PacketKeys, UInt64, Bytes, Bytes) -> Bytes raise QuicError
+
+// Errors
+pub suberror QuicError {
+  Aead(@aead.AeadError)
+  BadLength(String)
+} derive(@debug.Debug)
+
+// Types and methods
+pub struct PacketKeys {
+  secret : Bytes
+  key : Bytes
+  iv : Bytes
+  hp : Bytes
+}
+pub fn PacketKeys::hp_bytes(Self) -> Bytes
+pub fn PacketKeys::iv_bytes(Self) -> Bytes
+pub fn PacketKeys::key_bytes(Self) -> Bytes
+pub fn PacketKeys::secret_bytes(Self) -> Bytes
+
+// Type aliases
+
+// Traits
+
