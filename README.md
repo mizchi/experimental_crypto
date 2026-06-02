@@ -49,6 +49,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | `hash` | FIPS 180-4, RFC 2104, ISO 10118-3, BLAKE2/3 | SHA-1/256/384/512, RIPEMD-160, HMAC-SHA-2, BLAKE2b/3, `ct_eq`. |
 | `sha3` | FIPS 202 | Keccak-f[1600]: SHA3-256/512 + SHAKE128/256 (used by ML-KEM). |
 | `mlkem` | FIPS 203 | ML-KEM-768 post-quantum KEM (keygen / encaps / decaps; KAT-verified). |
+| `pqhybrid` | draft-kwiatkowski-tls-ecdhe-mlkem (0x11ec) | X25519MLKEM768 hybrid KEX (ML-KEM-768 ‖ X25519) for TLS 1.3 — browser default. |
 | `aead` | RFC 8439, NIST SP 800-38D / 38A | ChaCha20- / XChaCha20-Poly1305, AES-128/256-GCM, AES-CBC, AES-CTR. |
 | `aeskw` | RFC 3394 | AES Key Wrap / Unwrap (128/192/256-bit KEK); used by `jwe` A256KW. |
 | `pkix` | RFC 5280 | X.509 v3 parse + byte-stable DER round-trip. |
