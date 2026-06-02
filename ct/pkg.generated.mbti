@@ -1,0 +1,46 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/ct"
+
+import {
+  "mizchi/experimental_crypto/pkix",
+  "mizchi/experimental_crypto/pkix_verify",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn log_id_for_spki(Bytes) -> Bytes
+
+pub fn parse_sct_list(Bytes) -> Array[Sct] raise CtError
+
+pub fn precert_entry(Bytes, Bytes) -> Bytes
+
+pub fn verify_sct(Sct, Bytes, Int, Bytes) -> Bool raise CtError
+
+pub fn x509_entry(Bytes) -> Bytes
+
+// Errors
+pub suberror CtError {
+  Truncated(String)
+  Malformed(String)
+  Pkix(@pkix.PkixError)
+  PkixVerify(@pkix_verify.PkixVerifyError)
+} derive(@debug.Debug)
+
+// Types and methods
+pub struct Sct {
+  version : Int
+  log_id : Bytes
+  timestamp : UInt64
+  extensions : Bytes
+  sig_scheme : Int
+  signature : Bytes
+}
+pub fn Sct::log_id(Self) -> Bytes
+pub fn Sct::sig_scheme(Self) -> Int
+pub fn Sct::timestamp(Self) -> UInt64
+pub fn Sct::version(Self) -> Int
+
+// Type aliases
+
+// Traits
+
