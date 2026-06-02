@@ -1,16 +1,11 @@
 // Ed448 signature verification (RFC 8032, pure EdDSA / no prehash) on the
-// edwards448 curve. Field/scalar arithmetic via @bigint; points in projective
-// coordinates (one inversion-free add formula, comparison by cross-multiply) so
-// a double-scalar verify needs no modular inversion. Hashing is SHAKE256 with
-// the "SigEd448" dom4 prefix. Clear (not constant-time) — verification only.
-
-///|
-fn p() -> BigInt {
-  BigInt::from_string(
-    "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    radix=16,
-  )
-}
+// edwards448 curve. Field arithmetic is the 16-limb radix-2^28 Goldilocks field
+// (field448.mbt, no @bigint); points are projective (X:Y:Z) with one
+// inversion-free unified add and comparison by cross-multiply, so a
+// double-scalar verify needs only the one final-ish inversion inside decompress.
+// Scalars (S and k = H mod L) stay as @bigint values reduced modulo the prime
+// group order L. Hashing is SHAKE256 with the "SigEd448" dom4 prefix. Clear (not
+// constant-time) — verification only.
 
 ///|
 fn l_order() -> BigInt {
@@ -21,93 +16,82 @@ fn l_order() -> BigInt {
 }
 
 ///|
-fn d_param() -> BigInt {
-  BigInt::from_string(
-    "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6756",
-    radix=16,
-  )
+// Base point B (RFC 8032 §5.2) as field elements.
+let bx_hex : String = "4f1970c66bed0ded221d15a622bf36da9e146570470f1767ea6de324a3d3a46412ae1af72ab66511433b80e18b00938e2626a82bc70cc05e"
+
+///|
+let by_hex : String = "693f46716eb6bc248876203756c9c7624bea73736ca3984087789c1e05a0c2d73ad3ff1ce67c39c4fdbd132c4ed7c8ad9808795bf230fa14"
+
+///|
+fn base_x() -> Fe {
+  fe_from_hex_be(bx_hex)
 }
 
 ///|
-fn bx() -> BigInt {
-  BigInt::from_string(
-    "4f1970c66bed0ded221d15a622bf36da9e146570470f1767ea6de324a3d3a46412ae1af72ab66511433b80e18b00938e2626a82bc70cc05e",
-    radix=16,
-  )
+fn base_y() -> Fe {
+  fe_from_hex_be(by_hex)
 }
 
 ///|
-fn by() -> BigInt {
-  BigInt::from_string(
-    "693f46716eb6bc248876203756c9c7624bea73736ca3984087789c1e05a0c2d73ad3ff1ce67c39c4fdbd132c4ed7c8ad9808795bf230fa14",
-    radix=16,
-  )
-}
-
-///|
-fn zero() -> BigInt {
-  BigInt::from_int(0)
-}
-
-///|
-fn one() -> BigInt {
-  BigInt::from_int(1)
-}
-
-///|
-fn md(x : BigInt) -> BigInt {
-  let pp = p()
-  let r = x % pp
-  if r.compare(zero()) < 0 {
-    r + pp
-  } else {
-    r
-  }
+// The edwards448 d = -39081 mod p.
+fn d_param() -> Fe {
+  fe_neg(fe_from_small(39081))
 }
 
 ///|
 // Projective Edwards point (X:Y:Z), affine = (X/Z, Y/Z). a = 1 (untwisted).
 priv struct Pt {
-  x : BigInt
-  y : BigInt
-  z : BigInt
+  x : Fe
+  y : Fe
+  z : Fe
 }
 
 ///|
 fn identity() -> Pt {
-  { x: zero(), y: one(), z: one() }
+  { x: fe_zero(), y: fe_one(), z: fe_one() }
 }
 
 ///|
 // Unified projective add for x^2+y^2 = 1 + d x^2 y^2 (works for doubling too).
 fn padd(p1 : Pt, p2 : Pt) -> Pt {
-  let a = md(p1.z * p2.z)
-  let b = md(a * a)
-  let c = md(p1.x * p2.x)
-  let dd = md(p1.y * p2.y)
-  let e = md(d_param() * c * dd)
-  let f = md(b - e)
-  let g = md(b + e)
-  let xs = md((p1.x + p1.y) * (p2.x + p2.y) - c - dd)
-  let x3 = md(a * f * xs)
-  let y3 = md(a * g * (dd - c))
-  let z3 = md(f * g)
+  let a = fe_mul(p1.z, p2.z)
+  let b = fe_sqr(a)
+  let c = fe_mul(p1.x, p2.x)
+  let dd = fe_mul(p1.y, p2.y)
+  let e = fe_mul(d_param(), fe_mul(c, dd))
+  let f = fe_sub(b, e)
+  let g = fe_add(b, e)
+  let xs = fe_sub(fe_sub(fe_mul(fe_add(p1.x, p1.y), fe_add(p2.x, p2.y)), c), dd)
+  let x3 = fe_mul(fe_mul(a, f), xs)
+  let y3 = fe_mul(fe_mul(a, g), fe_sub(dd, c))
+  let z3 = fe_mul(f, g)
   { x: x3, y: y3, z: z3 }
 }
 
 ///|
-fn scalar_mult(k : BigInt, point : Pt) -> Pt {
+fn bit_at(x : BigInt, t : Int) -> Int {
+  ((x >> t) % BigInt::from_int(2)).to_int()
+}
+
+///|
+// Shamir / Straus double-scalar multiplication: [s]P + [k]Q in one high-to-low
+// pass (one doubling per bit, shared between both scalars), with a 4-entry table
+// {0, P, Q, P+Q}. Halves the doublings versus two independent scalar mults.
+fn double_scalar_mult(s : BigInt, p : Pt, k : BigInt, q : Pt) -> Pt {
+  let pq = padd(p, q)
   let mut r = identity()
-  let mut acc = point
-  let mut kk = k
-  let two = BigInt::from_int(2)
-  // process low to high bit
-  while kk.compare(zero()) > 0 {
-    if (kk % two).compare(one()) == 0 {
-      r = padd(r, acc)
+  // Scalars are < L < 2^446; 448 bits covers them (top bits are zero).
+  for t = 447; t >= 0; t = t - 1 {
+    r = padd(r, r)
+    let sb = bit_at(s, t)
+    let kb = bit_at(k, t)
+    if sb == 1 && kb == 1 {
+      r = padd(r, pq)
+    } else if sb == 1 {
+      r = padd(r, p)
+    } else if kb == 1 {
+      r = padd(r, q)
     }
-    acc = padd(acc, acc)
-    kk = kk / two
   }
   r
 }
@@ -115,13 +99,13 @@ fn scalar_mult(k : BigInt, point : Pt) -> Pt {
 ///|
 fn pt_equal(p1 : Pt, p2 : Pt) -> Bool {
   // X1*Z2 == X2*Z1 and Y1*Z2 == Y2*Z1
-  md(p1.x * p2.z).compare(md(p2.x * p1.z)) == 0 &&
-  md(p1.y * p2.z).compare(md(p2.y * p1.z)) == 0
+  fe_equal(fe_mul(p1.x, p2.z), fe_mul(p2.x, p1.z)) &&
+  fe_equal(fe_mul(p1.y, p2.z), fe_mul(p2.y, p1.z))
 }
 
 ///|
 fn le_to_int(b : Bytes, len : Int) -> BigInt {
-  let mut acc = zero()
+  let mut acc = BigInt::from_int(0)
   let mut shift = 0
   for i in 0..<len {
     acc = acc + (BigInt::from_int(b[i].to_int()) << shift)
@@ -132,36 +116,35 @@ fn le_to_int(b : Bytes, len : Int) -> BigInt {
 
 ///|
 // Decompress a 57-byte Ed448 point encoding to projective coords; None if the
-// y is out of range or no square root exists.
+// y is out of range, non-canonical, or no square root exists.
 fn decompress(enc : Bytes, off : Int) -> Pt? {
-  let pp = p()
-  let y = le_to_int(Bytes::makei(56, fn(i) { enc[off + i] }), 56)
-  if y.compare(pp) >= 0 {
-    return None
+  let le = FixedArray::makei(56, fn(i) { enc[off + i] })
+  let y = fe_from_bytes(le)
+  // Reject a non-canonical y (the encoded integer must be < p, RFC 8032 §5.2.3).
+  let canon = fe_to_bytes(y)
+  for i in 0..<56 {
+    if canon[i] != le[i] {
+      return None
+    }
   }
   let sign = (enc[off + 56].to_int() >> 7) & 1
   // x^2 = (y^2 - 1) / (d y^2 - 1)
-  let y2 = md(y * y)
-  let u = md(y2 - one())
-  let v = md(d_param() * y2 - one())
-  // x = (u/v)^((p+1)/4) = (u * v^(p-2))^((p+1)/4)
-  let vinv = v.pow(pp - BigInt::from_int(2), modulus=pp)
-  let w = md(u * vinv)
-  let exp = (pp + one()) / BigInt::from_int(4)
-  let mut x = w.pow(exp, modulus=pp)
-  if md(x * x).compare(w) != 0 {
+  let y2 = fe_sqr(y)
+  let one_fe = fe_one()
+  let u = fe_sub(y2, one_fe)
+  let v = fe_sub(fe_mul(d_param(), y2), one_fe)
+  let w = fe_mul(u, fe_inv(v))
+  let mut x = fe_sqrt(w)
+  if !fe_equal(fe_sqr(x), w) {
     return None // no square root
   }
-  let two = BigInt::from_int(2)
-  let x_odd = (x % two).compare(one()) == 0
-  let want_odd = sign == 1
-  if x_odd != want_odd {
-    x = md(pp - x)
+  if fe_parity(x) != sign {
+    x = fe_neg(x)
   }
-  if x.compare(zero()) == 0 && sign == 1 {
+  if fe_is_zero(x) && sign == 1 {
     return None
   }
-  Some({ x, y, z: one() })
+  Some({ x, y, z: one_fe })
 }
 
 ///|
@@ -223,10 +206,12 @@ pub fn verify(
     cat([dom4(0, context), r_enc, public_key, message]),
     114,
   )
-  let k = le_to_int(h, 114) % l_order()
-  // cofactorless check: [S]B == R + [k]A
-  let base = { x: bx(), y: by(), z: one() }
-  let lhs = scalar_mult(s, base)
-  let rhs = padd(r_pt, scalar_mult(k, a_pt))
-  pt_equal(lhs, rhs)
+  let l = l_order()
+  let k = le_to_int(h, 114) % l
+  // cofactorless check [S]B == R + [k]A, rearranged to [S]B + [L-k]A == R so it
+  // is a single double-scalar multiplication (Shamir's trick).
+  let base = { x: base_x(), y: base_y(), z: fe_one() }
+  let neg_k = (l - k) % l
+  let combined = double_scalar_mult(s, base, neg_k, a_pt)
+  pt_equal(combined, r_pt)
 }

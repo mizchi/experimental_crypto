@@ -195,8 +195,8 @@ mizchi/<module>`:
 | `quic` `seal_payload` 1200 B | ~36 us | AES-128-GCM, near-MTU packet |
 | `mlkem` keygen / encaps / decaps | ~0.93 / 1.0 / 1.1 ms | ML-KEM-768; decaps re-encrypts (implicit reject) |
 | `pqhybrid` server_respond / client_finish | ~1.7 / 1.4 ms | X25519MLKEM768 (ML-KEM dominates) |
-| `x448` ECDH | ~11.5 ms | @bigint Montgomery ladder (cf. 10-limb x25519 ~85 us) |
-| `ed448` verify | ~55 ms | @bigint double scalar mult, no precompute |
+| `x448` ECDH | ~2.8 ms | 16-limb radix-2^28 Goldilocks field (was ~11.5 ms on @bigint) |
+| `ed448` verify | ~8.1 ms | limb field + Shamir double-scalar trick (was ~55 ms on @bigint) |
 | `p256` sign | ~2.0 ms | fixed-iteration sign-side scalar path |
 | `p384` sign | ~5.2 ms | fixed-iteration sign-side scalar path |
 | `secp256k1` sign | ~2.0 ms | fixed-iteration sign-side scalar path |
