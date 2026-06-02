@@ -1,0 +1,49 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/experimental_crypto/ech"
+
+import {
+  "mizchi/experimental_crypto/hpke",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub let aead_chacha20_poly1305 : Int
+
+pub let kdf_hkdf_sha256 : Int
+
+pub let kem_x25519 : Int
+
+pub fn parse_ech_config_list(Bytes) -> Array[EchConfig] raise EchError
+
+// Errors
+pub suberror EchError {
+  Truncated(String)
+  Malformed(String)
+  UnsupportedKem(Int)
+  NoSupportedSuite
+  Hpke(@hpke.HpkeError)
+} derive(@debug.Debug)
+
+// Types and methods
+pub struct EchConfig {
+  raw : Bytes
+  config_id : Int
+  kem_id : Int
+  public_key : Bytes
+  cipher_suites : Array[(Int, Int)]
+  maximum_name_length : Int
+  public_name : String
+}
+pub fn EchConfig::cipher_suites(Self) -> Array[(Int, Int)]
+pub fn EchConfig::config_id(Self) -> Int
+pub fn EchConfig::hpke_info(Self) -> Bytes
+pub fn EchConfig::kem_id(Self) -> Int
+pub fn EchConfig::open(Self, Bytes, Bytes, Bytes, Bytes) -> Bytes raise EchError
+pub fn EchConfig::public_key(Self) -> Bytes
+pub fn EchConfig::public_name(Self) -> String
+pub fn EchConfig::seal(Self, Bytes, Bytes, Bytes) -> (Bytes, Bytes) raise EchError
+
+// Type aliases
+
+// Traits
+
