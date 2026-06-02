@@ -40,7 +40,7 @@ For API-level detail see [docs/MODULES.md](docs/MODULES.md) and
 | `cbor` | RFC 8949 | CBOR major types 0–7 + tags; consumed by COSE / WebAuthn. |
 | `crypto_bigint` | — (RustCrypto crypto-bigint shape) | Fixed-limb unsigned ints, modular arithmetic, Montgomery pow. |
 | `getrandom` | — (platform CSPRNG) | `crypto.getRandomValues` / `arc4random_buf` / `getrandom(2)` / `BCryptGenRandom`. |
-| `keygen` | — | `generateKey` for P-256 / P-384 / Ed25519 / X25519 key pairs (CSPRNG-backed; native/js). |
+| `keygen` | FIPS 186-5, RFC 8017 | `generateKey` for P-256 / P-384 / Ed25519 / X25519 + RSA (Miller–Rabin prime search) key pairs (CSPRNG-backed; native/js). |
 
 **Layer 2 — primitives (hashes, AEAD, KDFs, container parsers)**
 

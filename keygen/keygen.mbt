@@ -11,7 +11,8 @@
 //   - Ed25519: private = 32-byte seed, public = 32-byte key.
 //   - X25519: private = 32-byte clamped scalar, public = 32-byte u-coordinate.
 //
-// RSA key generation (prime search) is not yet implemented; see issue #24.
+// RSA key generation lives in rsa_keygen.mbt and returns an
+// `@rsa.RsaPrivateKey` directly.
 
 ///|
 pub suberror KeygenError {
@@ -20,6 +21,10 @@ pub suberror KeygenError {
   /// (astronomically unlikely for the NIST curves — would indicate a broken
   /// RNG returning a constant).
   RejectionExhausted
+  /// Requested RSA modulus size is invalid (must be even and ≥ 512).
+  InvalidBits(Int)
+  /// RSA prime search exhausted its candidate budget (broken RNG).
+  PrimeSearchExhausted
 } derive(Debug)
 
 ///|
