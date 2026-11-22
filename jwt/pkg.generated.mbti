@@ -11,12 +11,13 @@ import {
   "mizchi/experimental_crypto/rsa",
   "mizchi/experimental_crypto/secp256k1",
   "moonbitlang/core/debug",
+  "moonbitlang/core/json",
 }
 
 // Values
 pub fn compute_x_hash(Algorithm, String) -> String
 
-pub fn extract_aggregated_distributed_claims(Map[String, Json]) -> AggregatedDistributedClaims? raise JwtError
+pub fn extract_aggregated_distributed_claims(Map[String, @json.Json]) -> AggregatedDistributedClaims? raise JwtError
 
 pub fn fapi_check_alg(VerifiedJwt) -> Unit raise JwtError
 
@@ -26,11 +27,11 @@ pub fn fapi_rfc9068_options(Int64, String, String, String) -> Rfc9068VerifyOptio
 
 pub fn parse_provider_metadata(String) -> ProviderMetadata raise JwtError
 
-pub fn peek_header(String) -> Map[String, Json] raise JwtError
+pub fn peek_header(String) -> Map[String, @json.Json] raise JwtError
 
-pub fn select_verify_key(Array[@jwk.JwkSetEntry], Map[String, Json]) -> VerifyKey raise JwtError
+pub fn select_verify_key(Array[@jwk.JwkSetEntry], Map[String, @json.Json]) -> VerifyKey raise JwtError
 
-pub fn sign(Json, Key, kid? : String, typ? : String) -> String raise JwtError
+pub fn sign(@json.Json, Key, kid? : String, typ? : String) -> String raise JwtError
 
 pub fn verify(String, VerifyKey, VerifyOptions) -> VerifiedJwt raise JwtError
 
@@ -69,6 +70,7 @@ pub fn verify_userinfo_jws(String, VerifyKey, UserInfoVerifyOptions) -> UserInfo
 pub fn verify_userinfo_jws_jwks(String, Array[@jwk.JwkSetEntry], UserInfoVerifyOptions) -> UserInfo raise JwtError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror JwtError {
   InvalidToken(String)
   InvalidHeader(String)
@@ -105,7 +107,7 @@ pub suberror JwtError {
   AuthReqIdMismatch
   RtHashMismatch
   FapiPolicyViolation(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct AggregatedDistributedClaims {
@@ -113,6 +115,7 @@ pub(all) struct AggregatedDistributedClaims {
   names : Map[String, String]
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Algorithm {
   HS256
   HS384
@@ -128,7 +131,7 @@ pub(all) enum Algorithm {
   PS384
   PS512
   EdDSA
-} derive(Eq, @debug.Debug)
+}
 
 pub(all) struct CibaIdToken {
   id_token : OidcIdToken
@@ -156,6 +159,7 @@ pub(all) struct ClientAssertion {
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ClientAssertionVerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -165,15 +169,17 @@ pub(all) struct ClientAssertionVerifyOptions {
   require_jti : Bool
   max_iat_age_sec : Int64?
   max_exp_lifetime_sec : Int64?
-} derive(Eq, @debug.Debug)
+}
 pub fn ClientAssertionVerifyOptions::default(Int64, String, String) -> Self
 
+#derive(@debug.Debug)
 pub(all) struct Cnf {
-  jwk : Map[String, Json]?
+  jwk : Map[String, @json.Json]?
   jkt : String?
   x5t_s256 : String?
-} derive(@debug.Debug)
+}
 
+#derive(Eq, @debug.Debug)
 pub(all) struct DpopVerifyOptions {
   now : Int64
   max_iat_age_sec : Int64
@@ -184,7 +190,7 @@ pub(all) struct DpopVerifyOptions {
   expected_jkt : String?
   expected_nonce : String?
   allowed_algorithms : Array[Algorithm]?
-} derive(Eq, @debug.Debug)
+}
 
 pub(all) struct EntityStatement {
   iss : String
@@ -192,21 +198,23 @@ pub(all) struct EntityStatement {
   exp : Int64
   iat : Int64
   kind : EntityStatementKind
-  jwks : Map[String, Json]
-  metadata : Map[String, Json]?
+  jwks : Map[String, @json.Json]
+  metadata : Map[String, @json.Json]?
   authority_hints : Array[String]?
   source_endpoint : String?
-  trust_marks : Array[Json]?
-  constraints : Map[String, Json]?
-  policy : Map[String, Json]?
+  trust_marks : Array[@json.Json]?
+  constraints : Map[String, @json.Json]?
+  policy : Map[String, @json.Json]?
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum EntityStatementKind {
   Configuration
   Subordinate
-} derive(Eq, @debug.Debug)
+}
 
+#derive(Eq, @debug.Debug)
 pub(all) struct EntityStatementVerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -214,16 +222,17 @@ pub(all) struct EntityStatementVerifyOptions {
   expected_issuer : String?
   expected_kind : EntityStatementKind?
   allowed_algorithms : Array[Algorithm]?
-} derive(Eq, @debug.Debug)
+}
 
 pub(all) struct JarmResponse {
   iss : String
   aud : Array[String]
   exp : Int64
-  params : Map[String, Json]
+  params : Map[String, @json.Json]
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct JarmVerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -232,7 +241,7 @@ pub(all) struct JarmVerifyOptions {
   expected_state : String?
   allowed_algorithms : Array[Algorithm]?
   typ_allowed : Array[String]?
-} derive(Eq, @debug.Debug)
+}
 pub fn JarmVerifyOptions::strict(Int64, String, String, String) -> Self
 
 pub(all) enum Key {
@@ -262,6 +271,7 @@ pub(all) struct LogoutToken {
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct LogoutTokenVerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -269,7 +279,7 @@ pub(all) struct LogoutTokenVerifyOptions {
   client_id : String
   max_iat_age_sec : Int64?
   allowed_algorithms : Array[Algorithm]?
-} derive(Eq, @debug.Debug)
+}
 pub fn LogoutTokenVerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) struct OidcIdToken {
@@ -327,17 +337,18 @@ pub(all) struct ProviderMetadata {
   token_endpoint_auth_methods_supported : Array[String]?
   scopes_supported : Array[String]?
   claims_supported : Array[String]?
-  raw : Map[String, Json]
+  raw : Map[String, @json.Json]
 }
 
 pub(all) struct RequestObject {
   client_id : String
   iss : String
   aud : Array[String]
-  params : Map[String, Json]
+  params : Map[String, @json.Json]
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct RequestObjectVerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -347,7 +358,7 @@ pub(all) struct RequestObjectVerifyOptions {
   max_iat_age_sec : Int64?
   allowed_algorithms : Array[Algorithm]?
   typ_allowed : Array[String]?
-} derive(Eq, @debug.Debug)
+}
 pub fn RequestObjectVerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) struct Rfc9068Token {
@@ -367,6 +378,7 @@ pub(all) struct Rfc9068Token {
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Rfc9068VerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -375,7 +387,7 @@ pub(all) struct Rfc9068VerifyOptions {
   expected_client_id : String?
   required_scopes : Array[String]?
   allowed_algorithms : Array[Algorithm]?
-} derive(Eq, @debug.Debug)
+}
 pub fn Rfc9068VerifyOptions::default(Int64, String, String) -> Self
 
 pub(all) struct SelfIssuedToken {
@@ -385,7 +397,7 @@ pub(all) struct SelfIssuedToken {
   exp : Int64
   iat : Int64
   nonce : String?
-  sub_jwk : Map[String, Json]
+  sub_jwk : Map[String, @json.Json]
   jwt : VerifiedJwt
 }
 
@@ -405,10 +417,11 @@ pub(all) struct UserInfo {
   email_verified : Bool?
   name : String?
   preferred_username : String?
-  claims : Map[String, Json]
+  claims : Map[String, @json.Json]
   jwt : VerifiedJwt
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct UserInfoVerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -416,7 +429,7 @@ pub(all) struct UserInfoVerifyOptions {
   client_id : String
   expected_sub : String
   allowed_algorithms : Array[Algorithm]?
-} derive(Eq, @debug.Debug)
+}
 
 pub(all) struct VerifiedDpop {
   htm : String
@@ -425,17 +438,18 @@ pub(all) struct VerifiedDpop {
   jti : String
   ath : String?
   nonce : String?
-  jwk : Map[String, Json]
+  jwk : Map[String, @json.Json]
   jkt : String
   jwt : VerifiedJwt
 }
 
+#derive(@debug.Debug)
 pub(all) struct VerifiedJwt {
-  header : Map[String, Json]
-  claims : Map[String, Json]
+  header : Map[String, @json.Json]
+  claims : Map[String, @json.Json]
   alg : Algorithm
   kid : String?
-} derive(@debug.Debug)
+}
 
 pub(all) enum VerifyKey {
   Hs256(secret~ : Bytes)
@@ -454,6 +468,7 @@ pub(all) enum VerifyKey {
   Ps512(pubkey~ : @rsa.RsaPublicKey)
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct VerifyOptions {
   now : Int64
   clock_skew_sec : Int64
@@ -461,10 +476,9 @@ pub(all) struct VerifyOptions {
   issuer : String?
   audience : String?
   typ_allowed : Array[String]?
-} derive(Eq, @debug.Debug)
+}
 pub fn VerifyOptions::default(Int64) -> Self
 
 // Type aliases
 
 // Traits
-

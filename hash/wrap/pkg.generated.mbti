@@ -2,9 +2,9 @@
 package "mizchi/experimental_crypto/hash/wrap"
 
 // Values
-pub fn sha256_pad_len(Int) -> Int
+pub fn sha256_pad_len(Int32) -> Int32
 
-pub fn sha512_pad_len(Int) -> Int
+pub fn sha512_pad_len(Int32) -> Int32
 
 // Errors
 
@@ -13,4 +13,3 @@ pub fn sha512_pad_len(Int) -> Int
 // Type aliases
 
 // Traits
-

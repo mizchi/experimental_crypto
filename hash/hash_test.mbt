@@ -315,7 +315,7 @@ test "blake2b: output length 1 (smallest)" {
 
 ///|
 test "blake2b: out_len = 0 raises" {
-  let result = try? @hash.blake2b(b"abc", 0)
+  let result = try Ok(@hash.blake2b(b"abc", 0)) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected error")
     Err(_) => ()
@@ -324,7 +324,7 @@ test "blake2b: out_len = 0 raises" {
 
 ///|
 test "blake2b: out_len = 65 raises" {
-  let result = try? @hash.blake2b(b"abc", 65)
+  let result = try Ok(@hash.blake2b(b"abc", 65)) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected error")
     Err(_) => ()
@@ -334,7 +334,7 @@ test "blake2b: out_len = 65 raises" {
 ///|
 test "blake2b_keyed: key length 65 raises" {
   let key = Bytes::makei(65, fn(_) { b'\x00' })
-  let result = try? @hash.blake2b_keyed(b"abc", key, 32)
+  let result = try Ok(@hash.blake2b_keyed(b"abc", key, 32)) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected error")
     Err(_) => ()
@@ -600,7 +600,7 @@ test "blake3_keyed: 32-byte key, 1-byte input" {
 
 ///|
 test "blake3_keyed: wrong key length raises" {
-  let result = try? @hash.blake3_keyed(b"short", b"abc", 32)
+  let result = try Ok(@hash.blake3_keyed(b"short", b"abc", 32)) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected error")
     Err(_) => ()

@@ -18,5 +18,5 @@ keywords = [ "crypto", "cryptography", "pki", "jose", "experimental" ]
 description = "EXPERIMENTAL — pure-MoonBit cryptography / PKI / JOSE building blocks. Educational reference, not production-grade. No warranty."
 
 import {
-  "moonbitlang/x@0.4.43",
+  "moonbitlang/x@0.5.8",
 }

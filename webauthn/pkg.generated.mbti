@@ -28,10 +28,11 @@ pub fn verify_attestation(Bytes, Bytes, rp_id_hash~ : Bytes, require_user_verifi
 pub fn verify_client_data(String, String, String, String) -> Unit raise WebAuthnError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror WebAuthnError {
   Cbor(@cbor.CborError)
   ParseError(String)
-  UnsupportedAlgorithm(Int)
+  UnsupportedAlgorithm(Int32)
   UnsupportedKeyType(String)
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
@@ -41,7 +42,7 @@ pub suberror WebAuthnError {
   RpIdMismatch
   UserNotPresent
   UserNotVerified
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct AttestationResult {
@@ -49,21 +50,22 @@ pub(all) struct AttestationResult {
   attestation_type : AttestationType
   credential_id : Bytes
   credential_public_key : Bytes
-  sign_count : UInt
+  sign_count : UInt32
   aaguid : Bytes
   trust_path : Array[Bytes]
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum AttestationType {
   NoAttestation
   SelfAttestation
   CertificateAttestation
-} derive(Eq, @debug.Debug)
+}
 
 pub(all) struct AuthenticatorData {
   rp_id_hash : Bytes
-  flags : Int
-  sign_count : UInt
+  flags : Int32
+  sign_count : UInt32
   aaguid : Bytes?
   credential_id : Bytes?
   credential_public_key : Bytes?
@@ -89,4 +91,3 @@ pub fn CredentialPublicKey::verify(Self, Bytes, Bytes) -> Bool
 // Type aliases
 
 // Traits
-

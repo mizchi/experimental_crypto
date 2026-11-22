@@ -8,12 +8,13 @@ import {
 // Values
 
 // Errors
+#derive(@debug.Debug)
 pub suberror Ed25519Error {
-  InvalidSeedLength(Int)
-  InvalidPublicKeyLength(Int)
-  InvalidSignatureLength(Int)
+  InvalidSeedLength(Int32)
+  InvalidPublicKeyLength(Int32)
+  InvalidSignatureLength(Int32)
   InvalidEncoding(String)
-} derive(@debug.Debug)
+}
 pub impl Show for Ed25519Error
 
 // Types and methods
@@ -28,9 +29,10 @@ pub fn PrivateKey::seed_bytes(Self) -> Bytes
 pub fn PrivateKey::sign(Self, Bytes) -> Bytes
 pub impl Show for PrivateKey
 
+#derive(Eq)
 pub(all) struct PublicKey {
   bytes : FixedArray[Byte]
-} derive(Eq)
+}
 pub fn PublicKey::from_bytes(Bytes) -> Self raise Ed25519Error
 pub fn PublicKey::to_bytes(Self) -> Bytes
 pub fn PublicKey::verify(Self, Bytes, Bytes) -> Bool
@@ -40,4 +42,3 @@ pub impl Show for PublicKey
 // Type aliases
 
 // Traits
-

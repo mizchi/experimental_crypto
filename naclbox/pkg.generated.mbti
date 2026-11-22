@@ -22,13 +22,14 @@ pub fn secretbox(Bytes, Bytes, Bytes) -> Bytes raise NaclBoxError
 pub fn secretbox_open(Bytes, Bytes, Bytes) -> Bytes raise NaclBoxError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror NaclBoxError {
-  InvalidKeyLength(Int)
-  InvalidNonceLength(Int)
-  InvalidCiphertextLength(Int)
+  InvalidKeyLength(Int32)
+  InvalidNonceLength(Int32)
+  InvalidCiphertextLength(Int32)
   AuthenticationFailed
   KeyGenerationError(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct KeyPair {
@@ -45,4 +46,3 @@ pub fn SharedKey::to_bytes(Self) -> Bytes
 // Type aliases
 
 // Traits
-

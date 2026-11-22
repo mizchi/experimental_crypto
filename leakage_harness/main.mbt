@@ -371,7 +371,7 @@ fn jwe_decrypt_workload(
   sink : Sink,
 ) -> () -> Unit {
   () => {
-    let ok = try? @jwe.decrypt(token, @jwe.DecryptionKey::DecRsa(privkey=sk))
+    let ok = try Ok(@jwe.decrypt(token, @jwe.DecryptionKey::DecRsa(privkey=sk))) catch { e => Err(e) }
     match ok {
       Ok(pt) => sink_bytes(sink, pt)
       Err(_) => sink_bool(sink, false)

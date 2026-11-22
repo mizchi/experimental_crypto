@@ -8,7 +8,7 @@ import {
 // Values
 pub fn decode(Bytes) -> CborValue raise CborError
 
-pub fn decode_first(Bytes) -> (CborValue, Int) raise CborError
+pub fn decode_first(Bytes) -> (CborValue, Int32) raise CborError
 
 pub fn encode(CborValue) -> Bytes
 
@@ -17,18 +17,20 @@ pub fn map_get_int(CborValue, Int64) -> CborValue?
 pub fn map_get_str(CborValue, String) -> CborValue?
 
 // Errors
+#derive(@debug.Debug)
 pub suberror CborError {
   TruncatedInput
   InvalidInitialByte(Byte)
   InvalidUtf8
   IntegerTooLarge
   IndefiniteLengthUnsupported
-  TrailingBytes(Int)
+  TrailingBytes(Int32)
   NestingTooDeep
   InvalidEncoding(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(@debug.Debug)
 pub(all) enum CborValue {
   Uint(UInt64)
   Nint(UInt64)
@@ -41,9 +43,8 @@ pub(all) enum CborValue {
   Null
   Undefined
   Float(Double)
-} derive(@debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-

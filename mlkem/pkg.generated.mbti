@@ -6,32 +6,32 @@ import {
 }
 
 // Values
-pub let ct_size : Int
+pub let ct_size : Int32
 
 pub fn decaps(Bytes, Bytes) -> Bytes raise MlkemError
 
-pub let dk_size : Int
+pub let dk_size : Int32
 
-pub let ek_size : Int
+pub let ek_size : Int32
 
 pub fn encaps(Bytes, Bytes) -> (Bytes, Bytes) raise MlkemError
 
 pub fn keygen(Bytes, Bytes) -> (Bytes, Bytes) raise MlkemError
 
-pub let ss_size : Int
+pub let ss_size : Int32
 
 // Errors
+#derive(@debug.Debug)
 pub suberror MlkemError {
-  InvalidSeed(Int)
-  InvalidEncapsKey(Int)
+  InvalidSeed(Int32)
+  InvalidEncapsKey(Int32)
   NonCanonicalEncapsKey
-  InvalidDecapsKey(Int)
-  InvalidCiphertext(Int)
-} derive(@debug.Debug)
+  InvalidDecapsKey(Int32)
+  InvalidCiphertext(Int32)
+}
 
 // Types and methods
 
 // Type aliases
 
 // Traits
-

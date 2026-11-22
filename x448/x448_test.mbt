@@ -64,10 +64,10 @@ test "X448 Diffie-Hellman agrees with Node both directions" {
 ///|
 test "X448 rejects bad input lengths" {
   inspect(
-    (try? @x448.x448(xh("00112233"), @x448.base_point())) is Err(_),
+    (try Ok( @x448.x448(xh("00112233"), @x448.base_point())) catch { e => Err(e) }) is Err(_),
     content="true",
   )
-  inspect((try? @x448.x448(xh(a_sk), xh("00112233"))) is Err(_), content="true")
+  inspect((try Ok( @x448.x448(xh(a_sk), xh("00112233"))) catch { e => Err(e) }) is Err(_), content="true")
 }
 
 // RFC 7748 §5.2 iterated test. Starting from k = u = encodeUCoordinate(5), set

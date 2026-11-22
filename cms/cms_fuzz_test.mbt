@@ -4,7 +4,7 @@
 ///|
 test "fuzz cms: parse_signed_data never panics on random DER bytes" {
   for input in (@quickcheck.samples(200) : Array[Bytes]) {
-    let _ = try? @cms.parse_signed_data(input)
+    let _ = try Ok(@cms.parse_signed_data(input)) catch { e => Err(e) }
   }
 }
 

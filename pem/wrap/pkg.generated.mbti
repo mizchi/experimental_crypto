@@ -2,9 +2,9 @@
 package "mizchi/experimental_crypto/pem/wrap"
 
 // Values
-pub fn pem_next_chunk_len(Int, Int) -> Int
+pub fn pem_next_chunk_len(Int32, Int32) -> Int32
 
-pub let pem_strict_line_max : Int
+pub let pem_strict_line_max : Int32
 
 // Errors
 
@@ -13,4 +13,3 @@ pub let pem_strict_line_max : Int
 // Type aliases
 
 // Traits
-

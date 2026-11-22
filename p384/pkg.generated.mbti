@@ -11,16 +11,17 @@ import {
 pub fn verify(PublicKey, Bytes, Bytes, SignatureFormat) -> Bool raise P384Error
 
 // Errors
+#derive(@debug.Debug)
 pub suberror P384Error {
-  InvalidPublicKeyLength(Int)
-  InvalidSignatureLength(Int)
+  InvalidPublicKeyLength(Int32)
+  InvalidSignatureLength(Int32)
   InvalidPointEncoding(String)
   PointNotOnCurve
   InvalidDerSignature(String)
   UnexpectedSpkiOid(String)
   InvalidPrivateKey(String)
   Asn1(@asn1.Asn1Error)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 type Point
@@ -42,12 +43,12 @@ pub fn PublicKey::from_spki_der(Bytes) -> Self raise P384Error
 pub fn PublicKey::from_uncompressed(Bytes) -> Self raise P384Error
 pub fn PublicKey::to_uncompressed(Self) -> Bytes
 
+#derive(Eq, @debug.Debug)
 pub(all) enum SignatureFormat {
   Raw
   Der
-} derive(Eq, @debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-

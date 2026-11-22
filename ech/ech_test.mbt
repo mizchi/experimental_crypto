@@ -117,13 +117,13 @@ test "ECH open rejects wrong AAD and wrong recipient key" {
   let (enc, payload) = cfg.seal(b"inner", b"aad", sk_e)
   // Wrong AAD.
   inspect(
-    (try? cfg.open(enc, sk_r, b"different aad", payload)) is Err(_),
+    (try Ok( cfg.open(enc, sk_r, b"different aad", payload)) catch { e => Err(e) }) is Err(_),
     content="true",
   )
   // Wrong recipient key.
   let wrong = Bytes::makei(32, fn(i) { (i + 99).to_byte() })
   inspect(
-    (try? cfg.open(enc, wrong, b"aad", payload)) is Err(_),
+    (try Ok( cfg.open(enc, wrong, b"aad", payload)) catch { e => Err(e) }) is Err(_),
     content="true",
   )
 }
@@ -151,7 +151,7 @@ test "ECH rejects a config with no supported suite" {
   let list = cat([u16(config.length()), config])
   let cfg = @ech.parse_ech_config_list(list)[0]
   inspect(
-    (try? cfg.seal(b"x", b"y", Bytes::makei(32, fn(i) { i.to_byte() })))
+    (try Ok( cfg.seal(b"x", b"y", Bytes::makei(32, fn(i) { i.to_byte() }))) catch { e => Err(e) })
     is Err(_),
     content="true",
   )

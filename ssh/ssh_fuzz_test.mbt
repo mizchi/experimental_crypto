@@ -100,15 +100,15 @@ fn expect_decode_rejects(blob : Bytes) -> Unit {
 ///|
 test "fuzz sshsig: decode_sshsig_blob never panics on random bytes" {
   for input in (@quickcheck.samples(200) : Array[Bytes]) {
-    let _ = try? @ssh.decode_sshsig_blob(input)
+    let _ = try Ok(@ssh.decode_sshsig_blob(input)) catch { e => Err(e) }
   }
 }
 
 ///|
 test "fuzz ssh: text parsers never panic on random strings" {
   for input in (@quickcheck.samples(200) : Array[String]) {
-    let _ = try? @ssh.parse_ssh_pubkey_text(input)
-    let _ = try? @ssh.parse_allowed_signers(input)
+    let _ = try Ok(@ssh.parse_ssh_pubkey_text(input)) catch { e => Err(e) }
+    let _ = try Ok(@ssh.parse_allowed_signers(input)) catch { e => Err(e) }
   }
 }
 

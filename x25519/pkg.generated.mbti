@@ -9,35 +9,38 @@ import {
 pub fn diffie_hellman(PrivateKey, PublicKey) -> SharedSecret raise X25519Error
 
 // Errors
+#derive(@debug.Debug)
 pub suberror X25519Error {
-  InvalidScalarLength(Int)
-  InvalidPointLength(Int)
+  InvalidScalarLength(Int32)
+  InvalidPointLength(Int32)
   AllZeroSharedSecret
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq)
 pub struct PrivateKey {
   bytes : FixedArray[Byte]
-} derive(Eq)
+}
 pub fn PrivateKey::from_bytes(Bytes) -> Self raise X25519Error
 pub fn PrivateKey::from_random(Bytes) -> Self raise X25519Error
 pub fn PrivateKey::public_key(Self) -> PublicKey
 pub fn PrivateKey::to_bytes(Self) -> Bytes
 pub impl Show for PrivateKey
 
+#derive(Eq, @debug.Debug)
 pub struct PublicKey {
   bytes : FixedArray[Byte]
-} derive(Eq, @debug.Debug)
+}
 pub fn PublicKey::from_bytes(Bytes) -> Self raise X25519Error
 pub fn PublicKey::to_bytes(Self) -> Bytes
 
+#derive(Eq)
 pub struct SharedSecret {
   bytes : FixedArray[Byte]
-} derive(Eq)
+}
 pub fn SharedSecret::to_bytes(Self) -> Bytes
 pub impl Show for SharedSecret
 
 // Type aliases
 
 // Traits
-

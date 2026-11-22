@@ -77,7 +77,7 @@ fn fuzz_jwe_mutate_compact_token(token : String, entropy : Bytes) -> String {
 test "fuzz jwe: decrypt never panics on random compact strings" {
   let key = fuzz_jwe_bytes(b"fixed-jwe-key", 32)
   for input in (@quickcheck.samples(200) : Array[String]) {
-    let _ = try? @jwe.decrypt(input, @jwe.DecryptionKey::DecDir(cek=key))
+    let _ = try Ok(@jwe.decrypt(input, @jwe.DecryptionKey::DecDir(cek=key))) catch { e => Err(e) }
   }
 }
 

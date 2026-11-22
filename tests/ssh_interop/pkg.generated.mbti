@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/tests/ssh_interop"
 
 // Values
-pub fn ssh_verify(String, String, String, String, String) -> Int
+pub fn ssh_verify(String, String, String, String, String) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn ssh_verify(String, String, String, String, String) -> Int
 // Type aliases
 
 // Traits
-

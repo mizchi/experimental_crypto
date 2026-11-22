@@ -19,6 +19,7 @@ pub fn verify_detached(CmsSignedData, Bytes) -> Bool raise CmsError
 pub fn verify_with_chain(CmsSignedData, Bytes, @pkix_verify.PublicKey, String) -> Bool raise CmsError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror CmsError {
   ContentTypeMismatch(@asn1.ObjectIdentifier)
   Asn1(@asn1.Asn1Error)
@@ -34,7 +35,7 @@ pub suberror CmsError {
   Rsa(@rsa.RsaError)
   P256(@p256.P256Error)
   P384(@p384.P384Error)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct CmsSignedData {
@@ -44,10 +45,11 @@ pub(all) struct CmsSignedData {
   signer : SignerInfoFields
 }
 
+#derive(@debug.Debug)
 pub(all) enum SignerId {
   IssuerAndSerial(Bytes, Bytes)
   SubjectKeyId(Bytes)
-} derive(@debug.Debug)
+}
 
 pub(all) struct SignerInfoFields {
   sid : SignerId
@@ -60,4 +62,3 @@ pub(all) struct SignerInfoFields {
 // Type aliases
 
 // Traits
-

@@ -161,7 +161,7 @@ test "from_be_bytes shorter than limb capacity" {
 ///|
 test "from_be_bytes rejects oversized input" {
   let too_big : Bytes = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]
-  let res = try? @crypto_bigint.Uint::from_be_bytes(too_big, 1)
+  let res = try Ok(@crypto_bigint.Uint::from_be_bytes(too_big, 1)) catch { e => Err(e) }
   match res {
     Err(_) => ()
     Ok(_) => assert_true(false)
@@ -376,7 +376,7 @@ test "inv_mod matches BigInt oracle for near-modulus value at full limb width" {
 test "inv_mod rejects non-coprime" {
   let a = make_uint(2, [6UL])
   let m = make_uint(2, [9UL]) // gcd(6, 9) = 3
-  let res = try? a.inv_mod(m)
+  let res = try Ok(a.inv_mod(m)) catch { e => Err(e) }
   match res {
     Err(_) => ()
     Ok(_) => assert_true(false)
@@ -387,7 +387,7 @@ test "inv_mod rejects non-coprime" {
 test "inv_mod rejects even modulus fail-closed" {
   let a = make_uint(1, [3UL])
   let m = make_uint(1, [10UL])
-  let res = try? a.inv_mod(m)
+  let res = try Ok(a.inv_mod(m)) catch { e => Err(e) }
   match res {
     Err(_) => ()
     Ok(_) => abort("even modulus inverse is intentionally unsupported")
@@ -449,7 +449,7 @@ test "Montgomery pow matches pow_mod" {
 ///|
 test "Show prints hex" {
   let u = make_uint(2, [0xDEAD_BEEFUL])
-  let s = u.to_string()
+  let s = Show::to_string(u)
   // Top limb (limb 1) is 0 -> printed unpadded as "0".
   // Bottom limb (limb 0) is 0xdeadbeef -> printed padded to 16 hex chars.
   @debug.assert_eq(s, "0x000000000deadbeef")
@@ -458,7 +458,7 @@ test "Show prints hex" {
 ///|
 test "Show prints zero" {
   let z = @crypto_bigint.Uint::zero(2)
-  let s = z.to_string()
+  let s = Show::to_string(z)
   // Top limb 0 unpadded -> "0"; second limb padded to 16 zeros.
   @debug.assert_eq(s, "0x00000000000000000")
 }

@@ -6,9 +6,9 @@ pub fn jwe_decrypt_dir(String, String) -> String
 
 pub fn jwe_decrypt_rsa(String, String) -> String
 
-pub fn jwe_encrypt_dir(Int, String, String, String) -> String
+pub fn jwe_encrypt_dir(Int32, String, String, String) -> String
 
-pub fn jwe_encrypt_rsa(Int, String, String, String, String, String, String) -> String
+pub fn jwe_encrypt_rsa(Int32, String, String, String, String, String, String) -> String
 
 // Errors
 
@@ -17,4 +17,3 @@ pub fn jwe_encrypt_rsa(Int, String, String, String, String, String, String) -> S
 // Type aliases
 
 // Traits
-

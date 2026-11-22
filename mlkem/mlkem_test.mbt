@@ -130,7 +130,7 @@ test "ATTACK ML-KEM encaps rejects a non-32-byte message seed" {
   let ek = khex(kat_pk)
   let m = Bytes::makei(31, fn(_i) { b'\x00' })
   inspect(
-    (try? @mlkem.encaps(ek, m)) is Err(@mlkem.InvalidSeed(31)),
+    (try Ok( @mlkem.encaps(ek, m)) catch { e => Err(e) }) is Err(@mlkem.InvalidSeed(31)),
     content="true",
   )
 }
@@ -164,7 +164,7 @@ test "ATTACK ML-KEM keygen rejects non-32-byte seeds" {
   let d = Bytes::makei(16, fn(_i) { b'\x00' })
   let z = Bytes::makei(32, fn(_i) { b'\x00' })
   inspect(
-    (try? @mlkem.keygen(d, z)) is Err(@mlkem.InvalidSeed(16)),
+    (try Ok( @mlkem.keygen(d, z)) catch { e => Err(e) }) is Err(@mlkem.InvalidSeed(16)),
     content="true",
   )
 }

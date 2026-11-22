@@ -2,13 +2,13 @@
 package "mizchi/experimental_crypto/totp"
 
 // Values
-pub fn hotp(Bytes, UInt64, digits? : Int, hash? : TotpHash) -> String
+pub fn hotp(Bytes, UInt64, digits? : Int32, hash? : TotpHash) -> String
 
-pub fn provisioning_uri(String, Bytes, issuer? : String, digits? : Int, step_seconds? : Int, hash? : TotpHash) -> String
+pub fn provisioning_uri(String, Bytes, issuer? : String, digits? : Int32, step_seconds? : Int32, hash? : TotpHash) -> String
 
-pub fn totp(Bytes, Int64, step_seconds? : Int, t0? : Int64, digits? : Int, hash? : TotpHash) -> String
+pub fn totp(Bytes, Int64, step_seconds? : Int32, t0? : Int64, digits? : Int32, hash? : TotpHash) -> String
 
-pub fn verify_totp(Bytes, String, Int64, step_seconds? : Int, t0? : Int64, digits? : Int, hash? : TotpHash, skew? : Int) -> Bool
+pub fn verify_totp(Bytes, String, Int64, step_seconds? : Int32, t0? : Int64, digits? : Int32, hash? : TotpHash, skew? : Int32) -> Bool
 
 // Errors
 
@@ -22,4 +22,3 @@ pub(all) enum TotpHash {
 // Type aliases
 
 // Traits
-

@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/pgp/wrap"
 
 // Values
-pub fn pgp_packet_length_octets(Int) -> Int
+pub fn pgp_packet_length_octets(Int32) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn pgp_packet_length_octets(Int) -> Int
 // Type aliases
 
 // Traits
-

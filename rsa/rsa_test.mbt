@@ -117,7 +117,7 @@ test "RFC 7515 §A.2.1: tampered signature rejects" {
 test "wrong signature length raises InvalidSignatureLength" {
   let pubkey = @rsa.RsaPublicKey::from_pkcs1_der(rfc7515_pkcs1_der)
   let short_sig = Bytes::makei(128, fn(_) { b'\x00' })
-  let result = try? pubkey.verify(rfc7515_signing_input, short_sig, Sha256)
+  let result = try Ok(pubkey.verify(rfc7515_signing_input, short_sig, Sha256)) catch { e => Err(e) }
   match result {
     Err(InvalidSignatureLength) => ()
     _ => abort("expected InvalidSignatureLength")
@@ -175,7 +175,7 @@ test "cross-key rejection: openssl key cannot verify RFC 7515 signature" {
 test "from_spki_der: truncated DER raises Asn1" {
   // Take the first 10 bytes — definitely not a complete SEQUENCE.
   let trunc = Bytes::makei(10, fn(i) { openssl_spki_der[i] })
-  let result = try? @rsa.RsaPublicKey::from_spki_der(trunc)
+  let result = try Ok(@rsa.RsaPublicKey::from_spki_der(trunc)) catch { e => Err(e) }
   match result {
     Err(_) => () // any RsaError is acceptable
     Ok(_) => abort("expected truncated DER to fail")
@@ -187,7 +187,7 @@ test "from_spki_der: wrong algorithm OID rejected" {
   // SPKI with id-ecPublicKey (1.2.840.10045.2.1) instead of rsaEncryption.
   //   SEQUENCE { SEQUENCE { OID 1.2.840.10045.2.1, NULL }, BIT STRING { 0 } }
   let bad = hex("3010300b06072a8648ce3d02010500030100")
-  let result = try? @rsa.RsaPublicKey::from_spki_der(bad)
+  let result = try Ok(@rsa.RsaPublicKey::from_spki_der(bad)) catch { e => Err(e) }
   match result {
     Err(UnsupportedAlgorithm(_)) => ()
     _ => abort("expected UnsupportedAlgorithm")
@@ -198,7 +198,7 @@ test "from_spki_der: wrong algorithm OID rejected" {
 test "from_pkcs1_der: not a sequence rejected" {
   // INTEGER 0 — single element, not a SEQUENCE.
   let bad = hex("020100")
-  let result = try? @rsa.RsaPublicKey::from_pkcs1_der(bad)
+  let result = try Ok(@rsa.RsaPublicKey::from_pkcs1_der(bad)) catch { e => Err(e) }
   match result {
     Err(_) => ()
     Ok(_) => abort("expected non-sequence to fail")
@@ -218,7 +218,7 @@ test "ATTACK: RSA public key rejects e=1, even e, and even modulus" {
      "3006020103020103",
   ]
   for c in cases {
-    let result = try? @rsa.RsaPublicKey::from_pkcs1_der(hex(c))
+    let result = try Ok(@rsa.RsaPublicKey::from_pkcs1_der(hex(c))) catch { e => Err(e) }
     match result {
       Err(InvalidEncoding(_)) => ()
       _ => abort("expected invalid RSA public parameters for " + c)
@@ -231,7 +231,7 @@ test "ATTACK: SPKI rsaEncryption parameters must be NULL when present" {
   // AlgorithmIdentifier uses rsaEncryption OID with OCTET STRING parameters
   // instead of NULL, wrapping a tiny otherwise well-formed RSAPublicKey.
   let bad = hex("301b300d06092a864886f70d0101010400030a00300702020101020103")
-  let result = try? @rsa.RsaPublicKey::from_spki_der(bad)
+  let result = try Ok(@rsa.RsaPublicKey::from_spki_der(bad)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("expected invalid rsaEncryption parameters")
@@ -307,7 +307,7 @@ test "ATTACK: PKCS#1 private key must have complete two-prime structure" {
   // Only version, n, e, d. A two-prime RSAPrivateKey must carry the five CRT
   // fields too, even though this implementation does not use CRT for signing.
   let truncated_private = hex("300d02010002020101020103020101")
-  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(truncated_private)
+  let result = try Ok(@rsa.RsaPrivateKey::from_pkcs1_der(truncated_private)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("expected truncated private key structure to reject")
@@ -320,7 +320,7 @@ test "ATTACK: PKCS#1 private key rejects invalid public parameters" {
   let e_one_private = hex(
     "301c02010002020101020101020101020101020101020101020101020101",
   )
-  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(e_one_private)
+  let result = try Ok(@rsa.RsaPrivateKey::from_pkcs1_der(e_one_private)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("expected invalid private-key public parameters to reject")
@@ -333,7 +333,7 @@ test "ATTACK: PKCS#1 private key CRT fields must be INTEGERs" {
   let non_integer_crt = hex(
     "301b020100020201010201030201010500020101020101020101020101",
   )
-  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(non_integer_crt)
+  let result = try Ok(@rsa.RsaPrivateKey::from_pkcs1_der(non_integer_crt)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("expected non-INTEGER CRT field to reject")
@@ -347,7 +347,7 @@ test "ATTACK: PKCS#1 private key rejects CRT parameters that do not match n" {
   let mismatched_crt = hex(
     "301c0201000202014302010502011d02011102011702010d020107020103",
   )
-  let result = try? @rsa.RsaPrivateKey::from_pkcs1_der(mismatched_crt)
+  let result = try Ok(@rsa.RsaPrivateKey::from_pkcs1_der(mismatched_crt)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("expected mismatched CRT parameters to reject")
@@ -362,7 +362,7 @@ test "ATTACK: PKCS#8 rsaEncryption parameters must be NULL when present" {
     "3032020100300d06092a864886f70d0101010400041e" +
     "301c0201000202014302010502011d02011102011302010d02010b020109",
   )
-  let result = try? @rsa.RsaPrivateKey::from_pkcs8_der(bad_pkcs8)
+  let result = try Ok(@rsa.RsaPrivateKey::from_pkcs8_der(bad_pkcs8)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("expected invalid PKCS#8 rsaEncryption parameters to reject")
@@ -420,7 +420,7 @@ test "ATTACK: rsa.from_pkcs8_pem rejects legacy PEM headers" {
     data: @pkcs8.serialize_der(info),
     headers: [("Proc-Type", "4,ENCRYPTED")],
   })
-  let result = try? @rsa.RsaPrivateKey::from_pkcs8_pem(pem)
+  let result = try Ok(@rsa.RsaPrivateKey::from_pkcs8_pem(pem)) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("accepted RSA PKCS#8 PEM with legacy headers")
@@ -449,9 +449,9 @@ test "ATTACK: rsa.from_pkcs8_der rejects mismatched v2 publicKey" {
     attributes: [],
     public_key: Some({ bytes: wrong_pub, unused_bits: 0 }),
   }
-  let result = try? @rsa.RsaPrivateKey::from_pkcs8_der(
+  let result = try Ok( @rsa.RsaPrivateKey::from_pkcs8_der(
     @pkcs8.serialize_der(info),
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(InvalidEncoding(_)) => ()
     _ => abort("accepted RSA PKCS#8 with mismatched publicKey")

@@ -62,9 +62,9 @@ pub fn sign_armor(@ed25519.PrivateKey, Bytes, sig_namespace? : String, hash_algo
 
 pub fn sign_armor_with(SshPrivateKey, Bytes, sig_namespace? : String, hash_algorithm? : String) -> String raise SshError
 
-pub let ssh_cert_type_host : UInt
+pub let ssh_cert_type_host : UInt32
 
-pub let ssh_cert_type_user : UInt
+pub let ssh_cert_type_user : UInt32
 
 pub let sshsig_begin : String
 
@@ -74,7 +74,7 @@ pub let sshsig_magic : Bytes
 
 pub let sshsig_pem_label : String
 
-pub let sshsig_version : UInt
+pub let sshsig_version : UInt32
 
 pub fn verify_armor(String, Bytes, @ed25519.PublicKey, sig_namespace? : String) -> Bool raise SshError
 
@@ -87,15 +87,16 @@ pub fn verify_with_allowed_signers(String, String, String, Bytes, sig_namespace?
 pub fn verify_with_allowed_signers_at(String, String, String, Bytes, Int64, sig_namespace? : String) -> Bool raise SshError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror SshError {
   TruncatedInput(String)
   InvalidEncoding(String)
   UnsupportedAlgorithm(String)
   PreambleMismatch
-  UnsupportedSigVersion(UInt)
+  UnsupportedSigVersion(UInt32)
   HashAlgorithmMismatch(String)
   InvalidSignature
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct AllowedSigner {
@@ -111,7 +112,7 @@ pub(all) struct SshCertificate {
   algorithm : String
   subject_key : SshPublicKey
   serial : UInt64
-  cert_type : UInt
+  cert_type : UInt32
   key_id : String
   valid_principals : Array[String]
   valid_after : UInt64
@@ -138,11 +139,12 @@ pub(all) enum SshPublicKey {
   Certificate(SshCertificate)
 }
 
+#derive(@debug.Debug)
 pub(all) struct SshPublicKeyText {
   algorithm : String
   blob : Bytes
   comment : String?
-} derive(@debug.Debug)
+}
 
 pub(all) struct SshSignature {
   publickey : SshPublicKey
@@ -153,17 +155,17 @@ pub(all) struct SshSignature {
 
 pub struct WireReader {
   buf : Bytes
-  mut pos : Int
+  mut pos : Int32
 }
 pub fn WireReader::is_empty(Self) -> Bool
 pub fn WireReader::new(Bytes) -> Self
-pub fn WireReader::position(Self) -> Int
-pub fn WireReader::read_bytes(Self, Int) -> Bytes raise SshError
+pub fn WireReader::position(Self) -> Int32
+pub fn WireReader::read_bytes(Self, Int32) -> Bytes raise SshError
 pub fn WireReader::read_string(Self) -> Bytes raise SshError
 pub fn WireReader::read_string_ascii(Self) -> String raise SshError
-pub fn WireReader::read_uint32(Self) -> UInt raise SshError
+pub fn WireReader::read_uint32(Self) -> UInt32 raise SshError
 pub fn WireReader::read_uint64(Self) -> UInt64 raise SshError
-pub fn WireReader::remaining(Self) -> Int
+pub fn WireReader::remaining(Self) -> Int32
 
 pub struct WireWriter {
   buf : Array[Byte]
@@ -174,10 +176,9 @@ pub fn WireWriter::write_byte(Self, Byte) -> Unit
 pub fn WireWriter::write_bytes_raw(Self, Bytes) -> Unit
 pub fn WireWriter::write_string(Self, Bytes) -> Unit
 pub fn WireWriter::write_string_ascii(Self, String) -> Unit
-pub fn WireWriter::write_uint32(Self, UInt) -> Unit
+pub fn WireWriter::write_uint32(Self, UInt32) -> Unit
 pub fn WireWriter::write_uint64(Self, UInt64) -> Unit
 
 // Type aliases
 
 // Traits
-

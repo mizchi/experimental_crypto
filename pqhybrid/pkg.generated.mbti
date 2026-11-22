@@ -11,24 +11,24 @@ pub fn client_finish(Bytes, Bytes, Bytes) -> Bytes raise HybridError
 
 pub fn client_offer(Bytes, Bytes, Bytes) -> (Bytes, Bytes) raise HybridError
 
-pub let client_share_len : Int
+pub let client_share_len : Int32
 
 pub fn server_respond(Bytes, Bytes, Bytes) -> (Bytes, Bytes) raise HybridError
 
-pub let server_share_len : Int
+pub let server_share_len : Int32
 
-pub let shared_secret_len : Int
+pub let shared_secret_len : Int32
 
 // Errors
+#derive(@debug.Debug)
 pub suberror HybridError {
-  BadShareLength(Int)
+  BadShareLength(Int32)
   Curve(String)
   Pq(@mlkem.MlkemError)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 
 // Type aliases
 
 // Traits
-

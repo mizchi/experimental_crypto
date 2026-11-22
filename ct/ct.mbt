@@ -284,19 +284,19 @@ pub fn verify_sct(
   let signed = sct_signed_data(sct, entry_type, signed_entry)
   match (sct.sig_scheme, pubkey) {
     (0x0403, P256(pk)) =>
-      (try? @p256.verify(pk, signed, sct.signature, @p256.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p256.verify(pk, signed, sct.signature, @p256.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (0x0503, P384(pk)) =>
-      (try? @p384.verify(pk, signed, sct.signature, @p384.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p384.verify(pk, signed, sct.signature, @p384.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (0x0401, Rsa(pk)) =>
-      (try? pk.verify(signed, sct.signature, @rsa.HashAlg::Sha256)).unwrap_or(
+      (try Ok(pk.verify(signed, sct.signature, @rsa.HashAlg::Sha256)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (0x0501, Rsa(pk)) =>
-      (try? pk.verify(signed, sct.signature, @rsa.HashAlg::Sha384)).unwrap_or(
+      (try Ok(pk.verify(signed, sct.signature, @rsa.HashAlg::Sha384)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     _ => raise Malformed("unsupported SCT signature scheme / key type")

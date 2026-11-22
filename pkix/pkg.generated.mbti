@@ -26,47 +26,55 @@ pub fn serialize_subject_public_key_info(SubjectPublicKeyInfo) -> Bytes
 pub fn tbs_certificate_to_element(TbsCertificate) -> @asn1.Element raise PkixError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror PkixError {
   Asn1(@asn1.Asn1Error)
   UnexpectedStructure(String)
-  UnsupportedVersion(Int)
+  UnsupportedVersion(Int32)
   InvalidTime(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) struct AlgorithmIdentifier {
   algorithm : @asn1.ObjectIdentifier
   parameters : Bytes?
-} derive(Eq, @debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) struct AttributeTypeAndValue {
   oid : @asn1.ObjectIdentifier
   value : @asn1.Element
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) struct Certificate {
   tbs : TbsCertificate
   signature_algorithm : AlgorithmIdentifier
   signature : @asn1.BitString
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) struct Extension {
   oid : @asn1.ObjectIdentifier
   critical : Bool
   value : Bytes
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) struct Name {
   rdns : Array[Array[AttributeTypeAndValue]]
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) struct SubjectPublicKeyInfo {
   algorithm : AlgorithmIdentifier
   subject_public_key : @asn1.BitString
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) struct TbsCertificate {
-  version : Int
+  version : Int32
   serial_number : Bytes
   signature : AlgorithmIdentifier
   issuer : Name
@@ -76,16 +84,16 @@ pub(all) struct TbsCertificate {
   issuer_unique_id : @asn1.BitString?
   subject_unique_id : @asn1.BitString?
   extensions : Array[Extension]
-} derive(@debug.Debug)
+}
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Validity {
   not_before : String
   not_after : String
   not_before_tag : @asn1.Tag
   not_after_tag : @asn1.Tag
-} derive(Eq, @debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-

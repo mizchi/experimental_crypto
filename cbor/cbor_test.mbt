@@ -291,7 +291,7 @@ test "decode: tag 0 date-time" {
 
 ///|
 test "decode: trailing bytes raises" {
-  let r = try? @cbor.decode(b"\x00\x00")
+  let r = try Ok(@cbor.decode(b"\x00\x00")) catch { e => Err(e) }
   match r {
     Err(TrailingBytes(n)) => @debug.assert_eq(n, 1)
     _ => abort("expected TrailingBytes(1)")
@@ -300,7 +300,7 @@ test "decode: trailing bytes raises" {
 
 ///|
 test "decode: truncated input raises" {
-  let r = try? @cbor.decode(b"\x18")
+  let r = try Ok(@cbor.decode(b"\x18")) catch { e => Err(e) }
   match r {
     Err(TruncatedInput) => ()
     _ => abort("expected TruncatedInput")
@@ -310,7 +310,7 @@ test "decode: truncated input raises" {
 ///|
 test "decode: indefinite length raises" {
   // 0x5f is bytes / indefinite-length start
-  let r = try? @cbor.decode(b"\x5f\x40\xff")
+  let r = try Ok(@cbor.decode(b"\x5f\x40\xff")) catch { e => Err(e) }
   match r {
     Err(IndefiniteLengthUnsupported) => ()
     _ => abort("expected IndefiniteLengthUnsupported")

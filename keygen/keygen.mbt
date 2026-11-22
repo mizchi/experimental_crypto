@@ -41,7 +41,7 @@ fn draw(n : Int) -> Bytes raise KeygenError {
 pub fn p256_keypair() -> (Bytes, Bytes) raise KeygenError {
   for _attempt in 0..<64 {
     let scalar = draw(32)
-    let sk = try? @p256.PrivateKey::from_bytes(scalar)
+    let sk = try Ok(@p256.PrivateKey::from_bytes(scalar)) catch { e => Err(e) }
     match sk {
       Ok(sk) => return (scalar, sk.public_key().to_uncompressed())
       Err(_) => continue
@@ -55,7 +55,7 @@ pub fn p256_keypair() -> (Bytes, Bytes) raise KeygenError {
 pub fn p384_keypair() -> (Bytes, Bytes) raise KeygenError {
   for _attempt in 0..<64 {
     let scalar = draw(48)
-    let sk = try? @p384.PrivateKey::from_bytes(scalar)
+    let sk = try Ok(@p384.PrivateKey::from_bytes(scalar)) catch { e => Err(e) }
     match sk {
       Ok(sk) => return (scalar, sk.public_key().to_uncompressed())
       Err(_) => continue

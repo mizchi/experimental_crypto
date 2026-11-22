@@ -48,13 +48,13 @@ test "X25519MLKEM768 rejects malformed share lengths" {
   let (_share, dk) = @pqhybrid.client_offer(d, z, rep(3, 32))
   // wrong client_share length on the server side
   inspect(
-    (try? @pqhybrid.server_respond(rep(0, 100), rep(4, 32), rep(5, 32)))
+    (try Ok( @pqhybrid.server_respond(rep(0, 100), rep(4, 32), rep(5, 32))) catch { e => Err(e) })
     is Err(_),
     content="true",
   )
   // wrong server_share length on the client side
   inspect(
-    (try? @pqhybrid.client_finish(dk, rep(3, 32), rep(0, 100))) is Err(_),
+    (try Ok( @pqhybrid.client_finish(dk, rep(3, 32), rep(0, 100))) catch { e => Err(e) }) is Err(_),
     content="true",
   )
 }

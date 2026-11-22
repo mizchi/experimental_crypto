@@ -38,7 +38,7 @@ pub fn KeyPair::from_seed(seed_32 : Bytes) -> KeyPair raise NaclBoxError {
   if seed_32.length() != 32 {
     raise InvalidKeyLength(seed_32.length())
   }
-  let sk = try? @x25519.PrivateKey::from_bytes(seed_32)
+  let sk = try Ok(@x25519.PrivateKey::from_bytes(seed_32)) catch { e => Err(e) }
   match sk {
     Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok(sk) => { public_key: sk.public_key(), secret_key: sk }
@@ -61,13 +61,13 @@ pub fn secretbox(
   if nonce.length() != 24 {
     raise InvalidNonceLength(nonce.length())
   }
-  let aead_result : Result[(Bytes, Bytes), @aead.AeadError] = try? @aead.seal_detached(
+  let aead_result : Result[(Bytes, Bytes), @aead.AeadError] = try Ok( @aead.seal_detached(
     @aead.XChaCha20Poly1305,
     key,
     nonce,
     b"",
     message,
-  )
+  )) catch { e => Err(e) }
   match aead_result {
     Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok((ct, tag)) =>
@@ -101,14 +101,14 @@ pub fn secretbox_open(
   }
   let tag = Bytes::makei(16, fn(i) { ciphertext[i] })
   let ct = Bytes::makei(ciphertext.length() - 16, fn(i) { ciphertext[i + 16] })
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open_detached(
     @aead.XChaCha20Poly1305,
     key,
     nonce,
     b"",
     ct,
     tag,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(pt) => pt
     Err(@aead.AuthenticationFailed) => raise AuthenticationFailed
@@ -125,9 +125,9 @@ pub fn box_beforenm(
   recipient_pubkey : @x25519.PublicKey,
   sender_privkey : @x25519.PrivateKey,
 ) -> SharedKey raise NaclBoxError {
-  let ecdh_result : Result[@x25519.SharedSecret, @x25519.X25519Error] = try? @x25519.diffie_hellman(
+  let ecdh_result : Result[@x25519.SharedSecret, @x25519.X25519Error] = try Ok( @x25519.diffie_hellman(
     sender_privkey, recipient_pubkey,
-  )
+  )) catch { e => Err(e) }
   match ecdh_result {
     Err(e) => raise KeyGenerationError(@debug.to_string(e))
     Ok(shared) => {

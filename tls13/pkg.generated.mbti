@@ -35,7 +35,7 @@ pub fn parse_certificate_verify(Bytes) -> CertificateVerify raise MessageError
 
 pub fn parse_client_hello(Bytes) -> ClientHello raise MessageError
 
-pub fn parse_handshake(Bytes, offset? : Int) -> (HandshakeType, Bytes, Int) raise HandshakeError
+pub fn parse_handshake(Bytes, offset? : Int32) -> (HandshakeType, Bytes, Int32) raise HandshakeError
 
 pub fn parse_handshake_flight(Bytes) -> Array[(HandshakeType, Bytes)] raise HandshakeError
 
@@ -43,7 +43,7 @@ pub fn parse_server_hello(Bytes) -> ServerHello raise MessageError
 
 pub fn record_nonce(Bytes, UInt64) -> Bytes
 
-pub fn seal_record(CipherSuite, Bytes, Bytes, UInt64, ContentType, Bytes, padding? : Int) -> Bytes raise RecordError
+pub fn seal_record(CipherSuite, Bytes, Bytes, UInt64, ContentType, Bytes, padding? : Int32) -> Bytes raise RecordError
 
 pub let server_certificate_verify_context : String
 
@@ -52,14 +52,16 @@ pub fn verify_finished(CipherSuite, Bytes, Bytes, Bytes) -> Bool raise Handshake
 pub fn verify_server_certificate_verify(Bytes, CertificateVerify, Bytes) -> Bool raise AuthError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror AuthError {
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
   DisallowedScheme(SignatureScheme)
   KeyMismatch(SignatureScheme)
   UnsupportedScheme(SignatureScheme)
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror ClientError {
   Handshake(HandshakeError)
   Message(MessageError)
@@ -67,9 +69,9 @@ pub suberror ClientError {
   UnexpectedFlight(String)
   NotServerHello
   HelloRetryRequestUnsupported
-  NotTls13(Int?)
+  NotTls13(Int32?)
   DowngradeDetected
-  CipherSuiteMismatch(Int)
+  CipherSuiteMismatch(Int32)
   MissingKeyShare
   WeakSharedSecret
   CertificateVerifyFailed
@@ -77,27 +79,30 @@ pub suberror ClientError {
   CertParse(@pkix.PkixError)
   ChainUntrusted(@pkix_verify.PkixVerifyError)
   HostnameMismatch(String)
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror HandshakeError {
   Truncated
-  UnknownType(Int)
+  UnknownType(Int32)
   NotFinished
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror MessageError {
   Truncated(String)
   LengthMismatch(String)
   Malformed(String)
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror RecordError {
   ShortRecord
-  UnexpectedOuterType(Int)
+  UnexpectedOuterType(Int32)
   MissingContentType
-  BadContentType(Int)
+  BadContentType(Int32)
   Aead(@aead.AeadError)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct CertificateVerify {
@@ -105,16 +110,17 @@ pub(all) struct CertificateVerify {
   signature : Bytes
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum CipherSuite {
   Aes128GcmSha256
   Aes256GcmSha384
   ChaCha20Poly1305Sha256
-} derive(Eq, @debug.Debug)
+}
 pub fn CipherSuite::aead(Self) -> @aead.Algorithm
-pub fn CipherSuite::from_u16(Int) -> Self?
+pub fn CipherSuite::from_u16(Int32) -> Self?
 pub fn CipherSuite::hash(Self) -> Hash
-pub fn CipherSuite::key_len(Self) -> Int
-pub fn CipherSuite::to_u16(Self) -> Int
+pub fn CipherSuite::key_len(Self) -> Int32
+pub fn CipherSuite::to_u16(Self) -> Int32
 
 pub(all) struct ClientHandshakeResult {
   keys : HandshakeKeys
@@ -123,20 +129,21 @@ pub(all) struct ClientHandshakeResult {
 }
 
 pub(all) struct ClientHello {
-  legacy_version : Int
+  legacy_version : Int32
   random : Bytes
   legacy_session_id : Bytes
-  cipher_suites : Array[Int]
-  supported_versions : Array[Int]
+  cipher_suites : Array[Int32]
+  supported_versions : Array[Int32]
   key_shares : Array[KeyShareOffer]
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ContentType {
   ChangeCipherSpec
   Alert
   Handshake
   ApplicationData
-} derive(Eq, @debug.Debug)
+}
 pub fn ContentType::to_byte(Self) -> Byte
 
 pub(all) struct HandshakeKeys {
@@ -155,6 +162,7 @@ pub(all) struct HandshakeKeys {
   server_application_iv : Bytes
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum HandshakeType {
   ClientHello
   ServerHello
@@ -167,13 +175,14 @@ pub(all) enum HandshakeType {
   Finished
   KeyUpdate
   MessageHash
-} derive(Eq, @debug.Debug)
-pub fn HandshakeType::to_int(Self) -> Int
+}
+pub fn HandshakeType::to_int(Self) -> Int32
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Hash {
   Sha256
   Sha384
-} derive(Eq, @debug.Debug)
+}
 pub fn Hash::client_application_traffic_secret(Self, Bytes, Bytes) -> Bytes
 pub fn Hash::client_handshake_traffic_secret(Self, Bytes, Bytes) -> Bytes
 pub fn Hash::derive_secret(Self, Bytes, String, Bytes) -> Bytes
@@ -181,9 +190,9 @@ pub fn Hash::early_secret(Self, Bytes) -> Bytes
 pub fn Hash::exporter_master_secret(Self, Bytes, Bytes) -> Bytes
 pub fn Hash::finished_key(Self, Bytes) -> Bytes
 pub fn Hash::handshake_secret(Self, Bytes, Bytes) -> Bytes
-pub fn Hash::hash_len(Self) -> Int
-pub fn Hash::hkdf_expand(Self, Bytes, Bytes, Int) -> Bytes
-pub fn Hash::hkdf_expand_label(Self, Bytes, String, Bytes, Int) -> Bytes
+pub fn Hash::hash_len(Self) -> Int32
+pub fn Hash::hkdf_expand(Self, Bytes, Bytes, Int32) -> Bytes
+pub fn Hash::hkdf_expand_label(Self, Bytes, String, Bytes, Int32) -> Bytes
 pub fn Hash::hkdf_extract(Self, Bytes, Bytes) -> Bytes
 pub fn Hash::master_secret(Self, Bytes) -> Bytes
 pub fn Hash::resumption_master_secret(Self, Bytes, Bytes) -> Bytes
@@ -191,33 +200,35 @@ pub fn Hash::server_application_traffic_secret(Self, Bytes, Bytes) -> Bytes
 pub fn Hash::server_handshake_traffic_secret(Self, Bytes, Bytes) -> Bytes
 pub fn Hash::transcript_hash(Self, Bytes) -> Bytes
 pub fn Hash::write_iv(Self, Bytes) -> Bytes
-pub fn Hash::write_key(Self, Bytes, Int) -> Bytes
+pub fn Hash::write_key(Self, Bytes, Int32) -> Bytes
 
 pub(all) struct KeyShareOffer {
   group : NamedGroup
   key_exchange : Bytes
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum NamedGroup {
   Secp256r1
   Secp384r1
   Secp521r1
   X25519
   X448
-  Unknown(Int)
-} derive(Eq, @debug.Debug)
-pub fn NamedGroup::to_u16(Self) -> Int
+  Unknown(Int32)
+}
+pub fn NamedGroup::to_u16(Self) -> Int32
 
 pub(all) struct ServerHello {
-  legacy_version : Int
+  legacy_version : Int32
   random : Bytes
   is_hello_retry_request : Bool
-  cipher_suite : Int
-  selected_version : Int?
+  cipher_suite : Int32
+  selected_version : Int32?
   key_share_group : NamedGroup?
   key_share : Bytes?
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum SignatureScheme {
   RsaPkcs1Sha256
   RsaPkcs1Sha384
@@ -230,11 +241,10 @@ pub(all) enum SignatureScheme {
   RsaPssRsaeSha512
   Ed25519
   Ed448
-  Unknown(Int)
-} derive(Eq, @debug.Debug)
-pub fn SignatureScheme::to_u16(Self) -> Int
+  Unknown(Int32)
+}
+pub fn SignatureScheme::to_u16(Self) -> Int32
 
 // Type aliases
 
 // Traits
-

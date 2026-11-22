@@ -7,7 +7,7 @@ import {
 }
 
 // Values
-pub fn expand_label(Bytes, String, Int) -> Bytes
+pub fn expand_label(Bytes, String, Int32) -> Bytes
 
 pub fn header_protection_mask(Bytes, Bytes) -> Bytes raise QuicError
 
@@ -20,10 +20,11 @@ pub fn packet_nonce(Bytes, UInt64) -> Bytes raise QuicError
 pub fn seal_payload(PacketKeys, UInt64, Bytes, Bytes) -> Bytes raise QuicError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror QuicError {
   Aead(@aead.AeadError)
   BadLength(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub struct PacketKeys {
@@ -40,4 +41,3 @@ pub fn PacketKeys::secret_bytes(Self) -> Bytes
 // Type aliases
 
 // Traits
-

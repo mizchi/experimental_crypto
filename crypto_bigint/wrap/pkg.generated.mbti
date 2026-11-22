@@ -2,9 +2,9 @@
 package "mizchi/experimental_crypto/crypto_bigint/wrap"
 
 // Values
-pub fn limb_capacity_bytes(Int) -> Int
+pub fn limb_capacity_bytes(Int32) -> Int32
 
-pub fn limb_count_for_bytes(Int) -> Int
+pub fn limb_count_for_bytes(Int32) -> Int32
 
 // Errors
 
@@ -13,4 +13,3 @@ pub fn limb_count_for_bytes(Int) -> Int
 // Type aliases
 
 // Traits
-

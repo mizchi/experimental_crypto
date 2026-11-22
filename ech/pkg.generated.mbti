@@ -7,37 +7,38 @@ import {
 }
 
 // Values
-pub let aead_chacha20_poly1305 : Int
+pub let aead_chacha20_poly1305 : Int32
 
-pub let kdf_hkdf_sha256 : Int
+pub let kdf_hkdf_sha256 : Int32
 
-pub let kem_x25519 : Int
+pub let kem_x25519 : Int32
 
 pub fn parse_ech_config_list(Bytes) -> Array[EchConfig] raise EchError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror EchError {
   Truncated(String)
   Malformed(String)
-  UnsupportedKem(Int)
+  UnsupportedKem(Int32)
   NoSupportedSuite
   Hpke(@hpke.HpkeError)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub struct EchConfig {
   raw : Bytes
-  config_id : Int
-  kem_id : Int
+  config_id : Int32
+  kem_id : Int32
   public_key : Bytes
-  cipher_suites : Array[(Int, Int)]
-  maximum_name_length : Int
+  cipher_suites : Array[(Int32, Int32)]
+  maximum_name_length : Int32
   public_name : String
 }
-pub fn EchConfig::cipher_suites(Self) -> Array[(Int, Int)]
-pub fn EchConfig::config_id(Self) -> Int
+pub fn EchConfig::cipher_suites(Self) -> Array[(Int32, Int32)]
+pub fn EchConfig::config_id(Self) -> Int32
 pub fn EchConfig::hpke_info(Self) -> Bytes
-pub fn EchConfig::kem_id(Self) -> Int
+pub fn EchConfig::kem_id(Self) -> Int32
 pub fn EchConfig::open(Self, Bytes, Bytes, Bytes, Bytes) -> Bytes raise EchError
 pub fn EchConfig::public_key(Self) -> Bytes
 pub fn EchConfig::public_name(Self) -> String
@@ -46,4 +47,3 @@ pub fn EchConfig::seal(Self, Bytes, Bytes, Bytes) -> (Bytes, Bytes) raise EchErr
 // Type aliases
 
 // Traits
-

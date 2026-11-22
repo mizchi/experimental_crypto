@@ -5,7 +5,7 @@
 ///|
 test "fuzz crl: parse never panics on random DER bytes" {
   for input in (@quickcheck.samples(200) : Array[Bytes]) {
-    let _ = try? @crl.parse(input)
+    let _ = try Ok(@crl.parse(input)) catch { e => Err(e) }
   }
 }
 

@@ -46,8 +46,8 @@ test "fuzz x25519: ECDH commutativity" {
     let sk_b = @x25519.PrivateKey::from_bytes(seed_b)
     let pk_a = sk_a.public_key()
     let pk_b = sk_b.public_key()
-    let r1 = try? @x25519.diffie_hellman(sk_a, pk_b)
-    let r2 = try? @x25519.diffie_hellman(sk_b, pk_a)
+    let r1 = try Ok(@x25519.diffie_hellman(sk_a, pk_b)) catch { e => Err(e) }
+    let r2 = try Ok(@x25519.diffie_hellman(sk_b, pk_a)) catch { e => Err(e) }
     match (r1, r2) {
       (Ok(s1), Ok(s2)) => @debug.assert_eq(s1.to_bytes(), s2.to_bytes())
       // Symmetry: if one side hits AllZeroSharedSecret the other must too,
@@ -89,7 +89,7 @@ test "fuzz x25519: scalarmult does not panic on random 32-byte u-coord" {
     let u = ensure_32(raw)
     let pk = @x25519.PublicKey::from_bytes(u)
     // AllZeroSharedSecret is fine; we only care that nothing panics.
-    let _ = try? @x25519.diffie_hellman(sk, pk)
+    let _ = try Ok(@x25519.diffie_hellman(sk, pk)) catch { e => Err(e) }
   }
 }
 

@@ -48,9 +48,9 @@ fn fuzz_jwk_bad_b64(raw : Bytes) -> String {
 ///|
 test "fuzz jwk: parsers never panic on random strings" {
   for input in (@quickcheck.samples(200) : Array[String]) {
-    let _ = try? @jwk.parse_public(input)
-    let _ = try? @jwk.parse_private(input)
-    let _ = try? @jwk.parse_set(input)
+    let _ = try Ok(@jwk.parse_public(input)) catch { e => Err(e) }
+    let _ = try Ok(@jwk.parse_private(input)) catch { e => Err(e) }
+    let _ = try Ok(@jwk.parse_set(input)) catch { e => Err(e) }
   }
 }
 

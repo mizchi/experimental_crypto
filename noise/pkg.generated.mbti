@@ -8,6 +8,7 @@ import {
 // Values
 
 // Errors
+#derive(@debug.Debug)
 pub suberror NoiseError {
   DecryptFailed
   Truncated
@@ -15,7 +16,7 @@ pub suberror NoiseError {
   WrongState(String)
   Dh(String)
   NonceExhausted
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub struct CipherState {
@@ -29,7 +30,7 @@ pub struct HandshakeState {
   ss : SymmetricState
   initiator : Bool
   messages : Array[Array[Token]]
-  mut msg_index : Int
+  mut msg_index : Int32
   s : Bytes?
   e : Bytes?
   mut rs : Bytes?
@@ -42,18 +43,19 @@ pub fn HandshakeState::read_message(Self, Bytes) -> Bytes raise NoiseError
 pub fn HandshakeState::split(Self) -> (CipherState, CipherState) raise NoiseError
 pub fn HandshakeState::write_message(Self, Bytes) -> Bytes raise NoiseError
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Pattern {
   NN
   NK
   XX
   IK
-} derive(Eq, @debug.Debug)
+}
 
 type SymmetricState
 
-type Token derive(Eq)
+#derive(Eq)
+type Token
 
 // Type aliases
 
 // Traits
-

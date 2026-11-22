@@ -11,15 +11,16 @@ pub fn setup_base_r(Bytes, Bytes, Bytes) -> HpkeContext raise HpkeError
 pub fn setup_base_s(Bytes, Bytes, sk_e~ : Bytes) -> (Bytes, HpkeContext) raise HpkeError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror HpkeError {
-  InvalidPublicKey(Int)
-  InvalidPrivateKey(Int)
-  InvalidEphemeral(Int)
+  InvalidPublicKey(Int32)
+  InvalidPrivateKey(Int32)
+  InvalidEphemeral(Int32)
   KemFailure
   SequenceOverflow
   KdfFailure
   AeadFailure
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct HpkeContext {
@@ -28,11 +29,10 @@ pub(all) struct HpkeContext {
   mut sequence : UInt64
   exporter_secret : Bytes
 }
-pub fn HpkeContext::export_secret(Self, Bytes, Int) -> Bytes raise HpkeError
+pub fn HpkeContext::export_secret(Self, Bytes, Int32) -> Bytes raise HpkeError
 pub fn HpkeContext::open(Self, Bytes, Bytes) -> Bytes raise HpkeError
 pub fn HpkeContext::seal(Self, Bytes, Bytes) -> Bytes raise HpkeError
 
 // Type aliases
 
 // Traits
-

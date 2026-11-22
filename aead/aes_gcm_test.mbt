@@ -221,14 +221,14 @@ test "AES-128-GCM auth failure on tag tamper" {
       tag[i]
     }
   })
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open_detached(
     @aead.Aes128Gcm,
     key,
     iv,
     aad,
     ct,
     bad_tag,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
@@ -240,13 +240,13 @@ test "AES-128-GCM auth failure on tag tamper" {
 test "AES-128-GCM key size validation" {
   let key = Bytes::makei(15, fn(_) { b'\x00' })
   let iv = ag_hex("000000000000000000000000")
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.seal(
     @aead.Aes128Gcm,
     key,
     iv,
     b"",
     b"",
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidKeySize(expected=16, got=15)) => ()
     Err(e) => abort("expected InvalidKeySize, got " + repr(e))
@@ -258,13 +258,13 @@ test "AES-128-GCM key size validation" {
 test "AES-256-GCM key size validation" {
   let key = Bytes::makei(31, fn(_) { b'\x00' })
   let iv = ag_hex("000000000000000000000000")
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.seal(
     @aead.Aes256Gcm,
     key,
     iv,
     b"",
     b"",
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidKeySize(expected=32, got=31)) => ()
     Err(e) => abort("expected InvalidKeySize, got " + repr(e))
@@ -276,13 +276,13 @@ test "AES-256-GCM key size validation" {
 test "AES-128-GCM nonce size validation" {
   let key = ag_hex("00000000000000000000000000000000")
   let iv = Bytes::makei(11, fn(_) { b'\x00' })
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.seal(
     @aead.Aes128Gcm,
     key,
     iv,
     b"",
     b"",
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(expected=12, got=11)) => ()
     Err(e) => abort("expected InvalidNonceSize, got " + repr(e))

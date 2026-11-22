@@ -2,13 +2,13 @@
 package "mizchi/experimental_crypto/tests/tls13_interop"
 
 // Values
-pub fn client_hello(Int, Bytes, Bytes, Bytes, String) -> Bytes
+pub fn client_hello(Int32, Bytes, Bytes, Bytes, String) -> Bytes
 
-pub fn client_hello_group(Int, Int, Bytes, Bytes, Bytes, String) -> Bytes
+pub fn client_hello_group(Int32, Int32, Bytes, Bytes, Bytes, String) -> Bytes
 
-pub fn key_len(Int) -> Int
+pub fn key_len(Int32) -> Int32
 
-pub fn open_record(Int, Bytes, Bytes, Int, Bytes) -> Bytes
+pub fn open_record(Int32, Bytes, Bytes, Int32, Bytes) -> Bytes
 
 pub fn p256_public(Bytes) -> Bytes
 
@@ -18,15 +18,15 @@ pub fn p384_public(Bytes) -> Bytes
 
 pub fn p384_shared(Bytes, Bytes) -> Bytes
 
-pub fn run_handshake(Int, Bytes, Bytes, Bytes, Bytes) -> Bytes
+pub fn run_handshake(Int32, Bytes, Bytes, Bytes, Bytes) -> Bytes
 
-pub fn run_handshake_verified(Int, Bytes, Bytes, Bytes, Bytes, Bytes, String, String) -> Bytes
+pub fn run_handshake_verified(Int32, Bytes, Bytes, Bytes, Bytes, Bytes, String, String) -> Bytes
 
-pub fn seal_record(Int, Bytes, Bytes, Int, Int, Bytes) -> Bytes
+pub fn seal_record(Int32, Bytes, Bytes, Int32, Int32, Bytes) -> Bytes
 
 pub fn server_chain(Bytes) -> Bytes
 
-pub fn server_hs_keyiv(Int, Bytes, Bytes, Bytes) -> Bytes
+pub fn server_hs_keyiv(Int32, Bytes, Bytes, Bytes) -> Bytes
 
 pub fn server_key_share(Bytes) -> Bytes
 
@@ -41,4 +41,3 @@ pub fn x25519_shared(Bytes, Bytes) -> Bytes
 // Type aliases
 
 // Traits
-
