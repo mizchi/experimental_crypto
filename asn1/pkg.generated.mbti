@@ -13,7 +13,7 @@ pub fn decode_der_all(Bytes) -> Array[Element] raise Asn1Error
 
 pub fn encode_der(Element) -> Bytes
 
-pub fn read_length(Decoder) -> Int raise Asn1Error
+pub fn read_length(Decoder) -> Int32 raise Asn1Error
 
 pub fn read_tag(Decoder) -> Tag raise Asn1Error
 
@@ -43,41 +43,44 @@ pub let tag_utc_time : Tag
 
 pub let tag_utf8_string : Tag
 
-pub fn write_length(Encoder, Int) -> Unit
+pub fn write_length(Encoder, Int32) -> Unit
 
 pub fn write_tag(Encoder, Tag) -> Unit
 
 // Errors
+#derive(@debug.Debug)
 pub suberror Asn1Error {
   TruncatedInput
   UnexpectedTag(expected~ : Tag, got~ : Tag)
   InvalidLength
   InvalidEncoding(String)
   Unsupported(String)
-  TrailingBytes(Int)
-} derive(@debug.Debug)
+  TrailingBytes(Int32)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) struct BitString {
   bytes : Bytes
-  unused_bits : Int
-} derive(Eq, @debug.Debug)
+  unused_bits : Int32
+}
 
 pub struct Decoder {
   input : Bytes
-  mut pos : Int
-  current_depth : Int
+  mut pos : Int32
+  current_depth : Int32
 }
 pub fn Decoder::expect_tag(Self, Tag) -> Element raise Asn1Error
 pub fn Decoder::is_empty(Self) -> Bool
 pub fn Decoder::new(Bytes) -> Self
 pub fn Decoder::read_element(Self) -> Element raise Asn1Error
-pub fn Decoder::remaining(Self) -> Int
+pub fn Decoder::remaining(Self) -> Int32
 
+#derive(@debug.Debug)
 pub struct Element {
   tag : Tag
   value : Value
-} derive(@debug.Debug)
+}
 pub fn Element::new(Tag, Value) -> Self
 
 pub struct Encoder {
@@ -88,29 +91,33 @@ pub fn Encoder::finish(Self) -> Bytes
 pub fn Encoder::new() -> Self
 pub fn Encoder::write_element(Self, Element) -> Unit
 
+#derive(Eq, Hash, @debug.Debug)
 pub struct ObjectIdentifier {
-  arcs : Array[UInt]
-} derive(Eq, Hash, @debug.Debug)
-pub fn ObjectIdentifier::from_arcs(Array[UInt]) -> Self
-pub fn ObjectIdentifier::from_arcs_checked(Array[UInt]) -> Self raise Asn1Error
+  arcs : Array[UInt32]
+}
+pub fn ObjectIdentifier::from_arcs(Array[UInt32]) -> Self
+pub fn ObjectIdentifier::from_arcs_checked(Array[UInt32]) -> Self raise Asn1Error
 pub fn ObjectIdentifier::from_string(String) -> Self raise Asn1Error
 pub fn ObjectIdentifier::to_string(Self) -> String
 
+#derive(Eq, Hash, @debug.Debug)
 pub struct Tag {
   class_ : TagClass
-  number : UInt
+  number : UInt32
   constructed : Bool
-} derive(Eq, Hash, @debug.Debug)
-pub fn Tag::context(UInt, constructed? : Bool) -> Self
-pub fn Tag::universal(UInt, constructed? : Bool) -> Self
+}
+pub fn Tag::context(UInt32, constructed? : Bool) -> Self
+pub fn Tag::universal(UInt32, constructed? : Bool) -> Self
 
+#derive(Eq, Hash, @debug.Debug)
 pub(all) enum TagClass {
   Universal
   Application
   ContextSpecific
   Private
-} derive(Eq, Hash, @debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub(all) enum Value {
   Boolean(Bool)
   Integer(Bytes)
@@ -126,9 +133,8 @@ pub(all) enum Value {
   Sequence(Array[Element])
   Set(Array[Element])
   Unknown(Bytes)
-} derive(@debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-

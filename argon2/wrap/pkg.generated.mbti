@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/argon2/wrap"
 
 // Values
-pub fn argon2_segment_length(Int, Int) -> Int
+pub fn argon2_segment_length(Int32, Int32) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn argon2_segment_length(Int, Int) -> Int
 // Type aliases
 
 // Traits
-

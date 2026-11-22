@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/tests/pgp_interop"
 
 // Values
-pub fn pgp_verify(String, String, String) -> Int
+pub fn pgp_verify(String, String, String) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn pgp_verify(String, String, String) -> Int
 // Type aliases
 
 // Traits
-

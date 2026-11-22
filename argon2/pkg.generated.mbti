@@ -15,31 +15,33 @@ pub fn hash_raw_with_ad(Params, Bytes, Bytes, Bytes, Bytes) -> Bytes raise Argon
 pub fn verify_encoded(String, Bytes) -> Unit raise Argon2Error
 
 // Errors
+#derive(@debug.Debug)
 pub suberror Argon2Error {
   InvalidParams(String)
   InvalidEncoded(String)
   VerifyFailed
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) struct Params {
   variant : Variant
-  m_cost : Int
-  t_cost : Int
-  parallelism : Int
-  output_len : Int
-} derive(Eq, @debug.Debug)
+  m_cost : Int32
+  t_cost : Int32
+  parallelism : Int32
+  output_len : Int32
+}
 pub fn Params::default_id() -> Self
 pub fn Params::recommended_interactive() -> Self
 pub fn Params::recommended_sensitive() -> Self
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Variant {
   Argon2d
   Argon2i
   Argon2id
-} derive(Eq, @debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-

@@ -470,7 +470,7 @@ test "parse_cose_key: missing kty rejected" {
   let cose_key = @cbor.encode(
     Map([(Uint(3UL), Nint(7UL))]), // only alg, no kty
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     _ => abort("expected InvalidKey")
@@ -486,7 +486,7 @@ test "parse_cose_key: unknown OKP curve rejected" {
       (Nint(1UL), Bytes(b"\x00")), // x (placeholder)
     ]),
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     _ => abort("expected InvalidKey")
@@ -507,7 +507,7 @@ test "ATTACK parse_cose_key: duplicate integer labels are rejected" {
       (Nint(1UL), Bytes(pk_bytes)),
     ]),
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     Ok(_) => abort("accepted duplicate COSE_Key integer label")
@@ -529,7 +529,7 @@ test "ATTACK parse_cose_key: mismatched OKP alg label is rejected" {
       (Nint(1UL), Bytes(pk_bytes)),
     ]),
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     Ok(_) => abort("accepted Ed25519 COSE_Key with ES256 alg")
@@ -552,7 +552,7 @@ test "ATTACK parse_cose_key: key_ops without verify is rejected" {
       (Nint(1UL), Bytes(pk_bytes)),
     ]),
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     Ok(_) => abort("accepted COSE_Key with key_ops that excludes verify")
@@ -577,7 +577,7 @@ test "ATTACK parse_cose_key: mismatched EC2 alg label is rejected" {
       (Nint(2UL), Bytes(gy)),
     ]),
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     Ok(_) => abort("accepted P-256 COSE_Key with EdDSA alg")
@@ -599,7 +599,7 @@ test "ATTACK parse_cose_key: unsupported RSA alg label is rejected" {
       (Nint(1UL), Bytes(e)),
     ]),
   )
-  let r = try? @cose.parse_cose_key(cose_key)
+  let r = try Ok(@cose.parse_cose_key(cose_key)) catch { e => Err(e) }
   match r {
     Err(InvalidKey(_)) => ()
     Ok(_) => abort("accepted RSA COSE_Key with unsupported alg")
@@ -617,7 +617,7 @@ test "ATTACK parse_attestation_object: duplicate text labels are rejected" {
       (Text("attStmt"), Map([])),
     ]),
   )
-  let r = try? @cose.parse_attestation_object(att_obj)
+  let r = try Ok(@cose.parse_attestation_object(att_obj)) catch { e => Err(e) }
   match r {
     Err(InvalidStructure(_)) => ()
     Ok(_) => abort("accepted duplicate attestationObject text label")

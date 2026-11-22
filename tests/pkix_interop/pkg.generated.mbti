@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/tests/pkix_interop"
 
 // Values
-pub fn verify_chain(Bytes, Bytes, Bytes, String, String) -> Int
+pub fn verify_chain(Bytes, Bytes, Bytes, String, String) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn verify_chain(Bytes, Bytes, Bytes, String, String) -> Int
 // Type aliases
 
 // Traits
-

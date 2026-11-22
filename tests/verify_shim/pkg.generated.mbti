@@ -2,9 +2,9 @@
 package "mizchi/experimental_crypto/tests/verify_shim"
 
 // Values
-pub fn aead_open(Int, String, String, String, String) -> String
+pub fn aead_open(Int32, String, String, String, String) -> String
 
-pub fn jwt_verify(String, String, String) -> Int
+pub fn jwt_verify(String, String, String) -> Int32
 
 // Errors
 
@@ -13,4 +13,3 @@ pub fn jwt_verify(String, String, String) -> Int
 // Type aliases
 
 // Traits
-

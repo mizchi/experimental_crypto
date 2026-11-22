@@ -13,24 +13,25 @@ pub fn hash_encoded(Params, Bytes, Bytes) -> String raise ScryptError
 pub fn verify_encoded(String, Bytes) -> Unit raise ScryptError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror ScryptError {
   InvalidParams(String)
   Pbkdf2Failure
   InvalidEncoded(String)
   VerifyFailed
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) struct Params {
-  log_n : Int
-  r : Int
-  p : Int
-  dk_len : Int
-} derive(Eq, @debug.Debug)
+  log_n : Int32
+  r : Int32
+  p : Int32
+  dk_len : Int32
+}
 pub fn Params::recommended_interactive() -> Self
 pub fn Params::recommended_sensitive() -> Self
 
 // Type aliases
 
 // Traits
-

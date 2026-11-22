@@ -2,9 +2,9 @@
 package "mizchi/experimental_crypto/bip32/wrap"
 
 // Values
-pub let bip32_hardened_msb : Int
+pub let bip32_hardened_msb : Int32
 
-pub fn is_hardened_from_msb(Int) -> Int
+pub fn is_hardened_from_msb(Int32) -> Int32
 
 // Errors
 
@@ -13,4 +13,3 @@ pub fn is_hardened_from_msb(Int) -> Int
 // Type aliases
 
 // Traits
-

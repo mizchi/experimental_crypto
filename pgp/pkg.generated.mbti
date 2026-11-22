@@ -10,27 +10,27 @@ import {
 }
 
 // Values
-pub let algo_ecdsa : Int
+pub let algo_ecdsa : Int32
 
-pub let algo_ed25519 : Int
+pub let algo_ed25519 : Int32
 
-pub let algo_eddsa_legacy : Int
+pub let algo_eddsa_legacy : Int32
 
-pub let algo_rsa_sign_or_encrypt : Int
+pub let algo_rsa_sign_or_encrypt : Int32
 
 pub fn compute_signature_digest(PgpSignature, Bytes) -> Bytes raise PgpError
 
 pub fn decode_armor(String) -> Armored raise PgpError
 
-pub fn export_ed25519_v4_public_key_armor(@ed25519.PrivateKey, String, creation_time? : UInt) -> String raise PgpError
+pub fn export_ed25519_v4_public_key_armor(@ed25519.PrivateKey, String, creation_time? : UInt32) -> String raise PgpError
 
-pub fn export_ed25519_v6_public_key_armor(@ed25519.PrivateKey, creation_time? : UInt, salt? : Bytes) -> String raise PgpError
+pub fn export_ed25519_v6_public_key_armor(@ed25519.PrivateKey, creation_time? : UInt32, salt? : Bytes) -> String raise PgpError
 
-pub let hash_sha256 : Int
+pub let hash_sha256 : Int32
 
-pub let hash_sha384 : Int
+pub let hash_sha384 : Int32
 
-pub let hash_sha512 : Int
+pub let hash_sha512 : Int32
 
 pub fn parse_packets(Bytes) -> Array[PgpPacket] raise PgpError
 
@@ -40,24 +40,25 @@ pub fn parse_public_key_packet(Bytes) -> PgpPublicKeyPacket raise PgpError
 
 pub fn parse_signature_packet(Bytes) -> PgpSignature raise PgpError
 
-pub fn read_mpi(Bytes, Int) -> (Bytes, Int) raise PgpError
+pub fn read_mpi(Bytes, Int32) -> (Bytes, Int32) raise PgpError
 
-pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int, creation_time? : UInt, issuer_key_creation_time? : UInt, version? : Int, salt? : Bytes) -> String raise PgpError
+pub fn sign_armor(PgpPrivateKey, Bytes, hash_algo? : Int32, creation_time? : UInt32, issuer_key_creation_time? : UInt32, version? : Int32, salt? : Bytes) -> String raise PgpError
 
 pub fn verify_armor(String, Bytes, PgpPublicKey) -> Bool raise PgpError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror PgpError {
   ArmorMalformed(String)
   ArmorCrcMismatch
   PacketTooShort(String)
-  UnsupportedPacketVersion(Int)
-  UnsupportedPubkeyAlgo(Int)
-  UnsupportedHashAlgo(Int)
-  UnsupportedSignatureType(Int)
+  UnsupportedPacketVersion(Int32)
+  UnsupportedPubkeyAlgo(Int32)
+  UnsupportedHashAlgo(Int32)
+  UnsupportedSignatureType(Int32)
   InvalidMpi(String)
   Crypto(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct Armored {
@@ -66,7 +67,7 @@ pub(all) struct Armored {
 }
 
 pub(all) struct PgpPacket {
-  tag : Int
+  tag : Int32
   body : Bytes
 }
 
@@ -85,20 +86,20 @@ pub(all) enum PgpPublicKey {
 }
 
 pub(all) struct PgpPublicKeyPacket {
-  version : Int
-  creation_time : UInt
-  algo : Int
+  version : Int32
+  creation_time : UInt32
+  algo : Int32
   key : PgpPublicKey
 }
 
 pub(all) struct PgpSignature {
-  version : Int
-  sig_type : Int
-  pubkey_algo : Int
-  hash_algo : Int
+  version : Int32
+  sig_type : Int32
+  pubkey_algo : Int32
+  hash_algo : Int32
   hashed_subpackets_raw : Bytes
   hashed_subpackets_body : Bytes
-  left16 : UInt
+  left16 : UInt32
   salt : Bytes
   signature_material : Bytes
 }
@@ -106,4 +107,3 @@ pub(all) struct PgpSignature {
 // Type aliases
 
 // Traits
-

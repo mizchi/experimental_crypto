@@ -206,14 +206,14 @@ test "ChaCha20-Poly1305 authentication failure on tag tamper" {
       tag[i]
     }
   })
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open_detached(
     @aead.ChaCha20Poly1305,
     key,
     nonce,
     aad,
     ct,
     bad_tag,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
@@ -239,14 +239,14 @@ test "ChaCha20-Poly1305 authentication failure on aad tamper" {
     pt_bytes,
   )
   let bad_aad = hex("00515253c0c1c2c3c4c5c6c7")
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open_detached(
     @aead.ChaCha20Poly1305,
     key,
     nonce,
     bad_aad,
     ct,
     tag,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
@@ -374,14 +374,14 @@ test "XChaCha20-Poly1305 authentication failure on tag tamper" {
       tag[i]
     }
   })
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open_detached(
     @aead.XChaCha20Poly1305,
     key,
     nonce,
     aad,
     ct,
     bad_tag,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected AuthenticationFailed but open succeeded")
     Err(@aead.AuthenticationFailed) => ()
@@ -395,13 +395,13 @@ test "XChaCha20-Poly1305 invalid nonce size" {
   // 12 bytes is wrong for XChaCha20Poly1305 (needs 24).
   let nonce = Bytes::makei(12, fn(_) { b'\x00' })
   let pt = b""
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.seal(
     @aead.XChaCha20Poly1305,
     key,
     nonce,
     b"",
     pt,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected InvalidNonceSize")
     Err(@aead.InvalidNonceSize(expected=24, got=12)) => ()
@@ -415,9 +415,9 @@ fn assert_rejects_truncated_tag(alg : @aead.Algorithm) -> Unit raise {
   let nonce = Bytes::makei(alg.nonce_size(), fn(i) { (0x42 + i).to_byte() })
   let (ct, tag) = @aead.seal_detached(alg, key, nonce, b"aad", b"message")
   let short_tag = Bytes::makei(15, fn(i) { tag[i] })
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open_detached(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open_detached(
     alg, key, nonce, b"aad", ct, short_tag,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidTagSize(expected=16, got=15)) => ()
     Ok(_) => abort("expected InvalidTagSize")
@@ -462,13 +462,13 @@ test "invalid key size for ChaCha20-Poly1305" {
   let key = Bytes::makei(16, fn(_) { b'\x00' })
   let nonce = Bytes::makei(12, fn(_) { b'\x00' })
   let pt = b""
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.seal(
     @aead.ChaCha20Poly1305,
     key,
     nonce,
     b"",
     pt,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected InvalidKeySize")
     Err(@aead.InvalidKeySize(expected=32, got=16)) => ()
@@ -481,13 +481,13 @@ test "invalid nonce size for ChaCha20-Poly1305" {
   let key = Bytes::makei(32, fn(_) { b'\x00' })
   let nonce = Bytes::makei(8, fn(_) { b'\x00' })
   let pt = b""
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.seal(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.seal(
     @aead.ChaCha20Poly1305,
     key,
     nonce,
     b"",
     pt,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected InvalidNonceSize")
     Err(@aead.InvalidNonceSize(expected=12, got=8)) => ()

@@ -143,12 +143,12 @@ fn fuzz_hs256_header(kid : String) -> Map[String, Json] {
 ///|
 test "fuzz jwt: verify and peek_header never panic on random compact strings" {
   for input in (@quickcheck.samples(200) : Array[String]) {
-    let _ = try? @jwt.peek_header(input)
-    let _ = try? @jwt.verify(
+    let _ = try Ok(@jwt.peek_header(input)) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       @jwt.VerifyOptions::default(0L),
-    )
+    )) catch { e => Err(e) }
   }
 }
 
@@ -416,50 +416,50 @@ test "fuzz oidc profiles: high-level verifiers never panic on random compact str
     allowed_algorithms: None,
   }
   for input in (@quickcheck.samples(120) : Array[String]) {
-    let _ = try? @jwt.verify_oidc_id_token(
+    let _ = try Ok( @jwt.verify_oidc_id_token(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       oidc_opts,
-    )
-    let _ = try? @jwt.verify_logout_token(
+    )) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_logout_token(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       logout_opts,
-    )
-    let _ = try? @jwt.verify_userinfo_jws(
+    )) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_userinfo_jws(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       userinfo_opts,
-    )
-    let _ = try? @jwt.verify_request_object(
+    )) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_request_object(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       request_opts,
-    )
-    let _ = try? @jwt.verify_jarm(
+    )) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_jarm(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       jarm_opts,
-    )
-    let _ = try? @jwt.verify_entity_statement(
+    )) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_entity_statement(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       entity_opts,
-    )
-    let _ = try? @jwt.verify_ciba_id_token(
+    )) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_ciba_id_token(
       input,
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       ciba_opts,
-    )
-    let _ = try? @jwt.verify_dpop_proof(input, dpop_opts)
-    let _ = try? @jwt.verify_self_issued_id_token(input, self_issued_opts)
-    let _ = try? @jwt.verify_oidc_id_token_encrypted(
+    )) catch { e => Err(e) }
+    let _ = try Ok(@jwt.verify_dpop_proof(input, dpop_opts)) catch { e => Err(e) }
+    let _ = try Ok(@jwt.verify_self_issued_id_token(input, self_issued_opts)) catch { e => Err(e) }
+    let _ = try Ok( @jwt.verify_oidc_id_token_encrypted(
       input,
       @jwe.DecryptionKey::DecDir(cek=secret),
       @jwt.VerifyKey::Hs256(secret=fuzz_hs_secret),
       oidc_opts,
-    )
-    let _ = try? @jwt.parse_provider_metadata(input)
+    )) catch { e => Err(e) }
+    let _ = try Ok(@jwt.parse_provider_metadata(input)) catch { e => Err(e) }
   }
 }
 
@@ -830,7 +830,7 @@ test "fuzz oidc federation and ciba bindings preserve expected subjects" {
 ///|
 test "fuzz oidc discovery: random and generated metadata stay total" {
   for input in (@quickcheck.samples(100) : Array[String]) {
-    let _ = try? @jwt.parse_provider_metadata(input)
+    let _ = try Ok(@jwt.parse_provider_metadata(input)) catch { e => Err(e) }
   }
   for raw in (@quickcheck.samples(60) : Array[Bytes]) {
     let issuer = "https://issuer.example/" + fuzz_safe_kid(raw)

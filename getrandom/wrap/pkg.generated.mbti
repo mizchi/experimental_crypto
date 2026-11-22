@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/getrandom/wrap"
 
 // Values
-pub fn getrandom_chunk_len(Int, Int) -> Int
+pub fn getrandom_chunk_len(Int32, Int32) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn getrandom_chunk_len(Int, Int) -> Int
 // Type aliases
 
 // Traits
-

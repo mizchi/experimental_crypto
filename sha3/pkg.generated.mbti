@@ -6,9 +6,9 @@ pub fn sha3_256(Bytes) -> Bytes
 
 pub fn sha3_512(Bytes) -> Bytes
 
-pub fn shake128(Bytes, Int) -> Bytes
+pub fn shake128(Bytes, Int32) -> Bytes
 
-pub fn shake256(Bytes, Int) -> Bytes
+pub fn shake256(Bytes, Int32) -> Bytes
 
 // Errors
 
@@ -17,4 +17,3 @@ pub fn shake256(Bytes, Int) -> Bytes
 // Type aliases
 
 // Traits
-

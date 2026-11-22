@@ -11,7 +11,7 @@ test "fuzz asn1: decode_der never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
     // We don't care about the value, only that the call returns at all.
-    let _ = try? @asn1.decode_der(input)
+    let _ = try Ok(@asn1.decode_der(input)) catch { e => Err(e) }
   }
 }
 
@@ -19,7 +19,7 @@ test "fuzz asn1: decode_der never panics on random bytes" {
 test "fuzz asn1: decode_der_all never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    let _ = try? @asn1.decode_der_all(input)
+    let _ = try Ok(@asn1.decode_der_all(input)) catch { e => Err(e) }
   }
 }
 

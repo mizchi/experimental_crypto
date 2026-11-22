@@ -4,7 +4,7 @@
 ///|
 test "fuzz ocsp: parse_response never panics on random DER bytes" {
   for input in (@quickcheck.samples(200) : Array[Bytes]) {
-    let _ = try? @ocsp.parse_response(input)
+    let _ = try Ok(@ocsp.parse_response(input)) catch { e => Err(e) }
   }
 }
 

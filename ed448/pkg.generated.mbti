@@ -11,4 +11,3 @@ pub fn verify(Bytes, Bytes, Bytes, context? : Bytes) -> Bool
 // Type aliases
 
 // Traits
-

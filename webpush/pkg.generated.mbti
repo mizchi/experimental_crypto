@@ -9,16 +9,16 @@ import {
 pub fn decrypt(Bytes, Bytes, Bytes, Bytes) -> Bytes raise WebPushError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror WebPushError {
   Truncated(String)
   BadServerKey
   DecryptFailed
   Malformed(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 
 // Type aliases
 
 // Traits
-

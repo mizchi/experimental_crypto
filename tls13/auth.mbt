@@ -58,23 +58,23 @@ fn verify_cert_verify_signature(
 ) -> Bool raise AuthError {
   match (scheme, pubkey) {
     (RsaPssRsaeSha256, Rsa(pk)) =>
-      (try? pk.verify_pss(content, signature, @rsa.HashAlg::Sha256)).unwrap_or(
+      (try Ok(pk.verify_pss(content, signature, @rsa.HashAlg::Sha256)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (RsaPssRsaeSha384, Rsa(pk)) =>
-      (try? pk.verify_pss(content, signature, @rsa.HashAlg::Sha384)).unwrap_or(
+      (try Ok(pk.verify_pss(content, signature, @rsa.HashAlg::Sha384)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (RsaPssRsaeSha512, Rsa(pk)) =>
-      (try? pk.verify_pss(content, signature, @rsa.HashAlg::Sha512)).unwrap_or(
+      (try Ok(pk.verify_pss(content, signature, @rsa.HashAlg::Sha512)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (EcdsaSecp256r1Sha256, P256(pk)) =>
-      (try? @p256.verify(pk, content, signature, @p256.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p256.verify(pk, content, signature, @p256.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (EcdsaSecp384r1Sha384, P384(pk)) =>
-      (try? @p384.verify(pk, content, signature, @p384.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p384.verify(pk, content, signature, @p384.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (Ed25519, Ed25519(pk)) => pk.verify(content, signature)

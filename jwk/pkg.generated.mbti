@@ -29,6 +29,7 @@ pub fn thumbprint(Jwk) -> Bytes raise JwkError
 pub fn thumbprint_base64url(Jwk) -> String raise JwkError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror JwkError {
   InvalidJson(String)
   MissingField(String)
@@ -38,7 +39,7 @@ pub suberror JwkError {
   InvalidFieldLength(String)
   CryptoError(String)
   PrivateKeyMissing
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) enum Jwk {
@@ -62,4 +63,3 @@ pub(all) struct JwkSetEntry {
 // Type aliases
 
 // Traits
-

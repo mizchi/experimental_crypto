@@ -10,35 +10,36 @@ pub fn decode(String) -> PemBlock raise PemError
 
 pub fn decode_all(String) -> Array[PemBlock] raise PemError
 
-pub fn decode_strict(String, max_input_size? : Int) -> PemBlock raise PemError
+pub fn decode_strict(String, max_input_size? : Int32) -> PemBlock raise PemError
 
 pub fn encode(PemBlock) -> String
 
 pub fn encode_simple(String, Bytes) -> String
 
-pub let pem_max_input_size : Int
+pub let pem_max_input_size : Int32
 
-pub let pem_max_line_length : Int
+pub let pem_max_line_length : Int32
 
-pub let pem_strict_line_max : Int
+pub let pem_strict_line_max : Int32
 
 // Errors
+#derive(@debug.Debug)
 pub suberror PemError {
   InvalidFormat(String)
   InvalidBase64
   MissingBeginMarker
   MissingEndMarker
   LabelMismatch(begin~ : String, end~ : String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) struct PemBlock {
   label : String
   data : Bytes
   headers : Array[(String, String)]
-} derive(Eq, @debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-

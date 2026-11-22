@@ -123,7 +123,7 @@ test "fuzz ed25519: verify on arbitrary signature bytes does not panic" {
       // For 64-byte random sig, verify_strict may raise InvalidEncoding for
       // non-canonical S or undecompressable R. Either error or boolean is
       // fine; we only require absence of panic.
-      let _ = try? pk.verify_strict(message, sig)
+      let _ = try Ok(pk.verify_strict(message, sig)) catch { e => Err(e) }
     }
   }
 }

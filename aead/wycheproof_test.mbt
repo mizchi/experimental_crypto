@@ -247,13 +247,13 @@ test "wycheproof chacha20_poly1305 tcId=146 (invalid)" {
   let ct : Bytes = b""
   let tag : Bytes = b"\xf5\x40\x9b\xb7\x29\x03\x9d\x08\x14\xac\x51\x40\x54\x32\x3f\x44"
   let sealed_bytes = wp_concat(ct, tag)
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.AuthenticationFailed) => ()
     Err(e) => abort("expected AuthenticationFailed, got " + repr(e))
@@ -271,13 +271,13 @@ test "wycheproof chacha20_poly1305 tcId=166 (invalid)" {
   let ct : Bytes = b"\xd0\x3b\xcb\x3c\xa5\x2d\x48\xd1\xd2\x03\xb1\xe7\xb1\xa5\x99\x5a"
   let tag : Bytes = b"\x28\x91\x40\x07\xa6\x11\x9d\xd3\xf1\x09\xbb\xa2\x1c\xe9\xa7\xd6"
   let sealed_bytes = wp_concat(ct, tag)
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.AuthenticationFailed) => ()
     Err(e) => abort("expected AuthenticationFailed, got " + repr(e))
@@ -296,13 +296,13 @@ test "wycheproof chacha20_poly1305 tcId=317 (invalid)" {
   let tag : Bytes = b""
   let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
@@ -322,13 +322,13 @@ test "wycheproof chacha20_poly1305 tcId=318 (invalid)" {
   let tag : Bytes = b""
   let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
@@ -348,13 +348,13 @@ test "wycheproof chacha20_poly1305 tcId=320 (invalid)" {
   let tag : Bytes = b""
   let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
@@ -374,13 +374,13 @@ test "wycheproof chacha20_poly1305 tcId=322 (invalid)" {
   let tag : Bytes = b""
   let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
@@ -400,13 +400,13 @@ test "wycheproof chacha20_poly1305 tcId=323 (invalid)" {
   let tag : Bytes = b""
   let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()
@@ -426,13 +426,13 @@ test "wycheproof chacha20_poly1305 tcId=325 (invalid)" {
   let tag : Bytes = b""
   let sealed_bytes = wp_concat(ct, tag)
   // Implementation must reject the non-12-byte nonce.
-  let result : Result[Bytes, @aead.AeadError] = try? @aead.open(
+  let result : Result[Bytes, @aead.AeadError] = try Ok( @aead.open(
     @aead.ChaCha20Poly1305,
     key,
     iv,
     aad,
     sealed_bytes,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@aead.InvalidNonceSize(_)) => ()
     Err(@aead.CiphertextTooShort) => ()

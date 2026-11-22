@@ -196,38 +196,38 @@ pub fn CredentialPublicKey::verify(
 ) -> Bool {
   match self {
     Es256(pk) =>
-      (try? @p256.verify(pk, message, signature, @p256.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p256.verify(pk, message, signature, @p256.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     Es384(pk) =>
-      (try? @p384.verify(pk, message, signature, @p384.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p384.verify(pk, message, signature, @p384.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     EdDSA(pk) => pk.verify(message, signature)
     // RSASSA-PKCS1-v1_5: verify hashes `message` with the alg's digest.
     Rs256(pk) =>
-      (try? pk.verify(message, signature, @rsa.HashAlg::Sha256)).unwrap_or(
+      (try Ok(pk.verify(message, signature, @rsa.HashAlg::Sha256)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     Rs384(pk) =>
-      (try? pk.verify(message, signature, @rsa.HashAlg::Sha384)).unwrap_or(
+      (try Ok(pk.verify(message, signature, @rsa.HashAlg::Sha384)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     Rs512(pk) =>
-      (try? pk.verify(message, signature, @rsa.HashAlg::Sha512)).unwrap_or(
+      (try Ok(pk.verify(message, signature, @rsa.HashAlg::Sha512)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     // RSASSA-PSS: salt length = digest length (verify_pss default).
     Ps256(pk) =>
-      (try? pk.verify_pss(message, signature, @rsa.HashAlg::Sha256)).unwrap_or(
+      (try Ok(pk.verify_pss(message, signature, @rsa.HashAlg::Sha256)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     Ps384(pk) =>
-      (try? pk.verify_pss(message, signature, @rsa.HashAlg::Sha384)).unwrap_or(
+      (try Ok(pk.verify_pss(message, signature, @rsa.HashAlg::Sha384)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     Ps512(pk) =>
-      (try? pk.verify_pss(message, signature, @rsa.HashAlg::Sha512)).unwrap_or(
+      (try Ok(pk.verify_pss(message, signature, @rsa.HashAlg::Sha512)) catch { e => Err(e) }).unwrap_or(
         false,
       )
   }
@@ -409,16 +409,16 @@ fn verify_with_certificate(
   }
   match pk {
     P256(k) =>
-      (try? @p256.verify(k, message, signature, @p256.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p256.verify(k, message, signature, @p256.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     P384(k) =>
-      (try? @p384.verify(k, message, signature, @p384.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p384.verify(k, message, signature, @p384.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     Ed25519(k) => k.verify(message, signature)
     Rsa(k) =>
-      (try? k.verify(message, signature, @rsa.HashAlg::Sha256)).unwrap_or(false)
+      (try Ok(k.verify(message, signature, @rsa.HashAlg::Sha256)) catch { e => Err(e) }).unwrap_or(false)
   }
 }
 

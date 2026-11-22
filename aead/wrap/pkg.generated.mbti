@@ -2,13 +2,13 @@
 package "mizchi/experimental_crypto/aead/wrap"
 
 // Values
-pub fn aes_key_word_count(Int) -> Int
+pub fn aes_key_word_count(Int32) -> Int32
 
-pub fn aes_round_count(Int) -> Int
+pub fn aes_round_count(Int32) -> Int32
 
-pub fn ghash_zero_pad_len(Int, Int) -> Int
+pub fn ghash_zero_pad_len(Int32, Int32) -> Int32
 
-pub fn pkcs7_pad_len(Int, Int) -> Int
+pub fn pkcs7_pad_len(Int32, Int32) -> Int32
 
 // Errors
 
@@ -17,4 +17,3 @@ pub fn pkcs7_pad_len(Int, Int) -> Int
 // Type aliases
 
 // Traits
-

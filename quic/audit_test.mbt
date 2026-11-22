@@ -45,12 +45,12 @@ test "QUIC open rejects a tampered header (AAD)" {
   // Flip one bit of the header used as AAD → tag must fail.
   let bad_header = flip_last(header)
   inspect(
-    (try? @quic.open_payload(client, 1UL, bad_header, ct)) is Err(_),
+    (try Ok( @quic.open_payload(client, 1UL, bad_header, ct)) catch { e => Err(e) }) is Err(_),
     content="true",
   )
   // The unmodified header still opens.
   inspect(
-    (try? @quic.open_payload(client, 1UL, header, ct)) is Err(_),
+    (try Ok( @quic.open_payload(client, 1UL, header, ct)) catch { e => Err(e) }) is Err(_),
     content="false",
   )
 }
@@ -61,7 +61,7 @@ test "QUIC open rejects a tampered ciphertext / tag" {
   let header = ahex("c30000000100")
   let ct = @quic.seal_payload(client, 7UL, header, b"payload bytes here")
   inspect(
-    (try? @quic.open_payload(client, 7UL, header, flip_last(ct))) is Err(_),
+    (try Ok( @quic.open_payload(client, 7UL, header, flip_last(ct))) catch { e => Err(e) }) is Err(_),
     content="true",
   )
 }
@@ -72,7 +72,7 @@ test "QUIC open rejects a truncated record without crashing" {
   // Shorter than the 16-byte GCM tag.
   let tiny = ahex("0011223344")
   inspect(
-    (try? @quic.open_payload(client, 0UL, b"hdr", tiny)) is Err(_),
+    (try Ok( @quic.open_payload(client, 0UL, b"hdr", tiny)) catch { e => Err(e) }) is Err(_),
     content="true",
   )
 }
@@ -80,11 +80,11 @@ test "QUIC open rejects a truncated record without crashing" {
 ///|
 test "QUIC packet_nonce validates the IV length" {
   inspect(
-    (try? @quic.packet_nonce(ahex("0011223344"), 1UL)) is Err(_),
+    (try Ok( @quic.packet_nonce(ahex("0011223344"), 1UL)) catch { e => Err(e) }) is Err(_),
     content="true",
   )
   inspect(
-    (try? @quic.packet_nonce(ahex("000000000000000000000000"), 1UL)) is Err(_),
+    (try Ok( @quic.packet_nonce(ahex("000000000000000000000000"), 1UL)) catch { e => Err(e) }) is Err(_),
     content="false",
   )
 }
@@ -94,10 +94,10 @@ test "QUIC header_protection_mask validates the sample length" {
   let (client, _s) = @quic.initial_keys(ahex("8394c8f03e515708"))
   // 15-byte sample → reject (not a silent short read).
   inspect(
-    (try? @quic.header_protection_mask(
+    (try Ok( @quic.header_protection_mask(
       client.hp_bytes(),
       ahex("000102030405060708090a0b0c0d0e"),
-    ))
+    )) catch { e => Err(e) })
     is Err(_),
     content="true",
   )

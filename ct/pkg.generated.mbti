@@ -14,33 +14,33 @@ pub fn parse_sct_list(Bytes) -> Array[Sct] raise CtError
 
 pub fn precert_entry(Bytes, Bytes) -> Bytes
 
-pub fn verify_sct(Sct, Bytes, Int, Bytes) -> Bool raise CtError
+pub fn verify_sct(Sct, Bytes, Int32, Bytes) -> Bool raise CtError
 
 pub fn x509_entry(Bytes) -> Bytes
 
 // Errors
+#derive(@debug.Debug)
 pub suberror CtError {
   Truncated(String)
   Malformed(String)
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub struct Sct {
-  version : Int
+  version : Int32
   log_id : Bytes
   timestamp : UInt64
   extensions : Bytes
-  sig_scheme : Int
+  sig_scheme : Int32
   signature : Bytes
 }
 pub fn Sct::log_id(Self) -> Bytes
-pub fn Sct::sig_scheme(Self) -> Int
+pub fn Sct::sig_scheme(Self) -> Int32
 pub fn Sct::timestamp(Self) -> UInt64
-pub fn Sct::version(Self) -> Int
+pub fn Sct::version(Self) -> Int32
 
 // Type aliases
 
 // Traits
-

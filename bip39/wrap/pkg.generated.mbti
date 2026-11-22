@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/bip39/wrap"
 
 // Values
-pub fn mnemonic_word_count(Int) -> Int
+pub fn mnemonic_word_count(Int32) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn mnemonic_word_count(Int) -> Int
 // Type aliases
 
 // Traits
-

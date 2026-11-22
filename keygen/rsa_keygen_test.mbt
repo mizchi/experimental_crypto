@@ -42,6 +42,6 @@ test "RSA keygen produces distinct moduli across calls" {
 
 ///|
 test "RSA keygen rejects invalid sizes" {
-  inspect((try? @keygen.rsa_keypair(511)) is Err(_), content="true")
-  inspect((try? @keygen.rsa_keypair(256)) is Err(_), content="true")
+  inspect((try Ok( @keygen.rsa_keypair(511)) catch { e => Err(e) }) is Err(_), content="true")
+  inspect((try Ok( @keygen.rsa_keypair(256)) catch { e => Err(e) }) is Err(_), content="true")
 }

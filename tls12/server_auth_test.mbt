@@ -42,7 +42,7 @@ fn sa_ske_parsed() -> @tls12.ServerKeyExchange raise {
 
 ///|
 fn sa_catch(thunk : () -> Unit raise) -> Bool {
-  (try? thunk()) is Err(_)
+  (try Ok( thunk()) catch { e => Err(e) }) is Err(_)
 }
 
 ///|

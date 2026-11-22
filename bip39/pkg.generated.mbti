@@ -15,16 +15,16 @@ pub fn mnemonic_to_entropy(String) -> Bytes raise Bip39Error
 pub fn mnemonic_to_seed(String, passphrase? : String) -> Bytes
 
 // Errors
+#derive(@debug.Debug)
 pub suberror Bip39Error {
-  InvalidEntropyLength(Int)
-  InvalidMnemonicWordCount(Int)
+  InvalidEntropyLength(Int32)
+  InvalidMnemonicWordCount(Int32)
   UnknownWord(String)
   InvalidChecksum
-} derive(@debug.Debug)
+}
 
 // Types and methods
 
 // Type aliases
 
 // Traits
-

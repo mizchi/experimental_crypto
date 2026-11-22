@@ -20,6 +20,7 @@ pub fn parse_cose_key_value(@cbor.CborValue) -> CoseKey raise CoseError
 pub fn verify_sign1(Bytes, Bytes, CoseKey, external_aad? : Bytes) -> Bool raise CoseError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror CoseError {
   CborDecode(@cbor.CborError)
   InvalidStructure(String)
@@ -27,7 +28,7 @@ pub suberror CoseError {
   AlgorithmKeyMismatch
   InvalidKey(String)
   InvalidSignature(String)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct AttestationObject {
@@ -36,12 +37,13 @@ pub(all) struct AttestationObject {
   att_stmt : @cbor.CborValue
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum CoseAlg {
   ES256
   ES384
   EdDSA
   RS256
-} derive(Eq, @debug.Debug)
+}
 
 pub(all) enum CoseKey {
   Ec2P256(pubkey~ : @p256.PublicKey)
@@ -53,4 +55,3 @@ pub(all) enum CoseKey {
 // Type aliases
 
 // Traits
-

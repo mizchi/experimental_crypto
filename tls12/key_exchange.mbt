@@ -55,19 +55,19 @@ pub fn verify_server_key_exchange(
   let sig = ske.signature()
   match (ske.sig_scheme(), pubkey) {
     (0x0403, P256(pk)) =>
-      (try? @p256.verify(pk, content, sig, @p256.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p256.verify(pk, content, sig, @p256.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (0x0503, P384(pk)) =>
-      (try? @p384.verify(pk, content, sig, @p384.SignatureFormat::Der)).unwrap_or(
+      (try Ok(@p384.verify(pk, content, sig, @p384.SignatureFormat::Der)) catch { e => Err(e) }).unwrap_or(
         false,
       )
     (0x0401, Rsa(pk)) =>
-      (try? pk.verify(content, sig, @rsa.HashAlg::Sha256)).unwrap_or(false)
+      (try Ok(pk.verify(content, sig, @rsa.HashAlg::Sha256)) catch { e => Err(e) }).unwrap_or(false)
     (0x0501, Rsa(pk)) =>
-      (try? pk.verify(content, sig, @rsa.HashAlg::Sha384)).unwrap_or(false)
+      (try Ok(pk.verify(content, sig, @rsa.HashAlg::Sha384)) catch { e => Err(e) }).unwrap_or(false)
     (0x0601, Rsa(pk)) =>
-      (try? pk.verify(content, sig, @rsa.HashAlg::Sha512)).unwrap_or(false)
+      (try Ok(pk.verify(content, sig, @rsa.HashAlg::Sha512)) catch { e => Err(e) }).unwrap_or(false)
     (0x0807, Ed25519(pk)) => pk.verify(content, sig)
     // A recognised scheme paired with the wrong key type.
     (0x0403, _)

@@ -27,27 +27,28 @@ pub fn seal(Algorithm, Bytes, Bytes, Bytes, Bytes) -> Bytes raise AeadError
 pub fn seal_detached(Algorithm, Bytes, Bytes, Bytes, Bytes) -> (Bytes, Bytes) raise AeadError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror AeadError {
-  InvalidTagSize(expected~ : Int, got~ : Int)
-  InvalidKeySize(expected~ : Int, got~ : Int)
-  InvalidNonceSize(expected~ : Int, got~ : Int)
+  InvalidTagSize(expected~ : Int32, got~ : Int32)
+  InvalidKeySize(expected~ : Int32, got~ : Int32)
+  InvalidNonceSize(expected~ : Int32, got~ : Int32)
   CiphertextTooShort
   AuthenticationFailed
   PlaintextTooLong
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum Algorithm {
   Aes128Gcm
   Aes256Gcm
   ChaCha20Poly1305
   XChaCha20Poly1305
-} derive(Eq, @debug.Debug)
-pub fn Algorithm::key_size(Self) -> Int
-pub fn Algorithm::nonce_size(Self) -> Int
-pub fn Algorithm::tag_size(Self) -> Int
+}
+pub fn Algorithm::key_size(Self) -> Int32
+pub fn Algorithm::nonce_size(Self) -> Int32
+pub fn Algorithm::tag_size(Self) -> Int32
 
 // Type aliases
 
 // Traits
-

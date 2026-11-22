@@ -7,7 +7,7 @@
 test "fuzz pkix: parse_certificate never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    let _ = try? @pkix.parse_certificate(input)
+    let _ = try Ok(@pkix.parse_certificate(input)) catch { e => Err(e) }
   }
 }
 
@@ -15,7 +15,7 @@ test "fuzz pkix: parse_certificate never panics on random bytes" {
 test "fuzz pkix: parse_name never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    let _ = try? @pkix.parse_name(input)
+    let _ = try Ok(@pkix.parse_name(input)) catch { e => Err(e) }
   }
 }
 
@@ -23,7 +23,7 @@ test "fuzz pkix: parse_name never panics on random bytes" {
 test "fuzz pkix: parse_subject_public_key_info never panics on random bytes" {
   let n = 200
   for input in (@quickcheck.samples(n) : Array[Bytes]) {
-    let _ = try? @pkix.parse_subject_public_key_info(input)
+    let _ = try Ok(@pkix.parse_subject_public_key_info(input)) catch { e => Err(e) }
   }
 }
 

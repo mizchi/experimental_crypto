@@ -2697,7 +2697,7 @@ test "policyConstraints: critical on leaf is rejected fail-closed" {
   let anchor = @pkix_verify.extract_public_key(
     inter.tbs.subject_public_key_info,
   )
-  let r = try? @pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")
+  let r = try Ok(@pkix_verify.verify_chain(leaf, [inter], anchor, "250601000000Z")) catch { e => Err(e) }
   assert_true(r is Err(_))
 }
 

@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/jwt/wrap"
 
 // Values
-pub fn base64url_unpadded_len(Int) -> Int
+pub fn base64url_unpadded_len(Int32) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn base64url_unpadded_len(Int) -> Int
 // Type aliases
 
 // Traits
-

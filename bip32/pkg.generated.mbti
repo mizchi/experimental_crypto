@@ -9,41 +9,41 @@ import {
 // Values
 pub fn derive_path(ExtendedPrivateKey, String) -> ExtendedPrivateKey raise Bip32Error
 
-pub fn derive_private(ExtendedPrivateKey, UInt) -> ExtendedPrivateKey raise Bip32Error
+pub fn derive_private(ExtendedPrivateKey, UInt32) -> ExtendedPrivateKey raise Bip32Error
 
-pub fn derive_public(ExtendedPublicKey, UInt) -> ExtendedPublicKey raise Bip32Error
+pub fn derive_public(ExtendedPublicKey, UInt32) -> ExtendedPublicKey raise Bip32Error
 
 pub fn master_from_seed(Bytes) -> ExtendedPrivateKey raise Bip32Error
 
 pub fn neuter(ExtendedPrivateKey) -> ExtendedPublicKey
 
 // Errors
+#derive(@debug.Debug)
 pub suberror Bip32Error {
-  InvalidSeedLength(Int)
+  InvalidSeedLength(Int32)
   DerivationFailed(String)
-  HardenedFromPublic(UInt)
+  HardenedFromPublic(UInt32)
   InvalidPath(String)
   Secp256k1(@secp256k1.Secp256k1Error)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 pub(all) struct ExtendedPrivateKey {
   privkey : @secp256k1.PrivateKey
   chain_code : Bytes
-  depth : Int
+  depth : Int32
   parent_fingerprint : Bytes
-  child_index : UInt
+  child_index : UInt32
 }
 
 pub(all) struct ExtendedPublicKey {
   pubkey : @secp256k1.PublicKey
   chain_code : Bytes
-  depth : Int
+  depth : Int32
   parent_fingerprint : Bytes
-  child_index : UInt
+  child_index : UInt32
 }
 
 // Type aliases
 
 // Traits
-

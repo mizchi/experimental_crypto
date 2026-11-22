@@ -2,15 +2,15 @@
 package "mizchi/experimental_crypto/proofs"
 
 // Values
-pub fn abs(Int) -> Int
+pub fn abs(Int32) -> Int32
 
-pub fn ct_select(Int, Int, Int) -> Int
+pub fn ct_select(Int32, Int32, Int32) -> Int32
 
-pub fn hex_value(Int) -> Int
+pub fn hex_value(Int32) -> Int32
 
-pub fn mod_pos(Int, Int) -> Int
+pub fn mod_pos(Int32, Int32) -> Int32
 
-pub fn reduce_once(Int, Int) -> Int
+pub fn reduce_once(Int32, Int32) -> Int32
 
 // Errors
 
@@ -19,4 +19,3 @@ pub fn reduce_once(Int, Int) -> Int
 // Type aliases
 
 // Traits
-

@@ -10,21 +10,21 @@ import {
 }
 
 // Values
-pub fn build_client_hello(Bytes, Array[CipherSuite], Array[Int], String) -> Bytes raise MessageError
+pub fn build_client_hello(Bytes, Array[CipherSuite], Array[Int32], String) -> Bytes raise MessageError
 
 pub fn build_client_key_exchange(Bytes) -> Bytes
 
 pub fn derive_session_keys(CipherSuite, Bytes, Bytes, Bytes) -> SessionKeys raise RecordError
 
-pub fn ecdhe_client_public(Int, Bytes) -> Bytes raise KeyExchangeError
+pub fn ecdhe_client_public(Int32, Bytes) -> Bytes raise KeyExchangeError
 
-pub fn ecdhe_pre_master_secret(Int, Bytes, Bytes) -> Bytes raise KeyExchangeError
+pub fn ecdhe_pre_master_secret(Int32, Bytes, Bytes) -> Bytes raise KeyExchangeError
 
-pub let group_secp256r1 : Int
+pub let group_secp256r1 : Int32
 
-pub let group_secp384r1 : Int
+pub let group_secp384r1 : Int32
 
-pub let group_x25519 : Int
+pub let group_x25519 : Int32
 
 pub fn handshake_message(HandshakeType, Bytes) -> Bytes
 
@@ -42,45 +42,49 @@ pub fn parse_server_key_exchange(Bytes) -> ServerKeyExchange raise MessageError
 
 pub fn seal_gcm_record(GcmKeys, UInt64, ContentType, Bytes) -> Bytes raise RecordError
 
-pub let sig_ecdsa_secp256r1_sha256 : Int
+pub let sig_ecdsa_secp256r1_sha256 : Int32
 
-pub let sig_ecdsa_secp384r1_sha384 : Int
+pub let sig_ecdsa_secp384r1_sha384 : Int32
 
-pub let sig_ed25519 : Int
+pub let sig_ed25519 : Int32
 
-pub let sig_rsa_pkcs1_sha256 : Int
+pub let sig_rsa_pkcs1_sha256 : Int32
 
-pub let sig_rsa_pkcs1_sha384 : Int
+pub let sig_rsa_pkcs1_sha384 : Int32
 
 pub fn verify_server_auth(Array[Bytes], @pkix.Certificate, String, String, ServerKeyExchange, Bytes, Bytes, stapled_ocsp? : Bytes?, revocation? : RevocationPolicy) -> Unit raise ServerAuthError
 
 pub fn verify_server_key_exchange(Bytes, ServerKeyExchange, Bytes, Bytes) -> Bool raise KeyExchangeError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror KeyExchangeError {
   Pkix(@pkix.PkixError)
   PkixVerify(@pkix_verify.PkixVerifyError)
-  UnsupportedSigScheme(Int)
-  UnsupportedGroup(Int)
-  KeyTypeMismatch(Int)
+  UnsupportedSigScheme(Int32)
+  UnsupportedGroup(Int32)
+  KeyTypeMismatch(Int32)
   CurveError(String)
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror MessageError {
   Truncated(String)
-  UnknownHandshakeType(Int)
+  UnknownHandshakeType(Int32)
   Malformed(String)
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror RecordError {
   ShortRecord
-  UnexpectedContentType(Int)
-  VersionMismatch(Int)
+  UnexpectedContentType(Int32)
+  VersionMismatch(Int32)
   LengthMismatch
   BadNonceCipher
   Aead(@aead.AeadError)
-} derive(@debug.Debug)
+}
 
+#derive(@debug.Debug)
 pub suberror ServerAuthError {
   ChainUntrusted(@pkix_verify.PkixVerifyError)
   CertParse(@pkix.PkixError)
@@ -91,28 +95,30 @@ pub suberror ServerAuthError {
   RevocationUnknown
   Ocsp(@ocsp.OcspError)
   KeyExchange(KeyExchangeError)
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum CipherSuite {
   EcdheEcdsaAes128GcmSha256
   EcdheRsaAes128GcmSha256
   EcdheEcdsaAes256GcmSha384
   EcdheRsaAes256GcmSha384
-} derive(Eq, @debug.Debug)
+}
 pub fn CipherSuite::aead(Self) -> @aead.Algorithm
-pub fn CipherSuite::from_u16(Int) -> Self?
+pub fn CipherSuite::from_u16(Int32) -> Self?
 pub fn CipherSuite::prf_hash(Self) -> PrfHash
-pub fn CipherSuite::to_u16(Self) -> Int
+pub fn CipherSuite::to_u16(Self) -> Int32
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ContentType {
   ChangeCipherSpec
   Alert
   Handshake
   ApplicationData
-} derive(Eq, @debug.Debug)
-pub fn ContentType::from_int(Int) -> Self?
-pub fn ContentType::to_int(Self) -> Int
+}
+pub fn ContentType::from_int(Int32) -> Self?
+pub fn ContentType::to_int(Self) -> Int32
 
 pub struct GcmKeys {
   alg : @aead.Algorithm
@@ -123,6 +129,7 @@ pub fn GcmKeys::iv_bytes(Self) -> Bytes
 pub fn GcmKeys::key_bytes(Self) -> Bytes
 pub fn GcmKeys::new(@aead.Algorithm, Bytes, Bytes) -> Self raise RecordError
 
+#derive(Eq, @debug.Debug)
 pub(all) enum HandshakeType {
   ClientHello
   ServerHello
@@ -134,9 +141,9 @@ pub(all) enum HandshakeType {
   CertificateVerify
   ClientKeyExchange
   Finished
-} derive(Eq, @debug.Debug)
-pub fn HandshakeType::from_int(Int) -> Self?
-pub fn HandshakeType::to_int(Self) -> Int
+}
+pub fn HandshakeType::from_int(Int32) -> Self?
+pub fn HandshakeType::to_int(Self) -> Int32
 
 pub(all) enum PrfHash {
   Sha256
@@ -144,17 +151,18 @@ pub(all) enum PrfHash {
 }
 pub fn PrfHash::extended_master_secret(Self, Bytes, Bytes) -> Bytes
 pub fn PrfHash::finished_verify_data(Self, Bytes, String, Bytes) -> Bytes
-pub fn PrfHash::hash_len(Self) -> Int
-pub fn PrfHash::key_block(Self, Bytes, Bytes, Bytes, Int) -> Bytes
+pub fn PrfHash::hash_len(Self) -> Int32
+pub fn PrfHash::key_block(Self, Bytes, Bytes, Bytes, Int32) -> Bytes
 pub fn PrfHash::master_secret(Self, Bytes, Bytes, Bytes) -> Bytes
-pub fn PrfHash::p_hash(Self, Bytes, Bytes, Int) -> Bytes
-pub fn PrfHash::prf(Self, Bytes, String, Bytes, Int) -> Bytes
+pub fn PrfHash::p_hash(Self, Bytes, Bytes, Int32) -> Bytes
+pub fn PrfHash::prf(Self, Bytes, String, Bytes, Int32) -> Bytes
 pub fn PrfHash::transcript_hash(Self, Bytes) -> Bytes
 
+#derive(Eq, @debug.Debug)
 pub(all) enum RevocationPolicy {
   SoftFail
   HardFail
-} derive(Eq, @debug.Debug)
+}
 
 pub struct ServerHello {
   server_random : Bytes
@@ -165,15 +173,15 @@ pub fn ServerHello::cipher_suite(Self) -> CipherSuite
 pub fn ServerHello::random(Self) -> Bytes
 
 pub struct ServerKeyExchange {
-  named_group : Int
+  named_group : Int32
   public_key : Bytes
-  sig_scheme : Int
+  sig_scheme : Int32
   signature : Bytes
   params_raw : Bytes
 }
-pub fn ServerKeyExchange::named_group(Self) -> Int
+pub fn ServerKeyExchange::named_group(Self) -> Int32
 pub fn ServerKeyExchange::public_key(Self) -> Bytes
-pub fn ServerKeyExchange::sig_scheme(Self) -> Int
+pub fn ServerKeyExchange::sig_scheme(Self) -> Int32
 pub fn ServerKeyExchange::signature(Self) -> Bytes
 pub fn ServerKeyExchange::signed_material(Self, Bytes, Bytes) -> Bytes
 
@@ -189,4 +197,3 @@ pub fn SessionKeys::server_keys(Self) -> GcmKeys
 // Type aliases
 
 // Traits
-

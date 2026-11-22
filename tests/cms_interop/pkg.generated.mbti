@@ -2,7 +2,7 @@
 package "mizchi/experimental_crypto/tests/cms_interop"
 
 // Values
-pub fn cms_verify(String, String) -> Int
+pub fn cms_verify(String, String) -> Int32
 
 // Errors
 
@@ -11,4 +11,3 @@ pub fn cms_verify(String, String) -> Int
 // Type aliases
 
 // Traits
-

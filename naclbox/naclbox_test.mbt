@@ -111,9 +111,9 @@ test "secretbox rejects tag tamper" {
       sealed_box[i]
     }
   })
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox_open(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.secretbox_open(
     key, nonce, tampered,
-  )
+  )) catch { e => Err(e) }
   match result {
     Ok(_) => abort("expected AuthenticationFailed")
     Err(@naclbox.AuthenticationFailed) => ()
@@ -135,9 +135,9 @@ test "secretbox empty message round-trip" {
 test "secretbox rejects wrong key size" {
   let key = Bytes::makei(16, fn(_) { b'\x00' })
   let nonce = Bytes::makei(24, fn(_) { b'\x00' })
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.secretbox(
     key, nonce, b"x",
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.InvalidKeyLength(16)) => ()
     Ok(_) => abort("expected InvalidKeyLength")
@@ -149,9 +149,9 @@ test "secretbox rejects wrong key size" {
 test "secretbox rejects wrong nonce size" {
   let key = Bytes::makei(32, fn(_) { b'\x00' })
   let nonce = Bytes::makei(12, fn(_) { b'\x00' })
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.secretbox(
     key, nonce, b"x",
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.InvalidNonceLength(12)) => ()
     Ok(_) => abort("expected InvalidNonceLength")
@@ -164,9 +164,9 @@ test "secretbox_open rejects short ciphertext" {
   let key = Bytes::makei(32, fn(_) { b'\x00' })
   let nonce = Bytes::makei(24, fn(_) { b'\x00' })
   let too_short = Bytes::makei(8, fn(_) { b'\x00' })
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox_open(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.secretbox_open(
     key, nonce, too_short,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.InvalidCiphertextLength(8)) => ()
     Ok(_) => abort("expected InvalidCiphertextLength")
@@ -261,12 +261,12 @@ test "box rejects tag tamper" {
       ct[i]
     }
   })
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.box_open(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.box_open(
     alice.public_key,
     bob.secret_key,
     nonce,
     tampered,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.AuthenticationFailed) => ()
     Ok(_) => abort("expected AuthenticationFailed")
@@ -280,10 +280,10 @@ test "ATTACK box_beforenm rejects low-order public key" {
   let low_order = @x25519.PublicKey::from_bytes(
     Bytes::makei(32, fn(_) { b'\x00' }),
   )
-  let result : Result[@naclbox.SharedKey, @naclbox.NaclBoxError] = try? @naclbox.box_beforenm(
+  let result : Result[@naclbox.SharedKey, @naclbox.NaclBoxError] = try Ok( @naclbox.box_beforenm(
     low_order,
     alice.secret_key,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.KeyGenerationError(_)) => ()
     Ok(_) => abort("expected KeyGenerationError")
@@ -301,12 +301,12 @@ test "ATTACK box_open rejects wrong sender public key" {
   let nonce = Bytes::makei(24, fn(i) { (0x30 + i).to_byte() })
   let msg_bytes = b"authenticated sender"
   let ct = @naclbox.box_(bob.public_key, alice.secret_key, nonce, msg_bytes)
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.box_open(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.box_open(
     mallory.public_key,
     bob.secret_key,
     nonce,
     ct,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.AuthenticationFailed) => ()
     Ok(_) => abort("expected AuthenticationFailed")
@@ -326,9 +326,9 @@ test "ATTACK secretbox_open rejects ciphertext body tamper" {
       sealed_box[i]
     }
   })
-  let result : Result[Bytes, @naclbox.NaclBoxError] = try? @naclbox.secretbox_open(
+  let result : Result[Bytes, @naclbox.NaclBoxError] = try Ok( @naclbox.secretbox_open(
     key, nonce, tampered,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.AuthenticationFailed) => ()
     Ok(_) => abort("expected AuthenticationFailed")
@@ -339,9 +339,9 @@ test "ATTACK secretbox_open rejects ciphertext body tamper" {
 ///|
 test "KeyPair::from_seed rejects wrong length" {
   let bad = Bytes::makei(16, fn(_) { b'\x00' })
-  let result : Result[@naclbox.KeyPair, @naclbox.NaclBoxError] = try? @naclbox.KeyPair::from_seed(
+  let result : Result[@naclbox.KeyPair, @naclbox.NaclBoxError] = try Ok( @naclbox.KeyPair::from_seed(
     bad,
-  )
+  )) catch { e => Err(e) }
   match result {
     Err(@naclbox.InvalidKeyLength(16)) => ()
     Ok(_) => abort("expected InvalidKeyLength")

@@ -12,17 +12,17 @@ pub fn unwrap(Bytes, Bytes) -> Bytes raise AesKwError
 pub fn wrap(Bytes, Bytes) -> Bytes raise AesKwError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror AesKwError {
-  InvalidKekSize(Int)
-  InvalidKeySize(Int)
-  InvalidWrappedSize(Int)
+  InvalidKekSize(Int32)
+  InvalidKeySize(Int32)
+  InvalidWrappedSize(Int32)
   IntegrityCheckFailed
   Aead(@aead.AeadError)
-} derive(@debug.Debug)
+}
 
 // Types and methods
 
 // Type aliases
 
 // Traits
-

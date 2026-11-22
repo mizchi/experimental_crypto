@@ -198,9 +198,9 @@ test "verify rejects wrong-length signature" {
 
 ///|
 test "PrivateKey::from_seed rejects wrong length" {
-  let r : Result[@ed25519.PrivateKey, @ed25519.Ed25519Error] = try? @ed25519.PrivateKey::from_seed(
+  let r : Result[@ed25519.PrivateKey, @ed25519.Ed25519Error] = try Ok( @ed25519.PrivateKey::from_seed(
     b"\x00\x01\x02",
-  )
+  )) catch { e => Err(e) }
   match r {
     Ok(_) => fail("expected error")
     Err(@ed25519.InvalidSeedLength(n)) => @debug.assert_eq(n, 3)
@@ -210,9 +210,9 @@ test "PrivateKey::from_seed rejects wrong length" {
 
 ///|
 test "PublicKey::from_bytes rejects wrong length" {
-  let r : Result[@ed25519.PublicKey, @ed25519.Ed25519Error] = try? @ed25519.PublicKey::from_bytes(
+  let r : Result[@ed25519.PublicKey, @ed25519.Ed25519Error] = try Ok( @ed25519.PublicKey::from_bytes(
     b"\x00\x01",
-  )
+  )) catch { e => Err(e) }
   match r {
     Ok(_) => fail("expected error")
     Err(@ed25519.InvalidPublicKeyLength(n)) => @debug.assert_eq(n, 2)
@@ -227,9 +227,9 @@ test "verify_strict raises on wrong-length signature" {
   )
   let sk = @ed25519.PrivateKey::from_seed(seed)
   let pk = sk.public_key()
-  let r : Result[Bool, @ed25519.Ed25519Error] = try? pk.verify_strict(
+  let r : Result[Bool, @ed25519.Ed25519Error] = try Ok( pk.verify_strict(
     b"hi", b"short",
-  )
+  )) catch { e => Err(e) }
   match r {
     Ok(_) => fail("expected error")
     Err(@ed25519.InvalidSignatureLength(n)) => @debug.assert_eq(n, 5)

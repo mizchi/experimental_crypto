@@ -6,24 +6,25 @@ import {
 }
 
 // Values
-pub fn pbkdf2(HashAlg, Bytes, Bytes, Int, Int) -> Bytes raise Pbkdf2Error
+pub fn pbkdf2(HashAlg, Bytes, Bytes, Int32, Int32) -> Bytes raise Pbkdf2Error
 
 // Errors
+#derive(@debug.Debug)
 pub suberror Pbkdf2Error {
   InvalidIterations
   OutputTooLong
   InvalidLength
-} derive(@debug.Debug)
+}
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum HashAlg {
   Sha1
   Sha256
   Sha384
   Sha512
-} derive(Eq, @debug.Debug)
+}
 
 // Type aliases
 
 // Traits
-
